@@ -50,7 +50,7 @@ test("teleport runs the full sequence and returns url", async () => {
   });
 
   expect(res.url).toBe("https://sbx-1-7681.e2b.app");
-  expect(calls[0]).toBe("create:keepon-ttyd:ANTHROPIC_API_KEY");
+  expect(calls[0]).toBe("create:base:ANTHROPIC_API_KEY");
   expect(calls).toContain("write:/tmp/bundle.tgz");
   expect(calls.some((c) => c.startsWith("run:fg"))).toBe(true);
   expect(calls.some((c) => c.startsWith("run:bg"))).toBe(true);

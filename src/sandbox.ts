@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { createReadStream } from "node:fs";
+import { Readable } from "node:stream";
 import { Sandbox } from "e2b";
 import type { Adapter } from "./adapters.js";
 import type { AuthBundle } from "./auth.js";
@@ -17,18 +18,19 @@ export interface SandboxClient {
     envs: Record<string, string>,
     timeoutMs: number,
   ): Promise<string>;
-  writeFile(id: string, path: string, data: Uint8Array | string): Promise<void>;
+  writeFile(
+    id: string,
+    path: string,
+    data: ReadableStream<Uint8Array> | string,
+  ): Promise<void>;
   run(id: string, cmd: string, background: boolean): Promise<RunResult | void>;
   host(id: string, port: number): Promise<string>;
 }
 
 const expandHome = (p: string): string => p.replace(/^\$HOME/, "/home/user");
 
-const copyArrayBuffer = (data: Uint8Array): ArrayBuffer => {
-  const buffer = new ArrayBuffer(data.byteLength);
-  new Uint8Array(buffer).set(data);
-  return buffer;
-};
+const streamFile = (path: string): ReadableStream<Uint8Array> =>
+  Readable.toWeb(createReadStream(path)) as ReadableStream<Uint8Array>;
 
 export const teleport = async (
   client: SandboxClient,
@@ -41,16 +43,12 @@ export const teleport = async (
     timeoutMs: number;
   },
 ): Promise<{ url: string; sandboxId: string }> => {
-  const id = await client.create("keepon-ttyd", opts.auth.envs, opts.timeoutMs);
-  await client.writeFile(
-    id,
-    "/tmp/bundle.tgz",
-    new Uint8Array(readFileSync(opts.bundle)),
-  );
+  const id = await client.create("base", opts.auth.envs, opts.timeoutMs);
+  await client.writeFile(id, "/tmp/bundle.tgz", streamFile(opts.bundle));
   await client.writeFile(
     id,
     "/tmp/transcript.jsonl",
-    new Uint8Array(readFileSync(opts.transcript)),
+    streamFile(opts.transcript),
   );
   for (const f of opts.auth.files)
     await client.writeFile(id, expandHome(f.path), f.content);
@@ -76,10 +74,7 @@ export const e2bClient: SandboxClient = {
     (await Sandbox.create(template, { envs, timeoutMs })).sandboxId,
   writeFile: async (id, path, data) => {
     const sbx = await Sandbox.connect(id);
-    await sbx.files.write(
-      path,
-      typeof data === "string" ? data : copyArrayBuffer(data),
-    );
+    await sbx.files.write(path, data);
   },
   run: async (id, cmd, background) => {
     const sbx = await Sandbox.connect(id);

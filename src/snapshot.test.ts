@@ -11,6 +11,8 @@ test("buildBundle tars working tree and includes transcript+manifest", async () 
   writeFileSync(join(cwd, "a.txt"), "hello");
   mkdirSync(join(cwd, "node_modules"));
   writeFileSync(join(cwd, "node_modules", "junk"), "x");
+  mkdirSync(join(cwd, ".git"));
+  writeFileSync(join(cwd, ".git", "config"), "x");
   const tx = join(cwd, "session.jsonl");
   writeFileSync(tx, "{}");
   const out = mkdtempSync(join(tmpdir(), "keepon-out-"));
@@ -34,6 +36,7 @@ test("buildBundle tars working tree and includes transcript+manifest", async () 
   expect(existsSync(res.manifestPath)).toBe(true);
   const names: string[] = [];
   await tar.list({ file: res.bundle, onentry: (e) => names.push(e.path) });
-  expect(names).toContain("a.txt");
-  expect(names.some((n) => n.includes("node_modules"))).toBe(false);
+  expect(names.some((n) => n.endsWith("a.txt"))).toBe(true);
+  expect(names.some((n) => n.endsWith("node_modules/junk"))).toBe(true);
+  expect(names.some((n) => n.endsWith(".git/config"))).toBe(true);
 });

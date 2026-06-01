@@ -13,11 +13,13 @@ const m = buildManifest({
 
 test("bootstrap installs, pre-seeds, extracts, places transcript, rewrites paths", () => {
   const s = renderBootstrap(m, CLAUDE_CODE);
+  expect(s).toContain(
+    "https://github.com/tsl0922/ttyd/releases/latest/download/ttyd.x86_64",
+  );
   expect(s).toContain("npm i -g @anthropic-ai/claude-code");
   expect(s).toContain("hasCompletedOnboarding");
   expect(s).toContain("tar -xzf /tmp/bundle.tgz -C /home/user/proj");
   expect(s).toContain("$HOME/.claude/projects/-home-user-proj/abc.jsonl");
   expect(s).toContain("s#/Users/p/proj#/home/user/proj#g");
   expect(s).toContain("KEEPON_RESTORE_OK");
-  expect(s).not.toContain("ttyd");
 });
