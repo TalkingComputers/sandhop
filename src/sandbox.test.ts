@@ -141,6 +141,31 @@ test("e2bClient writes buffered bodies with upload timeout", async () => {
   });
 });
 
+test("e2bClient reuses created sandbox without reconnecting", async () => {
+  e2bMocks.Sandbox.create.mockResolvedValue({
+    ...e2bMocks.sandbox,
+    sandboxId: "sbx-cached",
+  });
+  e2bMocks.commandsRun.mockResolvedValue({
+    exitCode: 0,
+    stdout: "ok",
+    stderr: "",
+  });
+  e2bMocks.sandbox.getHost.mockReturnValue("host");
+
+  const id = await e2bClient.create("base", { A: "1" }, 600000);
+  await e2bClient.writeFile(id, "/tmp/a", "a");
+  await e2bClient.run(id, "echo ok", false);
+  await expect(e2bClient.host(id, 7681)).resolves.toBe("host");
+
+  expect(e2bMocks.Sandbox.create).toHaveBeenCalledWith("base", {
+    envs: { A: "1" },
+    timeoutMs: 600000,
+    secure: false,
+  });
+  expect(e2bMocks.Sandbox.connect).not.toHaveBeenCalled();
+});
+
 test("e2bClient gives foreground commands bootstrap timeouts", async () => {
   e2bMocks.commandsRun.mockResolvedValue({
     exitCode: 0,

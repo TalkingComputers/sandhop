@@ -24,6 +24,16 @@ export interface SandboxClient {
 
 const expandHome = (p: string): string => p.replace(/^\$HOME/, "/home/user");
 
+const instances = new Map<string, Sandbox>();
+
+const getSandbox = async (id: string): Promise<Sandbox> => {
+  const sandbox = instances.get(id);
+  if (sandbox) return sandbox;
+  const connected = await Sandbox.connect(id);
+  instances.set(id, connected);
+  return connected;
+};
+
 export const teleport = async (
   client: SandboxClient,
   opts: {
@@ -66,11 +76,17 @@ export const teleport = async (
 };
 
 export const e2bClient: SandboxClient = {
-  create: async (template, envs, timeoutMs) =>
-    (await Sandbox.create(template, { envs, timeoutMs, secure: false }))
-      .sandboxId,
+  create: async (template, envs, timeoutMs) => {
+    const sandbox = await Sandbox.create(template, {
+      envs,
+      timeoutMs,
+      secure: false,
+    });
+    instances.set(sandbox.sandboxId, sandbox);
+    return sandbox.sandboxId;
+  },
   writeFile: async (id, path, data) => {
-    const sbx = await Sandbox.connect(id);
+    const sbx = await getSandbox(id);
     const body = typeof data === "string" ? data : new Uint8Array(data).buffer;
     await sbx.files.write(path, body, {
       requestTimeoutMs: 600000,
@@ -78,7 +94,7 @@ export const e2bClient: SandboxClient = {
     });
   },
   run: async (id, cmd, background) => {
-    const sbx = await Sandbox.connect(id);
+    const sbx = await getSandbox(id);
     if (background) {
       await sbx.commands.run(cmd, { background: true, timeoutMs: 0 });
       return;
@@ -89,7 +105,7 @@ export const e2bClient: SandboxClient = {
     });
     return { exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr };
   },
-  host: async (id, port) => (await Sandbox.connect(id)).getHost(port),
+  host: async (id, port) => (await getSandbox(id)).getHost(port),
 };
 
 export const listSessions = async (): Promise<
