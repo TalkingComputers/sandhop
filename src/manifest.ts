@@ -4,6 +4,7 @@ export type AgentId = "claude-code" | "codex";
 
 export interface Manifest {
   agent: AgentId;
+  cliVersion: string;
   originalCwd: string;
   remoteProj: string;
   remoteEnc: string;
@@ -14,6 +15,7 @@ export interface Manifest {
 
 export const buildManifest = (args: {
   agent: AgentId;
+  cliVersion: string;
   originalCwd: string;
   sessionId: string;
   transcriptName: string;
@@ -22,6 +24,7 @@ export const buildManifest = (args: {
   const { dir, enc } = safeRemoteProj(args.originalCwd);
   return {
     agent: args.agent,
+    cliVersion: args.cliVersion,
     originalCwd: args.originalCwd,
     remoteProj: dir,
     remoteEnc: enc,

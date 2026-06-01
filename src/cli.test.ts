@@ -12,6 +12,11 @@ test("parses agent and session flags", () => {
   expect(a).toMatchObject({ cmd: "push", agent: "codex", session: "u-1" });
 });
 
+test("parses cwd flag", () => {
+  const a = parseArgs(["push", "--cwd", "/project"], "/x");
+  expect(a).toMatchObject({ cmd: "push", cwd: "/project" });
+});
+
 test("parses kill with id", () => {
   const a = parseArgs(["kill", "sbx-9"], "/x");
   expect(a).toMatchObject({ cmd: "kill", killId: "sbx-9" });

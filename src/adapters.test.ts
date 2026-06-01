@@ -64,11 +64,13 @@ test("resumeCmd composes cd + resume", () => {
   );
 });
 
-test("installCmd pins reviewed CLI versions", () => {
-  expect(CLAUDE_CODE.installCmd).toBe(
-    "npm i -g @anthropic-ai/claude-code@2.1.159",
+test("installCmd installs requested CLI versions", () => {
+  expect(CLAUDE_CODE.pkg).toBe("@anthropic-ai/claude-code");
+  expect(CLAUDE_CODE.installCmd("2.1.160")).toBe(
+    "npm i -g @anthropic-ai/claude-code@2.1.160",
   );
-  expect(CODEX.installCmd).toBe("npm i -g @openai/codex@0.135.0");
+  expect(CODEX.pkg).toBe("@openai/codex");
+  expect(CODEX.installCmd("0.136.0")).toBe("npm i -g @openai/codex@0.136.0");
 });
 
 test("claude preSeed merges onboarding, trust, and api-key approval", () => {

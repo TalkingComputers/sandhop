@@ -4,4 +4,4 @@ Run this shell command from the current working directory:
 
 node <KEEPON_DIST>/cli.js push --agent codex --cwd "$(pwd)"
 
-It prints `KEEPON_URL <url>`. Report that URL to me as: "Your session is live in the cloud: <url>". If it fails, show the stderr.
+It prints `KEEPON_URL <url>` and `KEEPON_AUTH keepon:<pass>`. Report both as: "Your session is live: <url> — log in with user `keepon`, password `<pass>`." If it fails, show the stderr.

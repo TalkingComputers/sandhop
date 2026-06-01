@@ -4,6 +4,7 @@ import { buildManifest } from "./manifest.js";
 test("builds manifest with remote paths derived from cwd", () => {
   const m = buildManifest({
     agent: "claude-code",
+    cliVersion: "2.1.160",
     originalCwd: "/Users/p/Keepon",
     sessionId: "abc",
     transcriptName: "abc.jsonl",
@@ -11,6 +12,7 @@ test("builds manifest with remote paths derived from cwd", () => {
   });
   expect(m).toEqual({
     agent: "claude-code",
+    cliVersion: "2.1.160",
     originalCwd: "/Users/p/Keepon",
     remoteProj: "/home/user/Keepon",
     remoteEnc: "-home-user-Keepon",

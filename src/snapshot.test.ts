@@ -18,6 +18,7 @@ test("buildBundle tars working tree and includes transcript+manifest", async () 
   const out = mkdtempSync(join(tmpdir(), "keepon-out-"));
   const m = buildManifest({
     agent: "claude-code",
+    cliVersion: "2.1.160",
     originalCwd: cwd,
     sessionId: "s",
     transcriptName: "s.jsonl",

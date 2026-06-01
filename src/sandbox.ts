@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { readFileSync, statSync } from "node:fs";
 import { Sandbox } from "e2b";
 import type { Adapter } from "./adapters.js";
 import type { AuthBundle } from "./auth.js";
@@ -43,9 +44,16 @@ export const teleport = async (
     adapter: Adapter;
     auth: AuthBundle;
     timeoutMs: number;
+    onProgress?: (msg: string) => void;
   },
-): Promise<{ url: string; sandboxId: string }> => {
+): Promise<{ url: string; sandboxId: string; user: string; pass: string }> => {
+  const user = "keepon";
+  const pass = randomBytes(18).toString("base64url");
+  opts.onProgress?.("creating sandbox");
   const id = await client.create("base", opts.auth.envs, opts.timeoutMs);
+  opts.onProgress?.(
+    `uploading bundle (${(statSync(opts.bundle).size / 1024 / 1024).toFixed(2)} MB)`,
+  );
   await client.writeFile(
     id,
     "/tmp/bundle.tgz",
@@ -59,6 +67,9 @@ export const teleport = async (
   for (const f of opts.auth.files)
     await client.writeFile(id, expandHome(f.path), f.content);
 
+  opts.onProgress?.(
+    `installing ${opts.adapter.pkg}@${opts.manifest.cliVersion} + ttyd`,
+  );
   const restore = (await client.run(
     id,
     renderBootstrap(opts.manifest, opts.adapter),
@@ -67,12 +78,19 @@ export const teleport = async (
   if (!restore.stdout.includes("KEEPON_RESTORE_OK"))
     throw new Error(`Restore failed: ${restore.stderr}`);
 
+  opts.onProgress?.("restoring session");
   const resume = opts.adapter.resumeCmd(
     opts.manifest.sessionId,
     opts.manifest.remoteProj,
   );
-  await client.run(id, `ttyd -p 7681 -W bash -lc '${resume}'`, true);
-  return { url: `https://${await client.host(id, 7681)}`, sandboxId: id };
+  await client.run(
+    id,
+    `ttyd -p 7681 -W -c ${user}:${pass} bash -lc '${resume}'`,
+    true,
+  );
+  const url = `https://${await client.host(id, 7681)}`;
+  opts.onProgress?.("ready");
+  return { url, sandboxId: id, user, pass };
 };
 
 export const e2bClient: SandboxClient = {
@@ -80,7 +98,6 @@ export const e2bClient: SandboxClient = {
     const sandbox = await Sandbox.create(template, {
       envs,
       timeoutMs,
-      secure: false,
     });
     instances.set(sandbox.sandboxId, sandbox);
     return sandbox.sandboxId;

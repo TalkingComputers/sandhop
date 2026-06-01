@@ -19,7 +19,10 @@ export interface ParsedArgs {
 
 const flag = (argv: string[], name: string): string | undefined => {
   const i = argv.indexOf(name);
-  return i >= 0 ? argv[i + 1] : undefined;
+  if (i < 0) return undefined;
+  const value = argv[i + 1];
+  if (!value) throw new Error(`${name} requires a value`);
+  return value;
 };
 
 export const parseArgs = (argv: string[], cwd: string): ParsedArgs => {
@@ -31,8 +34,17 @@ export const parseArgs = (argv: string[], cwd: string): ParsedArgs => {
     agent: flag(argv, "--agent") as AgentId | undefined,
     session: flag(argv, "--session"),
     killId: cmd === "kill" ? argv[1] : undefined,
-    cwd,
+    cwd: flag(argv, "--cwd") ?? cwd,
   };
+};
+
+export const detectCliVersion = (agent: AgentId): string => {
+  const command = agent === "claude-code" ? "claude" : "codex";
+  const out = execFileSync(command, ["--version"], { encoding: "utf8" }).trim();
+  const version = out.match(/(\d+\.\d+\.\d+)/)?.[1];
+  if (!version)
+    throw new Error(`Could not parse ${agent} version from "${out}"`);
+  return version;
 };
 
 const keychain = (service: string): string | null => {
@@ -55,7 +67,10 @@ const readFileSafe = (path: string): string | null => {
   }
 };
 
-const runPush = async (args: ParsedArgs): Promise<void> => {
+const runPush = async (
+  args: ParsedArgs,
+  onProgress: (msg: string) => void,
+): Promise<void> => {
   const home = process.env.HOME!;
   const agents = args.agent ? [args.agent] : detectAgent(home, args.cwd);
   if (agents.length === 0)
@@ -73,9 +88,11 @@ const runPush = async (args: ParsedArgs): Promise<void> => {
     );
   const sessionId = ref.sessionId;
   const transcriptName = basename(ref.transcriptPath);
+  const cliVersion = detectCliVersion(agent);
 
   const manifest = buildManifest({
     agent,
+    cliVersion,
     originalCwd: args.cwd,
     sessionId,
     transcriptName,
@@ -88,6 +105,7 @@ const runPush = async (args: ParsedArgs): Promise<void> => {
     home,
   });
   const outDir = mkdtempSync(join(tmpdir(), "keepon-"));
+  onProgress("snapshotting");
   const bundle = await buildBundle({
     cwd: args.cwd,
     transcriptPath: ref.transcriptPath,
@@ -95,16 +113,17 @@ const runPush = async (args: ParsedArgs): Promise<void> => {
     outDir,
   });
 
-  const { url } = await teleport(e2bClient, {
+  const { url, user, pass } = await teleport(e2bClient, {
     bundle: bundle.bundle,
     transcript: bundle.transcript,
     manifest,
     adapter: ADAPTERS[agent],
     auth,
     timeoutMs: 3_600_000,
+    onProgress,
   });
   console.log(`KEEPON_URL ${url}`);
-  console.log(`Session teleported. Open: ${url}`);
+  console.log(`KEEPON_AUTH ${user}:${pass}`);
 };
 
 export const main = async (argv: string[]): Promise<void> => {
@@ -119,7 +138,8 @@ export const main = async (argv: string[]): Promise<void> => {
     console.log((await killSession(args.killId)) ? "killed" : "not found");
     return;
   }
-  await runPush(args);
+  await runPush(args, (msg) => console.error(msg));
+  process.exit(0);
 };
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)

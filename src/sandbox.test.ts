@@ -49,7 +49,7 @@ const makeFake = () => {
       writes.push({ path: p, data });
     },
     run: async (_id, cmd, bg) => {
-      calls.push(`run:${bg ? "bg" : "fg"}:${cmd.slice(0, 12)}`);
+      calls.push(`run:${bg ? "bg" : "fg"}:${cmd}`);
       return bg
         ? undefined
         : { exitCode: 0, stdout: "KEEPON_RESTORE_OK\n", stderr: "" };
@@ -67,12 +67,14 @@ test("teleport runs the full sequence and returns url", async () => {
   writeFileSync(transcript, "{}");
   const manifest = buildManifest({
     agent: "claude-code",
+    cliVersion: "2.1.160",
     originalCwd: "/Users/p/proj",
     sessionId: "abc",
     transcriptName: "abc.jsonl",
     ts: 1,
   });
   const { client, calls, writes } = makeFake();
+  const progress: string[] = [];
 
   const res = await teleport(client, {
     bundle,
@@ -81,9 +83,12 @@ test("teleport runs the full sequence and returns url", async () => {
     adapter: CLAUDE_CODE,
     auth: { envs: { ANTHROPIC_API_KEY: "sk-ant-api03-x" }, files: [] },
     timeoutMs: 3_600_000,
+    onProgress: (msg) => progress.push(msg),
   });
 
   expect(res.url).toBe("https://sbx-1-7681.e2b.app");
+  expect(res.user).toBe("keepon");
+  expect(res.pass).toMatch(/^[A-Za-z0-9_-]{24}$/);
   expect(calls[0]).toBe("create:base:ANTHROPIC_API_KEY");
   expect(calls).toContain("write:/tmp/bundle.tgz");
   expect(writes[0]).toMatchObject({ path: "/tmp/bundle.tgz" });
@@ -94,6 +99,14 @@ test("teleport runs the full sequence and returns url", async () => {
   expect([...(writes[1]!.data as Uint8Array).values()]).toEqual([123, 125]);
   expect(calls.some((c) => c.startsWith("run:fg"))).toBe(true);
   expect(calls.some((c) => c.startsWith("run:bg"))).toBe(true);
+  expect(calls.find((c) => c.startsWith("run:bg"))).toContain("-c keepon:");
+  expect(progress).toEqual([
+    "creating sandbox",
+    "uploading bundle (0.00 MB)",
+    "installing @anthropic-ai/claude-code@2.1.160 + ttyd",
+    "restoring session",
+    "ready",
+  ]);
 });
 
 test("teleport expands auth file HOME before upload", async () => {
@@ -104,6 +117,7 @@ test("teleport expands auth file HOME before upload", async () => {
   writeFileSync(transcript, "{}");
   const manifest = buildManifest({
     agent: "codex",
+    cliVersion: "0.136.0",
     originalCwd: "/Users/p/proj",
     sessionId: "u-1",
     transcriptName: "rollout-2026-05-31T00-00-00-u-1.jsonl",
@@ -161,7 +175,6 @@ test("e2bClient reuses created sandbox without reconnecting", async () => {
   expect(e2bMocks.Sandbox.create).toHaveBeenCalledWith("base", {
     envs: { A: "1" },
     timeoutMs: 600000,
-    secure: false,
   });
   expect(e2bMocks.Sandbox.connect).not.toHaveBeenCalled();
 });
@@ -199,6 +212,7 @@ test("teleport throws when restore marker missing", async () => {
   writeFileSync(join(out, "t.jsonl"), "{}");
   const manifest = buildManifest({
     agent: "claude-code",
+    cliVersion: "2.1.160",
     originalCwd: "/p",
     sessionId: "a",
     transcriptName: "a.jsonl",

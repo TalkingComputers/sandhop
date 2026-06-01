@@ -10,7 +10,8 @@ export interface SessionRef {
 
 export interface Adapter {
   id: AgentId;
-  installCmd: string;
+  pkg: string;
+  installCmd(version: string): string;
   resumeCmd(sessionId: string, remoteProj: string): string;
   remoteTranscriptPath(remoteEnc: string, transcriptName: string): string;
   preSeed(remoteProj: string): string[];
@@ -41,7 +42,8 @@ const newest = (refs: SessionRef[]): SessionRef[] =>
 
 export const CLAUDE_CODE: Adapter = {
   id: "claude-code",
-  installCmd: "npm i -g @anthropic-ai/claude-code@2.1.159",
+  pkg: "@anthropic-ai/claude-code",
+  installCmd: (version) => `npm i -g @anthropic-ai/claude-code@${version}`,
   resumeCmd: (id, proj) => `cd ${proj} && claude --resume ${id}`,
   remoteTranscriptPath: (enc, name) => `$HOME/.claude/projects/${enc}/${name}`,
   preSeed: (remoteProj) => {
@@ -70,7 +72,8 @@ const codexId = (file: string): string => {
 
 export const CODEX: Adapter = {
   id: "codex",
-  installCmd: "npm i -g @openai/codex@0.135.0",
+  pkg: "@openai/codex",
+  installCmd: (version) => `npm i -g @openai/codex@${version}`,
   resumeCmd: (id, proj) => `cd ${proj} && codex resume ${id}`,
   remoteTranscriptPath: (_enc, name) =>
     `$HOME/.codex/sessions/restored/${name}`,
