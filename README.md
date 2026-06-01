@@ -33,7 +33,7 @@ Engine units:
 - `src/adapters.ts`: contains Claude Code and Codex session discovery, transcript placement, install package, and resume command facts.
 - `src/auth.ts`: extracts Claude Code or Codex credentials into env vars or sandbox files.
 - `src/manifest.ts`: records agent, local cwd, remote cwd, transcript filename, session id, timestamp, and local CLI version.
-- `src/profile.ts`: builds the optional user profile archive for settings, commands, plugins, MCP definitions, and `~/.env.d` secrets.
+- `src/profile.ts`: builds the optional user profile archive for settings, commands, MCP definitions, and `~/.env.d` secrets.
 - `src/snapshot.ts`: tars the working tree and copies the transcript byte-for-byte.
 - `src/bootstrap.ts`: renders the sandbox restore script.
 - `src/sandbox.ts`: creates the e2b sandbox, uploads files, runs bootstrap, starts `ttyd`, and returns the public or private URL.
@@ -66,7 +66,7 @@ Profile sync is on by default. Keepon builds `profile.tgz` from existing files u
 
 It transfers:
 
-- Claude Code settings: `~/.claude/settings.json`, `~/.claude/CLAUDE.md`, `~/.claude.json`, slash commands, plugins, and skills.
+- Claude Code settings: `~/.claude/settings.json`, `~/.claude/CLAUDE.md`, `~/.claude.json`, and slash commands.
 - Codex settings: `~/.codex/config.toml`, `~/.codex/auth.json`, `~/.codex/AGENTS.md`, `~/.codex/instructions.md`, and prompts.
 - MCP secrets: the full `~/.env.d` directory.
 
@@ -75,6 +75,8 @@ Secrets move over TLS to an ephemeral single-tenant e2b VM. Use `--tailscale` wh
 ```bash
 node dist/cli.js push --no-profile --cwd "$(pwd)"
 ```
+
+Known limitation: installed plugins/skills (`~/.claude/plugins`, often >1GB) are NOT shipped by default because the buffered upload can't handle multi-GB. Reinstall them in the cloud or ship them later via a streaming/object-storage transport.
 
 Known limit: local-path MCP servers whose implementation code lives outside `~/.claude` or `~/.codex` will not run remotely. `npx` and `uvx` MCP servers do.
 

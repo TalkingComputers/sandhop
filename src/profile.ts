@@ -10,7 +10,6 @@ export const PROFILE_PATHS: Record<AgentId, readonly string[]> = {
     ".claude/CLAUDE.md",
     ".claude.json",
     ".claude/commands",
-    ".claude/plugins",
   ],
   codex: [
     ".env.d",

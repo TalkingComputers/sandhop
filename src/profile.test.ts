@@ -18,7 +18,6 @@ test("profilePaths returns claude-code paths", () => {
     ".claude/CLAUDE.md",
     ".claude.json",
     ".claude/commands",
-    ".claude/plugins",
   ]);
 });
 
