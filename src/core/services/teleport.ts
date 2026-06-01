@@ -114,6 +114,7 @@ export class TeleportService {
       bundle,
       manifest.remoteProj,
       "bundle",
+      { codec: "gzip" },
     );
     await sandbox.uploadFile(
       "/tmp/transcript.jsonl",

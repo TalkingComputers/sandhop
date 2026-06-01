@@ -3,7 +3,7 @@ import { TransferService } from "../../../src/core/services/transfer.js";
 import { FakeHost } from "../../fakes/host.js";
 import { FakeProvider } from "../../fakes/provider.js";
 
-test("TransferService compresses with zstd, chunks locally, uploads chunks, verifies size and integrity, and extracts in one restore exec", async () => {
+test("TransferService defaults to gzip, chunks locally, uploads chunks, verifies size and integrity, and extracts in one restore exec", async () => {
   const host = new FakeHost({ home: "/home/local", env: {} });
   const provider = new FakeProvider();
 
@@ -11,6 +11,41 @@ test("TransferService compresses with zstd, chunks locally, uploads chunks, veri
     "/workspace/project",
     "/home/user/project",
     "bundle",
+  );
+
+  expect(host.spawnPipeCalls).toHaveLength(1);
+  expect(host.spawnPipeCalls[0]).toContain("tar -czf '/tmp/keepon-bundle-");
+  expect(host.spawnPipeCalls[0]).toContain("-C '/workspace/project' .");
+  expect(host.spawnPipeCalls[0]).not.toContain("zstd");
+  expect(provider.sandbox.pathUploads).toEqual([
+    {
+      remotePath: expect.stringMatching(
+        /\/tmp\/keepon-bundle-.+\.part\.000000$/,
+      ),
+      localPath: expect.stringMatching(
+        /\/tmp\/keepon-bundle-.+\.part\.000000$/,
+      ),
+    },
+  ]);
+  expect(provider.sandbox.execs).toHaveLength(1);
+  expect(provider.sandbox.execs[0]).toContain("cat ");
+  expect(provider.sandbox.execs[0]).toContain("wc -c");
+  expect(provider.sandbox.execs[0]).toContain("gzip -t");
+  expect(provider.sandbox.execs[0]).toContain("tar -xzf '/tmp/keepon-bundle-");
+  expect(provider.sandbox.execs[0]).not.toContain("zstd");
+  expect(provider.sandbox.execs[0]).not.toContain("apt-get");
+  expect(provider.sandbox.execs[0]).not.toContain("sudo");
+});
+
+test("TransferService zstd codec keeps multithreaded zstd compression and zstd integrity checks", async () => {
+  const host = new FakeHost({ home: "/home/local", env: {} });
+  const provider = new FakeProvider();
+
+  await new TransferService(host, provider.sandbox).send(
+    "/workspace/project",
+    "/home/user/project",
+    "bundle",
+    { codec: "zstd" },
   );
 
   expect(host.spawnPipeCalls).toHaveLength(1);
@@ -35,4 +70,5 @@ test("TransferService compresses with zstd, chunks locally, uploads chunks, veri
   expect(provider.sandbox.execs[0]).toContain(
     "tar -xf - -C '/home/user/project'",
   );
+  expect(provider.sandbox.execs[0]).not.toContain("apt-get");
 });

@@ -127,8 +127,12 @@ export class FakeHost implements HostDeps {
 
   async spawnPipe(cmd: string): Promise<void> {
     this.spawnPipeCalls.push(cmd);
-    const archive = cmd.match(/ -o '([^']+)' -f/)?.[1];
-    if (archive !== undefined) this.bytes[archive] = encoder.encode("archive");
+    const zstdArchive = cmd.match(/ -o '([^']+)' -f/)?.[1];
+    if (zstdArchive !== undefined)
+      this.bytes[zstdArchive] = encoder.encode("archive");
+    const gzipArchive = cmd.match(/^tar -czf '([^']+)' /)?.[1];
+    if (gzipArchive !== undefined)
+      this.bytes[gzipArchive] = encoder.encode("archive");
   }
 
   spawnDetached(

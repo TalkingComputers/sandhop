@@ -65,6 +65,14 @@ cwd = "/home/local/mcp"
     path: "/home/user/.env.d/mcp.env",
     data: "TOKEN=value\n",
   });
+  expect(host.spawnPipeCalls).toEqual(
+    expect.arrayContaining([
+      expect.stringContaining("zstd -T0 -8 --long=27 --check"),
+    ]),
+  );
+  expect(enrichmentExec).toContain(
+    "command -v zstd || sudo apt-get install -y zstd",
+  );
   expect(enrichmentExec).toContain("cd /home/user/mcp && npm ci");
   expect(enrichmentExec).toContain('cat >> "$HOME/.codex/config.toml"');
   expect(enrichmentExec).toContain("/home/user/mcp/server.js");

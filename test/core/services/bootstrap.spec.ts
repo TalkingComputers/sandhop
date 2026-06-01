@@ -14,11 +14,12 @@ const manifest = buildManifest({
   ts: 1,
 });
 
-test("BootstrapService core installs exact CLI version, ensures zstd, places transcript, and skips enrichment", () => {
+test("BootstrapService core installs exact CLI version, places transcript, and skips enrichment without zstd or apt", () => {
   const script = new BootstrapService(CLAUDE_CODE).render(manifest, {});
 
   expect(script).toContain("npm i -g @anthropic-ai/claude-code@2.1.160");
-  expect(script).toContain("command -v zstd || sudo apt-get install -y zstd");
+  expect(script).not.toContain("zstd");
+  expect(script).not.toContain("apt-get");
   expect(script).toContain('cp /tmp/transcript.jsonl "$dest"');
   expect(script).toContain("KEEPON_RESTORE_OK");
   expect(script).not.toContain("tar -xzf /tmp/bundle.tgz");
@@ -62,6 +63,7 @@ test("BootstrapService enrichment installs runtimes and deps, writes rewritten M
     },
   );
 
+  expect(script).toContain("command -v zstd || sudo apt-get install -y zstd");
   expect(script).toContain("curl -fsSL https://bun.sh/install | bash");
   expect(script).toContain("curl -LsSf https://astral.sh/uv/install.sh | sh");
   expect(script).toContain("cd /home/user/mcp && npm ci");

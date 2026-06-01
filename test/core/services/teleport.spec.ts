@@ -77,6 +77,11 @@ test("TeleportService fast core fans out collection, chunk-uploads the working t
       ),
     },
   ]);
+  expect(host.spawnPipeCalls[0]).toContain("tar -czf");
+  expect(host.spawnPipeCalls[0]).not.toContain("zstd");
+  expect(provider.sandbox.execs[0]).toContain("gzip -t");
+  expect(provider.sandbox.execs[0]).not.toContain("zstd");
+  expect(provider.sandbox.execs[0]).not.toContain("apt-get");
   expect(provider.sandbox.uploads.map((upload) => upload.path)).toEqual([
     "/tmp/transcript.jsonl",
   ]);
@@ -87,6 +92,8 @@ test("TeleportService fast core fans out collection, chunk-uploads the working t
   expect(provider.sandbox.spawns[0]).not.toContain("for f in");
   expect(provider.sandbox.execs[1]).not.toContain("profile");
   expect(provider.sandbox.execs[1]).not.toContain("mcp");
+  expect(provider.sandbox.execs[1]).not.toContain("zstd");
+  expect(provider.sandbox.execs[1]).not.toContain("apt-get");
   expect(provider.sandbox.exposedPorts).toEqual([7681]);
   expect(result.url).toBe("https://sandbox-sbx-1-7681.example");
   expect(result.user).toBe("keepon");

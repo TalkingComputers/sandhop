@@ -7,6 +7,12 @@ const UPLOAD_CONCURRENCY = 8;
 
 type TransferHost = Pick<HostDeps, "fileSize" | "spawnPipe" | "splitFile">;
 
+export type TransferCodec = "gzip" | "zstd";
+
+export interface TransferOptions {
+  codec: TransferCodec;
+}
+
 const alphabet =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
@@ -24,6 +30,49 @@ const fileName = (path: string): string => path.split("/").pop()!;
 const safeLabel = (label: string): string =>
   label.replace(/[^A-Za-z0-9.-]/g, "-");
 
+const readCodec = (opts: TransferOptions | undefined): TransferCodec => {
+  if (opts === undefined) return "gzip";
+  return opts.codec;
+};
+
+const makeArchivePath = (
+  safe: string,
+  id: string,
+  codec: TransferCodec,
+): string =>
+  `/tmp/keepon-${safe}-${id}.${codec === "gzip" ? "tar.gz" : "tar.zst"}`;
+
+const makeCompressionCommand = (
+  codec: TransferCodec,
+  localTree: string,
+  archive: string,
+): string => {
+  if (codec === "gzip")
+    return `tar -czf ${shellQuote(archive)} -C ${shellQuote(localTree)} .`;
+  return [
+    `tar -cf - -C ${shellQuote(localTree)} .`,
+    `zstd -T0 -8 --long=27 --check -o ${shellQuote(archive)} -f`,
+  ].join(" | ");
+};
+
+const makeExtractionCommands = (
+  codec: TransferCodec,
+  remoteArchive: string,
+  sandboxDestDir: string,
+): string[] => {
+  if (codec === "gzip")
+    return [
+      `gzip -t ${shellQuote(remoteArchive)}`,
+      `mkdir -p ${shellQuote(sandboxDestDir)}`,
+      `tar -xzf ${shellQuote(remoteArchive)} -C ${shellQuote(sandboxDestDir)}`,
+    ];
+  return [
+    `zstd -t ${shellQuote(remoteArchive)}`,
+    `mkdir -p ${shellQuote(sandboxDestDir)}`,
+    `zstd -d --long=27 -c ${shellQuote(remoteArchive)} | tar -xf - -C ${shellQuote(sandboxDestDir)}`,
+  ];
+};
+
 export class TransferService {
   readonly host: TransferHost;
   readonly sandbox: Sandbox;
@@ -37,13 +86,15 @@ export class TransferService {
     localTree: string,
     sandboxDestDir: string,
     label: string,
+    opts?: TransferOptions,
   ): Promise<void> {
     const safe = safeLabel(label);
     const id = randomId();
-    const archive = `/tmp/keepon-${safe}-${id}.tar.zst`;
+    const codec = readCodec(opts);
+    const archive = makeArchivePath(safe, id, codec);
     const prefix = `/tmp/keepon-${safe}-${id}.part.`;
     await this.host.spawnPipe(
-      `tar -cf - -C ${shellQuote(localTree)} . | zstd -T0 -8 --long=27 --check -o ${shellQuote(archive)} -f`,
+      makeCompressionCommand(codec, localTree, archive),
     );
     const chunks = await this.host.splitFile(archive, CHUNK_BYTES, prefix);
     const chunkSizes = chunks.map((chunk) => this.host.fileSize(chunk));
@@ -63,18 +114,15 @@ export class TransferService {
       ),
     );
     const totalBytes = chunkSizes.reduce((sum, size) => sum + size, 0);
-    const remoteArchive = `/tmp/keepon-${safe}-${id}.tar.zst`;
+    const remoteArchive = makeArchivePath(safe, id, codec);
     const catInputs = remoteChunks.map(shellQuote).join(" ");
     const cleanup = [remoteArchive, ...remoteChunks].map(shellQuote).join(" ");
     const restore = await this.sandbox.exec(
       [
         "set -e",
-        "command -v zstd || sudo apt-get install -y zstd",
         `cat ${catInputs} > ${shellQuote(remoteArchive)}`,
         `test "$(wc -c < ${shellQuote(remoteArchive)} | tr -d ' ')" = ${shellQuote(String(totalBytes))}`,
-        `zstd -t ${shellQuote(remoteArchive)}`,
-        `mkdir -p ${shellQuote(sandboxDestDir)}`,
-        `zstd -d --long=27 -c ${shellQuote(remoteArchive)} | tar -xf - -C ${shellQuote(sandboxDestDir)}`,
+        ...makeExtractionCommands(codec, remoteArchive, sandboxDestDir),
         `rm -f ${cleanup}`,
       ].join("\n"),
     );

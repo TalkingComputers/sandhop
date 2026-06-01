@@ -10,6 +10,8 @@ export interface EnrichmentBootstrapOptions {
   codePlan?: CodePlan | null;
 }
 
+const ZSTD_INSTALL = "command -v zstd || sudo apt-get install -y zstd";
+
 const dirname = (path: string): string => {
   const clean = path.replace(/\/+$/, "");
   const index = clean.lastIndexOf("/");
@@ -97,7 +99,6 @@ export class BootstrapService {
       : [];
     return [
       "set -e",
-      "command -v zstd || sudo apt-get install -y zstd",
       "sudo curl -fsSL https://github.com/tsl0922/ttyd/releases/latest/download/ttyd.x86_64 -o /usr/local/bin/ttyd",
       "sudo chmod +x /usr/local/bin/ttyd",
       ...tailscale,
@@ -111,13 +112,17 @@ export class BootstrapService {
     ].join("\n");
   }
 
+  renderEnrichmentSetup(): string {
+    return ["set -e", ZSTD_INSTALL].join("\n");
+  }
+
   renderEnrichment(
     remoteProj: string,
     opts: EnrichmentBootstrapOptions,
   ): string {
     return [
       "set -e",
-      "command -v zstd || sudo apt-get install -y zstd",
+      ZSTD_INSTALL,
       ...renderMcpCode(this.agent, opts.codePlan, remoteProj),
       "touch /tmp/keepon-enriched",
     ].join("\n");

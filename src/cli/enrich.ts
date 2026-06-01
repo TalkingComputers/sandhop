@@ -83,11 +83,17 @@ export const enrichSandbox = async (
     const profile = new ProfileService(host, agent);
     const mcpCode = new McpCodeService(host, agent);
     const secrets = new SecretsService(host, agent);
+    const bootstrap = new BootstrapService(agent);
+    const setup = await sandbox.exec(bootstrap.renderEnrichmentSetup());
+    if (setup.exitCode !== 0)
+      throw new Error(`Enrichment setup failed: ${setup.stderr}`);
     const profileTask = args.profile
       ? (async (): Promise<void> => {
           const profileTree = await profile.build(makePath("profile"));
           if (profileTree !== null)
-            await transfer.send(profileTree, "/home/user", "profile");
+            await transfer.send(profileTree, "/home/user", "profile", {
+              codec: "zstd",
+            });
         })()
       : Promise.resolve();
     let codePlan: CodePlan | null = null;
@@ -96,7 +102,14 @@ export const enrichSandbox = async (
       if (codePlan === null) return;
       await Promise.all(
         codePlan.mappings.map((mapping, index) =>
-          transfer.send(mapping.localPath, mapping.sandboxPath, `mcp-${index}`),
+          transfer.send(
+            mapping.localPath,
+            mapping.sandboxPath,
+            `mcp-${index}`,
+            {
+              codec: "zstd",
+            },
+          ),
         ),
       );
       const bundle = secrets.collect(args.cwd, {
@@ -109,12 +122,9 @@ export const enrichSandbox = async (
     await Promise.all([profileTask, codeTask]);
     await runLogged(
       sandbox,
-      new BootstrapService(agent).renderEnrichment(
-        safeRemoteProj(args.cwd).dir,
-        {
-          codePlan,
-        },
-      ),
+      bootstrap.renderEnrichment(safeRemoteProj(args.cwd).dir, {
+        codePlan,
+      }),
     );
   } catch (error: unknown) {
     await appendLog(
