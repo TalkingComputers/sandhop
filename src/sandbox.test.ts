@@ -101,6 +101,9 @@ test("teleport runs the full sequence and returns url", async () => {
   expect(calls.some((c) => c.startsWith("run:fg"))).toBe(true);
   expect(calls.some((c) => c.startsWith("run:bg"))).toBe(true);
   expect(calls.find((c) => c.startsWith("run:bg"))).toContain("-c keepon:");
+  expect(calls.find((c) => c.startsWith("run:bg"))).toContain(
+    'set -a; for f in "$HOME"/.env.d/*.env; do [ -e "$f" ] || continue; . "$f"; done; set +a; cd /home/user/proj && claude --resume abc',
+  );
   expect(calls.find((c) => c.startsWith("run:bg"))).not.toContain(
     "-i 127.0.0.1",
   );
@@ -112,6 +115,45 @@ test("teleport runs the full sequence and returns url", async () => {
     "restoring session",
     "ready",
   ]);
+});
+
+test("teleport uploads profile and extracts it in bootstrap", async () => {
+  const out = mkdtempSync(join(tmpdir(), "keepon-sb-profile-"));
+  const bundle = join(out, "b.tgz");
+  const transcript = join(out, "t.jsonl");
+  const profile = join(out, "profile.tgz");
+  writeFileSync(bundle, "x");
+  writeFileSync(transcript, "{}");
+  writeFileSync(profile, "p");
+  const manifest = buildManifest({
+    agent: "claude-code",
+    cliVersion: "2.1.160",
+    originalCwd: "/Users/p/proj",
+    sessionId: "abc",
+    transcriptName: "abc.jsonl",
+    ts: 1,
+  });
+  const { client, calls, writes } = makeFake();
+  const progress: string[] = [];
+
+  await teleport(client, {
+    bundle,
+    transcript,
+    profile,
+    manifest,
+    adapter: CLAUDE_CODE,
+    auth: { envs: { ANTHROPIC_API_KEY: "sk-ant-api03-x" }, files: [] },
+    timeoutMs: 3_600_000,
+    onProgress: (msg) => progress.push(msg),
+  });
+
+  expect(writes[2]).toMatchObject({ path: "/tmp/profile.tgz" });
+  expect(writes[2]!.data).toBeInstanceOf(Uint8Array);
+  expect([...(writes[2]!.data as Uint8Array).values()]).toEqual([112]);
+  expect(calls.find((c) => c.startsWith("run:fg"))).toContain(
+    "tar -xzf /tmp/profile.tgz -C $HOME",
+  );
+  expect(progress).toContain("uploading profile (0.00 MB)");
 });
 
 test("teleport runs tailscale private channel when requested", async () => {

@@ -33,6 +33,7 @@ Engine units:
 - `src/adapters.ts`: contains Claude Code and Codex session discovery, transcript placement, install package, and resume command facts.
 - `src/auth.ts`: extracts Claude Code or Codex credentials into env vars or sandbox files.
 - `src/manifest.ts`: records agent, local cwd, remote cwd, transcript filename, session id, timestamp, and local CLI version.
+- `src/profile.ts`: builds the optional user profile archive for settings, commands, plugins, MCP definitions, and `~/.env.d` secrets.
 - `src/snapshot.ts`: tars the working tree and copies the transcript byte-for-byte.
 - `src/bootstrap.ts`: renders the sandbox restore script.
 - `src/sandbox.ts`: creates the e2b sandbox, uploads files, runs bootstrap, starts `ttyd`, and returns the public or private URL.
@@ -46,7 +47,7 @@ Plugin units:
 
 Keepon moves session data exactly as-is. It does not truncate, compact, rewrite, or inject text into the transcript.
 
-Auth material is not included in `bundle.tgz`. Claude Code credentials travel as sandbox environment variables. Codex can use sandbox environment variables or a copied `~/.codex/auth.json` written separately after sandbox creation. The e2b SDK connection uses TLS, so env injection and file upload travel over the SDK channel rather than inside the project tarball.
+Auth material is not included in `bundle.tgz`. Claude Code credentials travel as sandbox environment variables. With profile sync enabled, `profile.tgz` carries user settings plus `~/.env.d` secrets and agent credential files such as `~/.codex/auth.json`. The e2b SDK connection uses TLS, so env injection and file upload travel over the SDK channel rather than inside the project tarball.
 
 Default mode exposes `ttyd` through the e2b HTTPS host. `ttyd` is protected with per-teleport Basic Auth: user `keepon`, password `randomBytes(18).toString("base64url")`. The browser connection is HTTPS plus Basic Auth.
 
@@ -58,6 +59,24 @@ KEEPON_AUTH keepon:<password>
 ```
 
 Your local machine must be on the same tailnet for that URL to work.
+
+## Profile sync
+
+Profile sync is on by default. Keepon builds `profile.tgz` from existing files under your home directory and restores it into `$HOME` in the sandbox before the agent resumes.
+
+It transfers:
+
+- Claude Code settings: `~/.claude/settings.json`, `~/.claude/CLAUDE.md`, `~/.claude.json`, slash commands, plugins, and skills.
+- Codex settings: `~/.codex/config.toml`, `~/.codex/auth.json`, `~/.codex/AGENTS.md`, `~/.codex/instructions.md`, and prompts.
+- MCP secrets: the full `~/.env.d` directory.
+
+Secrets move over TLS to an ephemeral single-tenant e2b VM. Use `--tailscale` when you also want the browser terminal reachable only inside your tailnet. Disable profile sync with:
+
+```bash
+node dist/cli.js push --no-profile --cwd "$(pwd)"
+```
+
+Known limit: local-path MCP servers whose implementation code lives outside `~/.claude` or `~/.codex` will not run remotely. `npx` and `uvx` MCP servers do.
 
 ## Known limitations
 

@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import { ADAPTERS, detectAgent } from "./adapters.js";
 import { extractAuth } from "./auth.js";
 import { buildManifest, type AgentId } from "./manifest.js";
+import { buildProfile } from "./profile.js";
 import { buildBundle } from "./snapshot.js";
 import {
   e2bClient,
@@ -22,6 +23,7 @@ export interface ParsedArgs {
   killId?: string;
   cwd: string;
   tailscale: boolean;
+  profile: boolean;
 }
 
 const flag = (argv: string[], name: string): string | undefined => {
@@ -43,6 +45,7 @@ export const parseArgs = (argv: string[], cwd: string): ParsedArgs => {
     killId: cmd === "kill" ? argv[1] : undefined,
     cwd: flag(argv, "--cwd") ?? cwd,
     tailscale: argv.includes("--tailscale"),
+    profile: !argv.includes("--no-profile"),
   };
 };
 
@@ -125,6 +128,9 @@ const runPush = async (
     home,
   });
   const outDir = mkdtempSync(join(tmpdir(), "keepon-"));
+  const profile = args.profile
+    ? await buildProfile({ agent, home, outDir })
+    : null;
   onProgress("snapshotting");
   const bundle = await buildBundle({
     cwd: args.cwd,
@@ -136,6 +142,7 @@ const runPush = async (
   const { url, user, pass } = await teleport(e2bClient, {
     bundle: bundle.bundle,
     transcript: bundle.transcript,
+    profile,
     manifest,
     adapter: ADAPTERS[agent],
     auth,

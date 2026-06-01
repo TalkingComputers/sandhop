@@ -5,6 +5,7 @@ test("defaults to push with cwd", () => {
   const a = parseArgs([], "/x");
   expect(a.cmd).toBe("push");
   expect(a.cwd).toBe("/x");
+  expect(a.profile).toBe(true);
 });
 
 test("parses agent and session flags", () => {
@@ -20,6 +21,11 @@ test("parses cwd flag", () => {
 test("parses tailscale flag", () => {
   const a = parseArgs(["push", "--tailscale"], "/x");
   expect(a).toMatchObject({ cmd: "push", tailscale: true });
+});
+
+test("parses no-profile flag", () => {
+  const a = parseArgs(["push", "--no-profile"], "/x");
+  expect(a).toMatchObject({ cmd: "push", profile: false });
 });
 
 test("reads tailscale auth key when enabled", () => {

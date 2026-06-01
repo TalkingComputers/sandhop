@@ -44,6 +44,7 @@ export const teleport = async (
   opts: {
     bundle: string;
     transcript: string;
+    profile?: string | null;
     manifest: Manifest;
     adapter: Adapter;
     auth: AuthBundle;
@@ -73,6 +74,16 @@ export const teleport = async (
     "/tmp/transcript.jsonl",
     new Uint8Array(readFileSync(opts.transcript)),
   );
+  if (opts.profile) {
+    opts.onProgress?.(
+      `uploading profile (${(statSync(opts.profile).size / 1024 / 1024).toFixed(2)} MB)`,
+    );
+    await client.writeFile(
+      id,
+      "/tmp/profile.tgz",
+      new Uint8Array(readFileSync(opts.profile)),
+    );
+  }
   for (const f of opts.auth.files)
     await client.writeFile(id, expandHome(f.path), f.content);
 
@@ -84,7 +95,9 @@ export const teleport = async (
     renderBootstrap(
       opts.manifest,
       opts.adapter,
-      opts.tailscale ? { tailscale: { sandboxId: id } } : undefined,
+      opts.tailscale
+        ? { hasProfile: Boolean(opts.profile), tailscale: { sandboxId: id } }
+        : { hasProfile: Boolean(opts.profile) },
     ),
     false,
   )) as RunResult;
@@ -96,11 +109,12 @@ export const teleport = async (
     opts.manifest.sessionId,
     opts.manifest.remoteProj,
   );
+  const resumeWithEnv = `set -a; for f in "$HOME"/.env.d/*.env; do [ -e "$f" ] || continue; . "$f"; done; set +a; ${resume}`;
   await client.run(
     id,
     opts.tailscale
-      ? `ttyd -i 127.0.0.1 -p 7681 -W -c ${user}:${pass} bash -lc '${resume}'`
-      : `ttyd -p 7681 -W -c ${user}:${pass} bash -lc '${resume}'`,
+      ? `ttyd -i 127.0.0.1 -p 7681 -W -c ${user}:${pass} bash -lc '${resumeWithEnv}'`
+      : `ttyd -p 7681 -W -c ${user}:${pass} bash -lc '${resumeWithEnv}'`,
     true,
   );
   if (opts.tailscale) {

@@ -103,16 +103,34 @@ test("claude preSeed merges onboarding, trust, and api-key approval", () => {
   });
 });
 
-test("codex preSeed writes reviewed config", () => {
-  const command = CODEX.preSeed("/home/user/proj")[1]!;
-  const config = command
-    .replace("cat > $HOME/.codex/config.toml <<'EOF'\n", "")
-    .replace("\nEOF", "");
+test("codex preSeed preserves profile config while trusting remote project", () => {
+  const home = mkdtempSync(join(tmpdir(), "keepon-codex-home-"));
+  mkdirSync(join(home, ".codex"), { recursive: true });
+  writeFileSync(
+    join(home, ".codex", "config.toml"),
+    `model = "gpt-5.4"
 
-  expect(config).toBe(`approval_policy = "never"
+[mcp_servers.foo]
+command = "npx"
+`,
+  );
+
+  execFileSync("bash", ["-lc", CODEX.preSeed("/home/user/proj").join("\n")], {
+    env: { ...process.env, HOME: home },
+  });
+
+  expect(readFileSync(join(home, ".codex", "config.toml"), "utf8")).toBe(
+    `model = "gpt-5.4"
+
+approval_policy = "never"
 sandbox_mode = "danger-full-access"
 cli_auth_credentials_store = "file"
 
+[mcp_servers.foo]
+command = "npx"
+
 [projects."/home/user/proj"]
-trust_level = "trusted"`);
+trust_level = "trusted"
+`,
+  );
 });
