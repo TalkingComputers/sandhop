@@ -1,8 +1,11 @@
 import type {
   Agent,
   AgentHostDeps,
+  AgentMcpDeps,
   AgentSessionDeps,
   AuthBundle,
+  McpConfigWrite,
+  McpServer,
   SessionRef,
 } from "../core/ports/agent.js";
 
@@ -72,6 +75,145 @@ const readTomlEnvRefs = (text: string): string[] => {
   return [...refs].sort();
 };
 
+const trimQuotes = (value: string): string =>
+  value.replace(/^"|"$/g, "").replace(/\\"/g, '"');
+
+const readTomlString = (value: string): string | undefined => {
+  const trimmed = value.trim();
+  return /^"(?:\\.|[^"])*"$/.test(trimmed) ? trimQuotes(trimmed) : undefined;
+};
+
+const readTomlArray = (value: string): string[] | undefined => {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("[") || !trimmed.endsWith("]")) return undefined;
+  const values: string[] = [];
+  for (const match of trimmed.matchAll(/"((?:\\.|[^"])*)"/g)) {
+    values.push(match[1]!.replace(/\\"/g, '"'));
+  }
+  return values;
+};
+
+const readTomlInlineEnv = (
+  value: string,
+): Record<string, string> | undefined => {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return undefined;
+  const env: Record<string, string> = {};
+  for (const match of trimmed.matchAll(
+    /([A-Za-z][A-Za-z0-9_]*)\s*=\s*"((?:\\.|[^"])*)"/g,
+  )) {
+    env[match[1]!] = match[2]!.replace(/\\"/g, '"');
+  }
+  return env;
+};
+
+const parseMcpServers = (deps: AgentMcpDeps, cwd: string): McpServer[] => {
+  const files = [
+    `${deps.home}/.codex/config.toml`,
+    `${cwd}/.codex/config.toml`,
+  ];
+  const servers: Record<string, McpServer> = {};
+  let currentName: string | null = null;
+  let inEnv = false;
+  for (const file of files) {
+    const text = deps.readFile(file);
+    if (text === null) continue;
+    for (const line of text.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (trimmed === "" || trimmed.startsWith("#")) continue;
+      const envHeader = trimmed.match(/^\[mcp_servers\.("?[^".\]]+"?)\.env\]$/);
+      if (envHeader) {
+        currentName = trimQuotes(envHeader[1]!);
+        inEnv = true;
+        servers[currentName] = servers[currentName] ?? {
+          name: currentName,
+          transport: "stdio",
+        };
+        continue;
+      }
+      const serverHeader = trimmed.match(/^\[mcp_servers\.("?[^".\]]+"?)\]$/);
+      if (serverHeader) {
+        currentName = trimQuotes(serverHeader[1]!);
+        inEnv = false;
+        servers[currentName] = servers[currentName] ?? {
+          name: currentName,
+          transport: "stdio",
+        };
+        continue;
+      }
+      if (trimmed.startsWith("[")) {
+        currentName = null;
+        inEnv = false;
+        continue;
+      }
+      if (currentName === null) continue;
+      const pair = trimmed.match(/^([A-Za-z][A-Za-z0-9_]*)\s*=\s*(.+)$/);
+      if (!pair) continue;
+      const key = pair[1]!;
+      const raw = pair[2]!;
+      const server = servers[currentName]!;
+      if (inEnv) {
+        const value = readTomlString(raw);
+        if (value !== undefined)
+          server.env = { ...(server.env ?? {}), [key]: value };
+        continue;
+      }
+      if (key === "command") {
+        const value = readTomlString(raw);
+        if (value !== undefined) server.command = value;
+      }
+      if (key === "args") {
+        const value = readTomlArray(raw);
+        if (value !== undefined) server.args = value;
+      }
+      if (key === "cwd") {
+        const value = readTomlString(raw);
+        if (value !== undefined) server.cwd = value;
+      }
+      if (key === "url") {
+        const value = readTomlString(raw);
+        if (value !== undefined) {
+          server.url = value;
+          server.transport = "http";
+        }
+      }
+      if (key === "env") {
+        const value = readTomlInlineEnv(raw);
+        if (value !== undefined) server.env = value;
+      }
+    }
+  }
+  return Object.values(servers).filter(
+    (server) => server.command !== undefined || server.url !== undefined,
+  );
+};
+
+const quoteToml = (value: string): string => JSON.stringify(value);
+
+const formatMcpConfig = (servers: McpServer[]): McpConfigWrite => {
+  const lines: string[] = [];
+  for (const server of servers) {
+    lines.push(`[mcp_servers.${quoteToml(server.name)}]`);
+    if (server.command !== undefined)
+      lines.push(`command = ${quoteToml(server.command)}`);
+    if (server.args !== undefined)
+      lines.push(`args = [${server.args.map(quoteToml).join(", ")}]`);
+    if (server.cwd !== undefined) lines.push(`cwd = ${quoteToml(server.cwd)}`);
+    if (server.url !== undefined) lines.push(`url = ${quoteToml(server.url)}`);
+    if (server.env !== undefined) {
+      lines.push("", `[mcp_servers.${quoteToml(server.name)}.env]`);
+      for (const [key, value] of Object.entries(server.env))
+        lines.push(`${key} = ${quoteToml(value)}`);
+    }
+    lines.push("");
+  }
+  return {
+    path: "$HOME/.codex/config.toml",
+    content: lines.join("\n"),
+    append: true,
+  };
+};
+
 const buildCodexPreSeedScript = (remoteProj: string): string =>
   [
     'const fs=require("fs")',
@@ -105,14 +247,26 @@ const authEnv = (deps: AgentHostDeps): AuthBundle => {
   const envs: Record<string, string> = {};
   const apiKey = deps.env.OPENAI_API_KEY;
   if (apiKey !== undefined) envs.OPENAI_API_KEY = apiKey;
-  if (authJson !== null)
+  const codexApiKey = deps.env.CODEX_API_KEY;
+  if (codexApiKey !== undefined) envs.CODEX_API_KEY = codexApiKey;
+  if (authJson !== null && authJson.trim().length > 0)
     return {
       envs,
       files: [{ path: "$HOME/.codex/auth.json", content: authJson }],
     };
+  const codexHome = `${deps.home}/.codex`;
+  if (deps.exists(codexHome)) {
+    const account = `cli|${deps.sha256Hex(deps.realpath(codexHome)).slice(0, 16)}`;
+    const keychainJson = deps.keychain("Codex Auth", account);
+    if (keychainJson !== null && keychainJson.trim().length > 0)
+      return {
+        envs,
+        files: [{ path: "$HOME/.codex/auth.json", content: keychainJson }],
+      };
+  }
   if (Object.keys(envs).length > 0) return { envs, files: [] };
   throw new Error(
-    "No Codex credential at ~/.codex/auth.json and no OPENAI_API_KEY",
+    "No Codex credential at ~/.codex/auth.json, OS keychain, OPENAI_API_KEY, or CODEX_API_KEY",
   );
 };
 
@@ -153,6 +307,8 @@ export const CODEX: Agent = {
     `${cwd}/.codex/config.toml`,
   ],
   mcpEnvRefs: readTomlEnvRefs,
+  parseMcpServers,
+  formatMcpConfig,
   authEnv,
   installCmd: (version) => `npm i -g @openai/codex@${version}`,
   preSeed: (remoteProj) => [

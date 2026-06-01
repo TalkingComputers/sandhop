@@ -1,4 +1,5 @@
 import type { HostDeps } from "../../src/core/ports/host.js";
+import { createHash } from "node:crypto";
 
 const encoder = new TextEncoder();
 
@@ -10,7 +11,12 @@ export class FakeHost implements HostDeps {
   mtimes: Record<string, number>;
   keychainValues: Record<string, string>;
   execValues: Record<string, string>;
-  tarCalls: { cwd: string; entries: string[]; outPath: string }[];
+  tarCalls: {
+    cwd: string;
+    entries: string[];
+    outPath: string;
+    excludes?: string[];
+  }[];
   execCalls: { bin: string; args: string[] }[];
 
   constructor(args: {
@@ -54,6 +60,14 @@ export class FakeHost implements HostDeps {
     );
   }
 
+  isDirectory(path: string): boolean {
+    const prefix = `${path}/`;
+    return (
+      Object.keys(this.files).some((filePath) => filePath.startsWith(prefix)) ||
+      Object.keys(this.bytes).some((filePath) => filePath.startsWith(prefix))
+    );
+  }
+
   walk(dir: string): string[] {
     const prefix = `${dir}/`;
     return [...Object.keys(this.files), ...Object.keys(this.bytes)]
@@ -66,10 +80,19 @@ export class FakeHost implements HostDeps {
     throw new Error(`missing mtime ${path}`);
   }
 
-  keychain(service: string): string | null {
-    return Object.hasOwn(this.keychainValues, service)
-      ? this.keychainValues[service]!
+  keychain(service: string, account: string | null): string | null {
+    const key = account === null ? service : `${service}:${account}`;
+    return Object.hasOwn(this.keychainValues, key)
+      ? this.keychainValues[key]!
       : null;
+  }
+
+  realpath(path: string): string {
+    return path;
+  }
+
+  sha256Hex(input: string): string {
+    return createHash("sha256").update(input).digest("hex");
   }
 
   exec(bin: string, args: string[]): string {
@@ -79,8 +102,17 @@ export class FakeHost implements HostDeps {
     throw new Error(`missing exec ${key}`);
   }
 
-  async tarGz(cwd: string, entries: string[], outPath: string): Promise<void> {
-    this.tarCalls.push({ cwd, entries, outPath });
+  async tarGz(
+    cwd: string,
+    entries: string[],
+    outPath: string,
+    opts?: { excludes: string[] },
+  ): Promise<void> {
+    const call =
+      opts === undefined
+        ? { cwd, entries, outPath }
+        : { cwd, entries, outPath, excludes: opts.excludes };
+    this.tarCalls.push(call);
     this.bytes[outPath] = encoder.encode(`tar:${cwd}:${entries.join(",")}`);
   }
 }

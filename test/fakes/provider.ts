@@ -10,6 +10,7 @@ import type {
 export class FakeSandbox implements Sandbox {
   readonly id: string;
   uploads: { path: string; data: Uint8Array | string }[];
+  pathUploads: { remotePath: string; localPath: string }[];
   execs: string[];
   spawns: string[];
   exposedPorts: number[];
@@ -18,6 +19,7 @@ export class FakeSandbox implements Sandbox {
   constructor(id: string) {
     this.id = id;
     this.uploads = [];
+    this.pathUploads = [];
     this.execs = [];
     this.spawns = [];
     this.exposedPorts = [];
@@ -26,6 +28,10 @@ export class FakeSandbox implements Sandbox {
 
   async uploadFile(path: string, data: Uint8Array | string): Promise<void> {
     this.uploads.push({ path, data });
+  }
+
+  async uploadPath(remotePath: string, localPath: string): Promise<void> {
+    this.pathUploads.push({ remotePath, localPath });
   }
 
   async exec(cmd: string): Promise<RunResult> {

@@ -6,6 +6,7 @@ import {
 } from "../agents/index.js";
 import { AuthService } from "../core/services/auth.js";
 import { BootstrapService } from "../core/services/bootstrap.js";
+import { McpCodeService } from "../core/services/mcp-code.js";
 import { ProfileService } from "../core/services/profile.js";
 import { SecretsService } from "../core/services/secrets.js";
 import { SessionService } from "../core/services/session.js";
@@ -41,6 +42,7 @@ const runPush = async (
     snapshot: new SnapshotService(host),
     session: new SessionService(host, agent),
     profile: new ProfileService(host, agent),
+    mcpCode: new McpCodeService(host, agent),
     secrets: new SecretsService(host, agent),
     auth: new AuthService(host, agent),
     version: new VersionService(host, agent),

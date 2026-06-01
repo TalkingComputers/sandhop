@@ -31,7 +31,7 @@ test("ProfileService ships portable Codex config without auth, caches, sessions,
   ]);
 });
 
-test("ProfileService ships Claude settings, commands, agents, and output styles only when present", async () => {
+test("ProfileService ships Claude settings, commands, agents, plugins, and output styles only when present", async () => {
   const host = new FakeHost({
     home: "/home/local",
     env: {},
@@ -51,5 +51,6 @@ test("ProfileService ships Claude settings, commands, agents, and output styles 
     ".claude/commands",
     ".claude/agents",
     ".claude/output-styles",
+    ".claude/plugins",
   ]);
 });

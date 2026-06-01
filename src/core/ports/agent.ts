@@ -13,15 +13,42 @@ export interface AuthBundle {
   files: { path: string; content: string }[];
 }
 
+export type McpTransport = "stdio" | "http" | "sse";
+
+export interface McpServer {
+  name: string;
+  transport: McpTransport;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  cwd?: string;
+  url?: string;
+}
+
+export interface McpConfigWrite {
+  path: string;
+  content: string;
+  append: boolean;
+}
+
 export type AgentHostDeps = Pick<
   HostDeps,
-  "env" | "home" | "readFile" | "keychain" | "exec"
+  | "env"
+  | "home"
+  | "readFile"
+  | "exists"
+  | "keychain"
+  | "realpath"
+  | "sha256Hex"
+  | "exec"
 >;
 
 export type AgentSessionDeps = Pick<
   HostDeps,
   "home" | "readFile" | "walk" | "statMtimeMs"
 >;
+
+export type AgentMcpDeps = Pick<HostDeps, "home" | "readFile">;
 
 export interface Agent {
   readonly id: AgentId;
@@ -34,6 +61,8 @@ export interface Agent {
   profilePaths(home: string): string[];
   mcpConfigPaths(home: string, cwd: string): string[];
   mcpEnvRefs(configText: string): string[];
+  parseMcpServers(deps: AgentMcpDeps, cwd: string): McpServer[];
+  formatMcpConfig(servers: McpServer[], remoteProj: string): McpConfigWrite;
   authEnv(deps: AgentHostDeps): AuthBundle;
   installCmd(version: string): string;
   preSeed(remoteProj: string): string[];

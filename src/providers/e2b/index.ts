@@ -1,4 +1,5 @@
-import { Sandbox as E2bSandbox } from "e2b";
+import { CommandExitError, Sandbox as E2bSandbox } from "e2b";
+import { openAsBlob } from "node:fs";
 import type {
   Capability,
   CreateOptions,
@@ -12,6 +13,7 @@ import type {
 type E2bSandboxInstance = Awaited<ReturnType<typeof E2bSandbox.create>>;
 
 const UPLOAD_TIMEOUT_MS = 600000;
+const PATH_UPLOAD_TIMEOUT_MS = 3_600_000;
 
 const toArrayBuffer = (data: Uint8Array): ArrayBuffer => {
   const buffer = new ArrayBuffer(data.byteLength);
@@ -36,16 +38,33 @@ class E2bSandboxAdapter implements Sandbox {
     );
   }
 
-  async exec(cmd: string): Promise<RunResult> {
-    const result = await this.sandbox.commands.run(cmd, {
-      timeoutMs: UPLOAD_TIMEOUT_MS,
-      requestTimeoutMs: UPLOAD_TIMEOUT_MS,
+  async uploadPath(remotePath: string, localPath: string): Promise<void> {
+    await this.sandbox.files.write(remotePath, await openAsBlob(localPath), {
+      requestTimeoutMs: PATH_UPLOAD_TIMEOUT_MS,
+      useOctetStream: true,
     });
-    return {
-      exitCode: result.exitCode,
-      stdout: result.stdout,
-      stderr: result.stderr,
-    };
+  }
+
+  async exec(cmd: string): Promise<RunResult> {
+    try {
+      const result = await this.sandbox.commands.run(cmd, {
+        timeoutMs: UPLOAD_TIMEOUT_MS,
+        requestTimeoutMs: UPLOAD_TIMEOUT_MS,
+      });
+      return {
+        exitCode: result.exitCode,
+        stdout: result.stdout,
+        stderr: result.stderr,
+      };
+    } catch (error: unknown) {
+      if (error instanceof CommandExitError)
+        return {
+          exitCode: error.exitCode,
+          stdout: error.stdout,
+          stderr: error.stderr,
+        };
+      throw error;
+    }
   }
 
   async spawn(cmd: string): Promise<void> {

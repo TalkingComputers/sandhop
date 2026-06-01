@@ -2,8 +2,12 @@ import { projectDirName } from "../core/encode.js";
 import type {
   Agent,
   AgentHostDeps,
+  AgentMcpDeps,
   AgentSessionDeps,
   AuthBundle,
+  McpConfigWrite,
+  McpServer,
+  McpTransport,
   SessionRef,
 } from "../core/ports/agent.js";
 
@@ -63,7 +67,7 @@ const authEnv = (deps: AgentHostDeps): AuthBundle => {
   const envKey = deps.env.ANTHROPIC_API_KEY;
   if (envKey !== undefined && envKey.startsWith("sk-ant-"))
     return { envs: { ANTHROPIC_API_KEY: envKey }, files: [] };
-  const keychainKey = deps.keychain("Claude Code");
+  const keychainKey = deps.keychain("Claude Code", null);
   if (keychainKey !== null && keychainKey.startsWith("sk-ant-"))
     return { envs: { ANTHROPIC_API_KEY: keychainKey }, files: [] };
   const oauth = deps.env.CLAUDE_CODE_OAUTH_TOKEN;
@@ -72,6 +76,95 @@ const authEnv = (deps: AgentHostDeps): AuthBundle => {
   throw new Error(
     "No Claude Code credential. Run: claude setup-token, then export CLAUDE_CODE_OAUTH_TOKEN",
   );
+};
+
+const readStringArray = (value: unknown): string[] | undefined => {
+  if (!Array.isArray(value)) return undefined;
+  const values: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") return undefined;
+    values.push(item);
+  }
+  return values;
+};
+
+const readStringRecord = (
+  value: unknown,
+): Record<string, string> | undefined => {
+  if (!isRecord(value)) return undefined;
+  const record: Record<string, string> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (typeof item !== "string") return undefined;
+    record[key] = item;
+  }
+  return record;
+};
+
+const readTransport = (value: unknown, hasUrl: boolean): McpTransport => {
+  if (value === "sse") return "sse";
+  if (value === "http" || hasUrl) return "http";
+  return "stdio";
+};
+
+const readMcpServers = (value: unknown, servers: McpServer[]): void => {
+  if (!isRecord(value)) return;
+  for (const [name, server] of Object.entries(value)) {
+    if (!isRecord(server)) continue;
+    const command =
+      typeof server.command === "string" ? server.command : undefined;
+    const url = typeof server.url === "string" ? server.url : undefined;
+    if (command === undefined && url === undefined) continue;
+    const args = readStringArray(server.args);
+    const env = readStringRecord(server.env);
+    const cwd = typeof server.cwd === "string" ? server.cwd : undefined;
+    servers.push({
+      name,
+      transport: readTransport(server.transport, url !== undefined),
+      ...(command === undefined ? {} : { command }),
+      ...(args === undefined ? {} : { args }),
+      ...(env === undefined ? {} : { env }),
+      ...(cwd === undefined ? {} : { cwd }),
+      ...(url === undefined ? {} : { url }),
+    });
+  }
+};
+
+const parseMcpServers = (deps: AgentMcpDeps, cwd: string): McpServer[] => {
+  const servers: McpServer[] = [];
+  const claudeJson = deps.readFile(`${deps.home}/.claude.json`);
+  if (claudeJson !== null) {
+    const parsed = JSON.parse(claudeJson) as unknown;
+    if (isRecord(parsed)) {
+      readMcpServers(parsed.mcpServers, servers);
+      const projects = parsed.projects;
+      if (isRecord(projects)) {
+        const project = projects[cwd];
+        if (isRecord(project)) readMcpServers(project.mcpServers, servers);
+      }
+    }
+  }
+  const mcpJson = deps.readFile(`${cwd}/.mcp.json`);
+  if (mcpJson !== null) {
+    const parsed = JSON.parse(mcpJson) as unknown;
+    if (isRecord(parsed)) readMcpServers(parsed.mcpServers, servers);
+  }
+  return servers;
+};
+
+const formatMcpConfig = (
+  servers: McpServer[],
+  remoteProj: string,
+): McpConfigWrite => {
+  const mcpServers: Record<string, Omit<McpServer, "name">> = {};
+  for (const server of servers) {
+    const { name, ...config } = server;
+    mcpServers[name] = config;
+  }
+  return {
+    path: `${remoteProj}/.mcp.json`,
+    content: `${JSON.stringify({ mcpServers }, null, 2)}\n`,
+    append: false,
+  };
 };
 
 export const CLAUDE_CODE: Agent = {
@@ -107,6 +200,7 @@ export const CLAUDE_CODE: Agent = {
     ".claude/agents",
     ".claude/output-styles",
     ".claude/mcp.json",
+    ".claude/plugins",
   ],
   mcpConfigPaths: (home, cwd) => [
     `${cwd}/.mcp.json`,
@@ -116,6 +210,8 @@ export const CLAUDE_CODE: Agent = {
     `${home}/.claude.json`,
   ],
   mcpEnvRefs: readJsonEnvRefs,
+  parseMcpServers,
+  formatMcpConfig,
   authEnv,
   installCmd: (version) => `npm i -g @anthropic-ai/claude-code@${version}`,
   preSeed: (remoteProj) => {

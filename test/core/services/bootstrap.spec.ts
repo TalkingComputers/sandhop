@@ -1,7 +1,9 @@
 import { expect, test } from "vitest";
+import { CODEX } from "../../../src/agents/codex.js";
 import { CLAUDE_CODE } from "../../../src/agents/claude-code.js";
 import { BootstrapService } from "../../../src/core/services/bootstrap.js";
 import { buildManifest } from "../../../src/core/manifest.js";
+import type { CodePlan } from "../../../src/core/services/mcp-code.js";
 
 const manifest = buildManifest({
   agent: "claude-code",
@@ -33,4 +35,68 @@ test("BootstrapService enables tailscale binary mode when requested", () => {
 
   expect(script).toContain("curl -fsSL https://tailscale.com/install.sh | sh");
   expect(script).toContain('--hostname="keepon-sbx-1"');
+});
+
+test("BootstrapService restores MCP code, installs runtimes and deps, and writes rewritten MCP config", () => {
+  const codePlan: CodePlan = {
+    mappings: [{ localPath: "/home/local/mcp", sandboxPath: "/home/user/mcp" }],
+    rewrites: [
+      {
+        name: "local",
+        transport: "stdio",
+        command: "node",
+        args: ["/home/user/mcp/server.js"],
+        cwd: "/home/user/mcp",
+      },
+    ],
+    runtimes: new Set(["bun", "uv"]),
+    installCmds: ["cd /home/user/mcp && npm ci"],
+    referencedFiles: [],
+    envRefs: [],
+    excluded: [],
+    classifications: [{ name: "local", kind: "local-path" }],
+  };
+
+  const script = new BootstrapService(CLAUDE_CODE).render(manifest, {
+    hasProfile: false,
+    codePlan,
+  });
+
+  expect(script).toContain("curl -fsSL https://bun.sh/install | bash");
+  expect(script).toContain("curl -LsSf https://astral.sh/uv/install.sh | sh");
+  expect(script).toContain("tar -xzf /tmp/mcp-code.tgz -C $HOME");
+  expect(script).toContain("cd /home/user/mcp && npm ci");
+  expect(script).toContain(
+    "cat > /home/user/project/.mcp.json <<'KEEPON_MCP_CONFIG'",
+  );
+  expect(script).toContain('"/home/user/mcp/server.js"');
+});
+
+test("BootstrapService prunes stale Codex MCP tables before appending rewritten MCP config", () => {
+  const codePlan: CodePlan = {
+    mappings: [],
+    rewrites: [
+      {
+        name: "local",
+        transport: "stdio",
+        command: "node",
+        args: ["/home/user/mcp/server.js"],
+      },
+    ],
+    runtimes: new Set(),
+    installCmds: [],
+    referencedFiles: [],
+    envRefs: [],
+    excluded: [],
+    classifications: [{ name: "local", kind: "local-path" }],
+  };
+
+  const script = new BootstrapService(CODEX).render(
+    { ...manifest, agent: "codex", cliVersion: "0.136.0" },
+    { hasProfile: false, codePlan },
+  );
+
+  expect(script).toContain("node -e");
+  expect(script).toContain("[mcp_servers");
+  expect(script).toContain('cat >> "$HOME/.codex/config.toml"');
 });

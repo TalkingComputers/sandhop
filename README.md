@@ -28,7 +28,8 @@ The code follows `docs/ARCHITECTURE.md`:
 
 - `SnapshotService` tars the cwd with entries `['.']`; no language inspection and no excludes.
 - `SessionService` finds the real Claude Code or Codex transcript for the cwd and preserves the original transcript filename.
-- `ProfileService` ships portable agent config only: settings, instructions, commands/prompts, rules/agents/output styles, and MCP definitions. It does not ship plugins, caches, sessions, auth files, or secret directories.
+- `ProfileService` ships portable agent config: settings, instructions, commands/prompts, rules/agents/output styles, plugins, and MCP definitions. It does not ship caches, sessions, auth files, or secret directories.
+- `McpCodeService` ships local-path MCP server project roots, rewrites their config for the sandbox home, reinstalls dependencies, and captures files referenced by `source <file>` wrapper commands.
 - `SecretsService` scans MCP config files, extracts referenced env var names, and captures only those values from `process.env`.
 - `AuthService` ships agent auth as env tokens or portable credential files.
 - `TeleportService` runs collection services with `Promise.all`, creates the sandbox, uploads bundle/profile/transcript/auth, runs bootstrap, starts native resume, and returns URL/auth.
@@ -77,5 +78,13 @@ Required environment for real teleports:
 
 - `E2B_API_KEY`
 - Claude Code: `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`, or a supported local Keychain credential
-- Codex: `OPENAI_API_KEY` or `~/.codex/auth.json`
+- Codex: non-empty `~/.codex/auth.json`, OS Keychain `Codex Auth`, `OPENAI_API_KEY`, or `CODEX_API_KEY`
 - Tailscale mode only: `TS_AUTHKEY`
+
+## MCP local code limits
+
+- `npx`, `uvx`, bare-command, and remote-URL MCP servers are treated as remotely installable or remote.
+- Local-path MCP roots are copied without `node_modules`, `.venv`, or `.git`; dependencies are reinstalled in the sandbox with `npm`, `bun`, or `uv`.
+- Native or venv dependencies are reinstalled, not copied.
+- `localhost` DSNs and local data stores are not reachable remotely without provisioning or a tunnel.
+- Browser MCPs may need a browser install inside the sandbox.

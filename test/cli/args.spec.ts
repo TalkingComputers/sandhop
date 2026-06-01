@@ -15,6 +15,12 @@ test("parseArgs keeps push defaults and binary flags", () => {
     profile: false,
     tailscale: true,
   });
+  expect(
+    parseArgs(["push", "--cwd", "/workspace/other"], "/workspace/project"),
+  ).toMatchObject({
+    cmd: "push",
+    cwd: "/workspace/other",
+  });
 });
 
 test("readTailscaleOption requires TS_AUTHKEY only in tailscale mode", () => {

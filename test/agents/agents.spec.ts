@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { expect, test } from "vitest";
 import { CODEX } from "../../src/agents/codex.js";
 import { CLAUDE_CODE } from "../../src/agents/claude-code.js";
+import { FakeHost } from "../fakes/host.js";
 
 test("declarative agents install exact versions and compose native resume commands", () => {
   expect(CLAUDE_CODE.installCmd("2.1.160")).toBe(
@@ -35,4 +36,68 @@ test("Codex preSeed preserves existing config and trusts the sandbox cwd", () =>
   expect(readFileSync(join(home, ".codex", "config.toml"), "utf8")).toContain(
     '[projects."/home/user/project"]\ntrust_level = "trusted"',
   );
+});
+
+test("Claude agent parses user, project, and cwd MCP server configs", () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: {
+      "/home/local/.claude.json": JSON.stringify({
+        mcpServers: { user: { command: "npx", args: ["user"] } },
+        projects: {
+          "/workspace/project": {
+            mcpServers: { project: { command: "node", args: ["project.js"] } },
+          },
+        },
+      }),
+      "/workspace/project/.mcp.json": JSON.stringify({
+        mcpServers: { cwd: { url: "https://example.com/mcp" } },
+      }),
+    },
+  });
+
+  expect(CLAUDE_CODE.parseMcpServers(host, "/workspace/project")).toEqual([
+    { name: "user", transport: "stdio", command: "npx", args: ["user"] },
+    {
+      name: "project",
+      transport: "stdio",
+      command: "node",
+      args: ["project.js"],
+    },
+    { name: "cwd", transport: "http", url: "https://example.com/mcp" },
+  ]);
+});
+
+test("Codex agent parses mcp_servers TOML tables", () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: {
+      "/home/local/.codex/config.toml": `
+[mcp_servers.local]
+command = "node"
+args = ["server.js"]
+cwd = "/workspace/mcp"
+
+[mcp_servers.local.env]
+TOKEN = "${"${TOKEN}"}"
+
+[mcp_servers.remote]
+url = "https://example.com/mcp"
+`,
+    },
+  });
+
+  expect(CODEX.parseMcpServers(host, "/workspace/project")).toEqual([
+    {
+      name: "local",
+      transport: "stdio",
+      command: "node",
+      args: ["server.js"],
+      cwd: "/workspace/mcp",
+      env: { TOKEN: "${TOKEN}" },
+    },
+    { name: "remote", transport: "http", url: "https://example.com/mcp" },
+  ]);
 });

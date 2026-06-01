@@ -3,6 +3,8 @@ import type { Agent, AuthBundle, SessionRef } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
 import type { SandboxProvider } from "../ports/provider.js";
 import type { BootstrapService } from "./bootstrap.js";
+import type { CodePlan } from "./mcp-code.js";
+import type { SecretsBundle, SecretsInputs } from "./secrets.js";
 
 export interface TailscaleOption {
   authKey: string;
@@ -31,10 +33,12 @@ export interface TeleportServices {
     byId(cwd: string, sessionId: string): SessionRef | Promise<SessionRef>;
   };
   profile: { build(outPath: string): Promise<string | null> };
+  mcpCode?: { build(cwd: string, outPath: string): Promise<CodePlan | null> };
   secrets: {
     collect(
       cwd: string,
-    ): Record<string, string> | Promise<Record<string, string>>;
+      inputs?: SecretsInputs,
+    ): SecretsBundle | Promise<SecretsBundle>;
   };
   auth: { extract(): AuthBundle | Promise<AuthBundle> };
   version: { detect(): string | Promise<string> };
@@ -78,8 +82,13 @@ export class TeleportService {
     const pass = randomPassword();
     const bundlePath = makePath("bundle.tgz");
     const profilePath = makePath("profile.tgz");
+    const mcpCodePath = makePath("mcp-code.tgz");
     opts.onProgress?.("snapshotting");
-    const [bundle, session, profile, secrets, auth, cliVersion] =
+    const codePlanPromise =
+      this.services.mcpCode === undefined
+        ? Promise.resolve(null)
+        : this.services.mcpCode.build(cwd, mcpCodePath);
+    const [bundle, session, profile, baseSecrets, auth, cliVersion, codePlan] =
       await Promise.all([
         this.services.snapshot.build(cwd, bundlePath),
         opts.sessionId === undefined
@@ -91,7 +100,15 @@ export class TeleportService {
         this.services.secrets.collect(cwd),
         this.services.auth.extract(),
         this.services.version.detect(),
+        codePlanPromise,
       ]);
+    const secrets =
+      codePlan === null
+        ? baseSecrets
+        : await this.services.secrets.collect(cwd, {
+            envRefs: codePlan.envRefs,
+            referencedFiles: codePlan.referencedFiles,
+          });
     const manifest = buildManifest({
       agent: this.agent.id,
       cliVersion,
@@ -101,8 +118,8 @@ export class TeleportService {
       ts: Date.now(),
     });
     const envs = opts.tailscale
-      ? { ...secrets, ...auth.envs, TS_AUTHKEY: opts.tailscale.authKey }
-      : { ...secrets, ...auth.envs };
+      ? { ...secrets.envs, ...auth.envs, TS_AUTHKEY: opts.tailscale.authKey }
+      : { ...secrets.envs, ...auth.envs };
     opts.onProgress?.("creating sandbox");
     const sandbox = await this.provider.create({
       image: "base",
@@ -110,21 +127,21 @@ export class TeleportService {
       timeoutMs: opts.timeoutMs,
     });
     opts.onProgress?.("uploading bundle");
-    await sandbox.uploadFile(
-      "/tmp/bundle.tgz",
-      this.services.host.readBytes(bundle),
-    );
+    await sandbox.uploadPath("/tmp/bundle.tgz", bundle);
     await sandbox.uploadFile(
       "/tmp/transcript.jsonl",
       this.services.host.readBytes(session.transcriptPath),
     );
     if (profile !== null) {
       opts.onProgress?.("uploading profile");
-      await sandbox.uploadFile(
-        "/tmp/profile.tgz",
-        this.services.host.readBytes(profile),
-      );
+      await sandbox.uploadPath("/tmp/profile.tgz", profile);
     }
+    if (codePlan !== null && codePlan.mappings.length > 0) {
+      opts.onProgress?.("uploading MCP code");
+      await sandbox.uploadPath("/tmp/mcp-code.tgz", mcpCodePath);
+    }
+    for (const file of secrets.files)
+      await sandbox.uploadFile(expandHome(file.path), file.content);
     for (const file of auth.files)
       await sandbox.uploadFile(expandHome(file.path), file.content);
     opts.onProgress?.(
@@ -137,8 +154,9 @@ export class TeleportService {
           ? {
               hasProfile: profile !== null,
               tailscale: { sandboxId: sandbox.id },
+              codePlan,
             }
-          : { hasProfile: profile !== null },
+          : { hasProfile: profile !== null, codePlan },
       ),
     );
     if (restore.exitCode !== 0 || !restore.stdout.includes("KEEPON_RESTORE_OK"))

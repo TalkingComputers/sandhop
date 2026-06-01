@@ -1,8 +1,10 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   existsSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   statSync,
   type Dirent,
 } from "node:fs";
@@ -23,6 +25,11 @@ const listFiles = (dir: string): string[] => {
     else paths.push(path);
   }
   return paths;
+};
+
+const hasExcludedSegment = (path: string, excludes: string[]): boolean => {
+  const segments = path.split("/");
+  return excludes.some((exclude) => segments.includes(exclude));
 };
 
 export class NodeHost implements HostDeps {
@@ -50,6 +57,10 @@ export class NodeHost implements HostDeps {
     return existsSync(path);
   }
 
+  isDirectory(path: string): boolean {
+    return statSync(path).isDirectory();
+  }
+
   walk(dir: string): string[] {
     return listFiles(dir);
   }
@@ -58,23 +69,47 @@ export class NodeHost implements HostDeps {
     return statSync(path).mtimeMs;
   }
 
-  keychain(service: string): string | null {
+  keychain(service: string, account: string | null): string | null {
     try {
-      return execFileSync(
-        "security",
-        ["find-generic-password", "-w", "-s", service],
-        { encoding: "utf8" },
-      ).trim();
+      const args =
+        account === null
+          ? ["find-generic-password", "-w", "-s", service]
+          : ["find-generic-password", "-w", "-s", service, "-a", account];
+      return execFileSync("security", args, { encoding: "utf8" }).trim();
     } catch {
       return null;
     }
+  }
+
+  realpath(path: string): string {
+    return realpathSync.native(path);
+  }
+
+  sha256Hex(input: string): string {
+    return createHash("sha256").update(input).digest("hex");
   }
 
   exec(bin: string, args: string[]): string {
     return execFileSync(bin, args, { encoding: "utf8" });
   }
 
-  async tarGz(cwd: string, entries: string[], outPath: string): Promise<void> {
-    await tar.create({ gzip: true, file: outPath, cwd }, entries);
+  async tarGz(
+    cwd: string,
+    entries: string[],
+    outPath: string,
+    opts?: { excludes: string[] },
+  ): Promise<void> {
+    await tar.create(
+      {
+        gzip: true,
+        file: outPath,
+        cwd,
+        filter:
+          opts === undefined
+            ? undefined
+            : (path) => !hasExcludedSegment(path, opts.excludes),
+      },
+      entries,
+    );
   }
 }

@@ -7,6 +7,7 @@ export * from "./core/ports/host.js";
 export * from "./core/ports/provider.js";
 export * from "./core/services/auth.js";
 export * from "./core/services/bootstrap.js";
+export * from "./core/services/mcp-code.js";
 export * from "./core/services/profile.js";
 export * from "./core/services/secrets.js";
 export * from "./core/services/session.js";

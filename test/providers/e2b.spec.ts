@@ -1,7 +1,23 @@
+import { writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect, test, vi } from "vitest";
 import { E2bSandboxProvider } from "../../src/providers/e2b/index.js";
 
 const e2bMocks = vi.hoisted(() => {
+  class CommandExitError extends Error {
+    readonly exitCode: number;
+    readonly stdout: string;
+    readonly stderr: string;
+
+    constructor(result: { exitCode: number; stdout: string; stderr: string }) {
+      super(`Command exited with code ${result.exitCode}`);
+      this.name = "CommandExitError";
+      this.exitCode = result.exitCode;
+      this.stdout = result.stdout;
+      this.stderr = result.stderr;
+    }
+  }
   const filesWrite = vi.fn();
   const commandsRun = vi.fn();
   const sandbox = {
@@ -16,12 +32,15 @@ const e2bMocks = vi.hoisted(() => {
     list: vi.fn(),
     kill: vi.fn(async (id: string) => id === "sbx-created"),
   };
-  return { filesWrite, commandsRun, sandbox, Sandbox };
+  return { CommandExitError, filesWrite, commandsRun, sandbox, Sandbox };
 });
 
-vi.mock("e2b", () => ({ Sandbox: e2bMocks.Sandbox }));
+vi.mock("e2b", () => ({
+  CommandExitError: e2bMocks.CommandExitError,
+  Sandbox: e2bMocks.Sandbox,
+}));
 
-test("E2bSandboxProvider creates sandboxes, uploads octet-stream bytes, runs commands, exposes HTTPS URLs, and destroys", async () => {
+test("E2bSandboxProvider creates sandboxes, uploads octet-stream bytes and paths, runs commands, exposes HTTPS URLs, and destroys", async () => {
   e2bMocks.commandsRun.mockResolvedValue({
     exitCode: 0,
     stdout: "ok",
@@ -34,7 +53,10 @@ test("E2bSandboxProvider creates sandboxes, uploads octet-stream bytes, runs com
     envs: { A: "1" },
     timeoutMs: 600000,
   });
+  const localPath = join(tmpdir(), `keepon-e2b-${Date.now()}.txt`);
+  writeFileSync(localPath, "large");
   await sandbox.uploadFile("/tmp/a", new Uint8Array([1, 2]));
+  await sandbox.uploadPath("/tmp/large", localPath);
   await expect(sandbox.exec("echo ok")).resolves.toEqual({
     exitCode: 0,
     stdout: "ok",
@@ -59,8 +81,38 @@ test("E2bSandboxProvider creates sandboxes, uploads octet-stream bytes, runs com
       useOctetStream: true,
     },
   );
+  expect(e2bMocks.filesWrite).toHaveBeenCalledWith(
+    "/tmp/large",
+    expect.any(Blob),
+    {
+      requestTimeoutMs: 3_600_000,
+      useOctetStream: true,
+    },
+  );
   expect(e2bMocks.commandsRun).toHaveBeenCalledWith("ttyd", {
     background: true,
     timeoutMs: 0,
+  });
+});
+
+test("E2bSandboxProvider returns non-zero command exits as RunResult data", async () => {
+  e2bMocks.commandsRun.mockRejectedValue(
+    new e2bMocks.CommandExitError({
+      exitCode: 42,
+      stdout: "partial",
+      stderr: "boom",
+    }),
+  );
+  const provider = new E2bSandboxProvider();
+  const sandbox = await provider.create({
+    image: "base",
+    envs: {},
+    timeoutMs: 600000,
+  });
+
+  await expect(sandbox.exec("false")).resolves.toEqual({
+    exitCode: 42,
+    stdout: "partial",
+    stderr: "boom",
   });
 });

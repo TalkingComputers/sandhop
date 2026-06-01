@@ -30,7 +30,7 @@ test("AuthService extracts Claude API key from env or keychain", () => {
   });
 });
 
-test("AuthService ships Codex auth file or OpenAI env token", () => {
+test("AuthService ships non-empty Codex auth file or OpenAI env token", () => {
   expect(
     new AuthService(
       new FakeHost({
@@ -54,4 +54,32 @@ test("AuthService ships Codex auth file or OpenAI env token", () => {
       CODEX,
     ).extract(),
   ).toEqual({ envs: { OPENAI_API_KEY: "sk-openai" }, files: [] });
+});
+
+test("AuthService recovers Codex auth from the OS keychain when auth.json is empty", () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: { "/home/local/.codex/auth.json": "" },
+  });
+  const account = `cli|${host.sha256Hex("/home/local/.codex").slice(0, 16)}`;
+  host.keychainValues[`Codex Auth:${account}`] = '{"tokens":"keychain"}';
+
+  expect(new AuthService(host, CODEX).extract()).toEqual({
+    envs: {},
+    files: [
+      { path: "$HOME/.codex/auth.json", content: '{"tokens":"keychain"}' },
+    ],
+  });
+});
+
+test("AuthService throws when Codex has no file, keychain, or API key", () => {
+  expect(() =>
+    new AuthService(
+      new FakeHost({ home: "/home/local", env: {} }),
+      CODEX,
+    ).extract(),
+  ).toThrow(
+    "No Codex credential at ~/.codex/auth.json, OS keychain, OPENAI_API_KEY, or CODEX_API_KEY",
+  );
 });
