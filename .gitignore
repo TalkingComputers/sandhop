@@ -5,3 +5,7 @@ dist/
 agentdb.rvf
 agentdb.rvf.lock
 ruvector.db
+
+.playwright-mcp/
+keepon-resumed.png
+*.png
