@@ -8,7 +8,7 @@ import { FakeProvider } from "../../fakes/provider.js";
 
 const encoder = new TextEncoder();
 
-test("TeleportService fast core fans out collection, chunk-uploads the working tree, starts HTTPS ttyd with native resume, and skips enrichment", async () => {
+test("TeleportService fast core fans out collection, uploads one gzip bundle, starts HTTPS ttyd with native resume, and skips enrichment", async () => {
   let inFlight = 0;
   let maxInFlight = 0;
   const track = async <T>(value: T): Promise<T> => {
@@ -67,33 +67,34 @@ test("TeleportService fast core fans out collection, chunk-uploads the working t
       timeoutMs: 3_600_000,
     },
   ]);
-  expect(provider.sandbox.pathUploads).toEqual([
-    {
-      remotePath: expect.stringMatching(
-        /\/tmp\/keepon-bundle-.+\.part\.000000$/,
-      ),
-      localPath: expect.stringMatching(
-        /\/tmp\/keepon-bundle-.+\.part\.000000$/,
-      ),
-    },
+  expect(provider.sandbox.pathUploads).toEqual([]);
+  expect(provider.sandbox.uploads[0]).toEqual({
+    path: "/tmp/bundle.tgz",
+    data: encoder.encode("archive"),
+  });
+  expect(host.spawnPipeCalls).toEqual([
+    expect.stringMatching(
+      /^tar -czf '\/tmp\/keepon-.+-bundle\.tgz' -C '\/workspace\/project' \.$/,
+    ),
   ]);
-  expect(host.spawnPipeCalls[0]).toContain("tar -czf");
   expect(host.spawnPipeCalls[0]).not.toContain("zstd");
-  expect(provider.sandbox.execs[0]).toContain("gzip -t");
   expect(provider.sandbox.execs[0]).not.toContain("zstd");
   expect(provider.sandbox.execs[0]).not.toContain("apt-get");
   expect(provider.sandbox.uploads.map((upload) => upload.path)).toEqual([
+    "/tmp/bundle.tgz",
     "/tmp/transcript.jsonl",
   ]);
+  expect(provider.sandbox.execs[0]).toContain(
+    "tar -xzf /tmp/bundle.tgz -C /home/user/project",
+  );
   expect(provider.sandbox.spawns[0]).toContain("ttyd -p 7681 -W -c keepon:");
   expect(provider.sandbox.spawns[0]).toContain(
     "bash -lc 'cd /home/user/project && claude --resume session-id'",
   );
   expect(provider.sandbox.spawns[0]).not.toContain("for f in");
-  expect(provider.sandbox.execs[1]).not.toContain("profile");
-  expect(provider.sandbox.execs[1]).not.toContain("mcp");
-  expect(provider.sandbox.execs[1]).not.toContain("zstd");
-  expect(provider.sandbox.execs[1]).not.toContain("apt-get");
+  expect(provider.sandbox.execs).toHaveLength(1);
+  expect(provider.sandbox.execs[0]).not.toContain("profile");
+  expect(provider.sandbox.execs[0]).not.toContain("mcp");
   expect(provider.sandbox.exposedPorts).toEqual([7681]);
   expect(result.url).toBe("https://sandbox-sbx-1-7681.example");
   expect(result.user).toBe("keepon");
@@ -189,19 +190,14 @@ test("TeleportService uploads core secret and auth files but leaves MCP code to 
     timeoutMs: 3_600_000,
   });
 
-  expect(provider.sandbox.pathUploads).toEqual([
-    {
-      remotePath: expect.stringMatching(
-        /\/tmp\/keepon-bundle-.+\.part\.000000$/,
-      ),
-      localPath: expect.stringMatching(
-        /\/tmp\/keepon-bundle-.+\.part\.000000$/,
-      ),
-    },
-  ]);
+  expect(provider.sandbox.pathUploads).toEqual([]);
+  expect(provider.sandbox.uploads).toContainEqual({
+    path: "/tmp/bundle.tgz",
+    data: encoder.encode("archive"),
+  });
   expect(provider.sandbox.uploads).toContainEqual({
     path: "/home/user/.env.d/mcp.env",
     data: "MCP_TOKEN=token\n",
   });
-  expect(provider.sandbox.execs[1]).not.toContain("mcp-code");
+  expect(provider.sandbox.execs[0]).not.toContain("mcp-code");
 });

@@ -4,7 +4,6 @@ import type { HostDeps } from "../ports/host.js";
 import type { SandboxProvider } from "../ports/provider.js";
 import type { BootstrapService } from "./bootstrap.js";
 import type { SecretsBundle, SecretsInputs } from "./secrets.js";
-import { TransferService } from "./transfer.js";
 
 export interface TailscaleOption {
   authKey: string;
@@ -26,7 +25,7 @@ export interface TeleportOptions {
 }
 
 export interface TeleportServices {
-  host: Pick<HostDeps, "fileSize" | "readBytes" | "spawnPipe" | "splitFile">;
+  host: Pick<HostDeps, "readBytes" | "spawnPipe">;
   snapshot: { build(cwd: string): Promise<string> };
   session: {
     latest(cwd: string): SessionRef | Promise<SessionRef>;
@@ -110,11 +109,13 @@ export class TeleportService {
       timeoutMs: opts.timeoutMs,
     });
     opts.onProgress?.("uploading bundle");
-    await new TransferService(this.services.host, sandbox).send(
-      bundle,
-      manifest.remoteProj,
-      "bundle",
-      { codec: "gzip" },
+    const bundlePath = makePath("bundle.tgz");
+    await this.services.host.spawnPipe(
+      `tar -czf ${shellQuote(bundlePath)} -C ${shellQuote(bundle)} .`,
+    );
+    await sandbox.uploadFile(
+      "/tmp/bundle.tgz",
+      this.services.host.readBytes(bundlePath),
     );
     await sandbox.uploadFile(
       "/tmp/transcript.jsonl",

@@ -105,6 +105,7 @@ export class BootstrapService {
       this.agent.installCmd(manifest.cliVersion),
       ...this.agent.preSeed(manifest.remoteProj),
       `mkdir -p ${manifest.remoteProj}`,
+      `tar -xzf /tmp/bundle.tgz -C ${manifest.remoteProj}`,
       `dest="${dest}"`,
       'mkdir -p "$(dirname "$dest")"',
       'cp /tmp/transcript.jsonl "$dest"',

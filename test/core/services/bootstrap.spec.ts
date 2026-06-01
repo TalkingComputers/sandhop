@@ -20,9 +20,13 @@ test("BootstrapService core installs exact CLI version, places transcript, and s
   expect(script).toContain("npm i -g @anthropic-ai/claude-code@2.1.160");
   expect(script).not.toContain("zstd");
   expect(script).not.toContain("apt-get");
+  expect(script).toContain("mkdir -p /home/user/project");
+  expect(script).toContain("tar -xzf /tmp/bundle.tgz -C /home/user/project");
+  expect(
+    script.indexOf("tar -xzf /tmp/bundle.tgz -C /home/user/project"),
+  ).toBeLessThan(script.indexOf('cp /tmp/transcript.jsonl "$dest"'));
   expect(script).toContain('cp /tmp/transcript.jsonl "$dest"');
   expect(script).toContain("KEEPON_RESTORE_OK");
-  expect(script).not.toContain("tar -xzf /tmp/bundle.tgz");
   expect(script).not.toContain("profile.tgz");
   expect(script).not.toContain("for f in");
 });
