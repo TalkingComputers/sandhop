@@ -3,8 +3,11 @@ import { pickAgent } from "../agents/index.js";
 import { safeRemoteProj } from "../core/encode.js";
 import type { AgentId } from "../core/ports/agent.js";
 import type { HostDeps } from "../core/ports/host.js";
-import type { Sandbox } from "../core/ports/provider.js";
-import { BootstrapService } from "../core/services/bootstrap.js";
+import type { RunResult, Sandbox } from "../core/ports/provider.js";
+import {
+  BootstrapService,
+  type EnrichmentStepResult,
+} from "../core/services/bootstrap.js";
 import type { CodePlan } from "../core/services/mcp-code.js";
 import { McpCodeService } from "../core/services/mcp-code.js";
 import { ProfileService } from "../core/services/profile.js";
@@ -55,17 +58,50 @@ const appendLog = async (sandbox: Sandbox, text: string): Promise<void> => {
   );
 };
 
-const runLogged = async (sandbox: Sandbox, script: string): Promise<void> => {
-  const result = await sandbox.exec(
-    [
-      "{",
-      script,
-      `echo ${shellQuote("keepon enrichment complete")}`,
-      "} >> /tmp/keepon-enrich.log 2>&1",
-    ].join("\n"),
+const errorText = (error: unknown): string =>
+  error instanceof Error ? (error.stack ?? error.message) : String(error);
+
+const runLogged = async (
+  sandbox: Sandbox,
+  script: string,
+): Promise<RunResult> =>
+  sandbox.exec(["{", script, "} >> /tmp/keepon-enrich.log 2>&1"].join("\n"));
+
+const recordStep = async (
+  sandbox: Sandbox,
+  steps: EnrichmentStepResult[],
+  name: string,
+  run: () => Promise<void>,
+): Promise<void> => {
+  await appendLog(sandbox, `[keepon] step started: ${name}`).catch(
+    () => undefined,
   );
-  if (result.exitCode !== 0)
-    throw new Error(`Enrichment bootstrap failed: ${result.stderr}`);
+  try {
+    await run();
+    steps.push({ name, ok: true });
+    await appendLog(sandbox, `[keepon] step ok: ${name}`).catch(
+      () => undefined,
+    );
+  } catch (error: unknown) {
+    const text = errorText(error);
+    steps.push({ name, ok: false, error: text });
+    await appendLog(sandbox, `[keepon] step failed: ${name}\n${text}`).catch(
+      () => undefined,
+    );
+  }
+};
+
+const recordScriptStep = async (
+  sandbox: Sandbox,
+  steps: EnrichmentStepResult[],
+  name: string,
+  script: string,
+): Promise<void> => {
+  await recordStep(sandbox, steps, name, async (): Promise<void> => {
+    const result = await runLogged(sandbox, script);
+    if (result.exitCode !== 0)
+      throw new Error(`${name} failed: ${result.stderr}`);
+  });
 };
 
 export const enrichSandbox = async (
@@ -84,53 +120,75 @@ export const enrichSandbox = async (
     const mcpCode = new McpCodeService(host, agent);
     const secrets = new SecretsService(host, agent);
     const bootstrap = new BootstrapService(agent);
-    const setup = await sandbox.exec(bootstrap.renderEnrichmentSetup());
-    if (setup.exitCode !== 0)
-      throw new Error(`Enrichment setup failed: ${setup.stderr}`);
-    const profileTask = args.profile
-      ? (async (): Promise<void> => {
-          const profileTree = await profile.build(makePath("profile"));
-          if (profileTree !== null)
-            await transfer.send(profileTree, "/home/user", "profile", {
-              codec: "zstd",
-            });
-        })()
-      : Promise.resolve();
-    let codePlan: CodePlan | null = null;
-    const codeTask = (async (): Promise<void> => {
-      codePlan = await mcpCode.build(args.cwd);
-      if (codePlan === null) return;
-      await Promise.all(
-        codePlan.mappings.map((mapping, index) =>
-          transfer.send(
-            mapping.localPath,
-            mapping.sandboxPath,
-            `mcp-${index}`,
-            {
-              codec: "zstd",
-            },
-          ),
-        ),
-      );
-      const bundle = secrets.collect(args.cwd, {
-        envRefs: codePlan.envRefs,
-        referencedFiles: codePlan.referencedFiles,
-      });
-      for (const file of bundle.files)
-        await sandbox.uploadFile(expandHome(file.path), file.content);
-    })();
-    await Promise.all([profileTask, codeTask]);
-    await runLogged(
+    const steps: EnrichmentStepResult[] = [];
+    await recordScriptStep(
       sandbox,
-      bootstrap.renderEnrichment(safeRemoteProj(args.cwd).dir, {
-        codePlan,
-      }),
+      steps,
+      "enrichment setup",
+      bootstrap.renderEnrichmentSetup(),
+    );
+    await recordStep(
+      sandbox,
+      steps,
+      "profile transfer + extract",
+      async (): Promise<void> => {
+        if (!args.profile) return;
+        const profileTree = await profile.build(makePath("profile"));
+        if (profileTree !== null)
+          await transfer.send(profileTree, "/home/user", "profile", {
+            codec: "zstd",
+          });
+      },
+    );
+    let codePlan: CodePlan | null = null;
+    await recordStep(
+      sandbox,
+      steps,
+      "mcp code transfer + config rewrite",
+      async (): Promise<void> => {
+        codePlan = await mcpCode.build(args.cwd);
+        if (codePlan === null) return;
+        await Promise.all(
+          codePlan.mappings.map((mapping, index) =>
+            transfer.send(
+              mapping.localPath,
+              mapping.sandboxPath,
+              `mcp-${index}`,
+              {
+                codec: "zstd",
+              },
+            ),
+          ),
+        );
+        const bundle = secrets.collect(args.cwd, {
+          envRefs: codePlan.envRefs,
+          referencedFiles: codePlan.referencedFiles,
+        });
+        for (const file of bundle.files)
+          await sandbox.uploadFile(expandHome(file.path), file.content);
+        const result = await runLogged(
+          sandbox,
+          bootstrap.renderEnrichmentConfig(safeRemoteProj(args.cwd).dir, {
+            codePlan,
+          }),
+        );
+        if (result.exitCode !== 0)
+          throw new Error(`MCP config rewrite failed: ${result.stderr}`);
+      },
+    );
+    await recordScriptStep(
+      sandbox,
+      steps,
+      "per-MCP dependency installs",
+      bootstrap.renderEnrichmentInstalls({ codePlan }),
+    );
+    await runLogged(sandbox, bootstrap.renderEnrichmentCompletion(steps)).catch(
+      async (error: unknown): Promise<void> => {
+        await appendLog(sandbox, errorText(error)).catch(() => undefined);
+      },
     );
   } catch (error: unknown) {
-    await appendLog(
-      sandbox,
-      String(error instanceof Error ? error.stack : error),
-    ).catch(() => undefined);
+    await appendLog(sandbox, errorText(error)).catch(() => undefined);
   }
 };
 

@@ -10,6 +10,10 @@ export interface EnrichmentBootstrapOptions {
   codePlan?: CodePlan | null;
 }
 
+export type EnrichmentStepResult =
+  | { name: string; ok: true }
+  | { name: string; ok: false; error: string };
+
 const ZSTD_INSTALL = "command -v zstd || sudo apt-get install -y zstd";
 
 const dirname = (path: string): string => {
@@ -21,6 +25,16 @@ const dirname = (path: string): string => {
 
 const shellPath = (path: string): string =>
   path.startsWith("$HOME") ? `"${path}"` : path;
+
+const shellLog = (value: string): string =>
+  value
+    .replaceAll("\\", "\\\\")
+    .replaceAll('"', '\\"')
+    .replaceAll("$", "\\$")
+    .replaceAll("`", "\\`");
+
+const nonFatal = (cmd: string): string =>
+  `${cmd} || { echo "[keepon] step failed: ${shellLog(cmd)}" >&2; true; }`;
 
 const pruneMcpTablesScript = (path: string): string =>
   [
@@ -53,11 +67,7 @@ const renderMcpConfig = (
   ];
 };
 
-const renderMcpCode = (
-  agent: Agent,
-  codePlan: CodePlan | null | undefined,
-  remoteProj: string,
-): string[] => {
+const renderMcpCode = (codePlan: CodePlan | null | undefined): string[] => {
   if (codePlan === null || codePlan === undefined) return [];
   const runtimes = [
     ...(codePlan.runtimes.has("bun")
@@ -68,14 +78,22 @@ const renderMcpCode = (
       : []),
   ];
   return [
-    ...runtimes,
+    ...runtimes.map(nonFatal),
     ...(runtimes.length === 0
       ? []
       : ['export PATH="$HOME/.bun/bin:$HOME/.local/bin:$PATH"']),
-    ...codePlan.installCmds,
-    ...renderMcpConfig(agent, codePlan, remoteProj),
+    ...codePlan.installCmds.map(nonFatal),
   ];
 };
+
+const renderSummary = (steps: EnrichmentStepResult[]): string[] => [
+  'echo "[keepon] enrichment summary"',
+  ...steps.map((step) =>
+    step.ok
+      ? `echo "[keepon] ok: ${shellLog(step.name)}"`
+      : `echo "[keepon] failed: ${shellLog(step.name)}: ${shellLog(step.error)}"`,
+  ),
+];
 
 export class BootstrapService {
   readonly agent: Agent;
@@ -117,15 +135,33 @@ export class BootstrapService {
     return ["set -e", ZSTD_INSTALL].join("\n");
   }
 
+  renderEnrichmentConfig(
+    remoteProj: string,
+    opts: EnrichmentBootstrapOptions,
+  ): string {
+    if (opts.codePlan === null || opts.codePlan === undefined)
+      return 'echo "[keepon] mcp config skipped"';
+    const config = renderMcpConfig(this.agent, opts.codePlan, remoteProj);
+    if (config.length === 0) return 'echo "[keepon] mcp config skipped"';
+    return config.join("\n");
+  }
+
+  renderEnrichmentInstalls(opts: EnrichmentBootstrapOptions): string {
+    return [nonFatal(ZSTD_INSTALL), ...renderMcpCode(opts.codePlan)].join("\n");
+  }
+
+  renderEnrichmentCompletion(steps: EnrichmentStepResult[]): string {
+    return [...renderSummary(steps), "touch /tmp/keepon-enriched"].join("\n");
+  }
+
   renderEnrichment(
     remoteProj: string,
     opts: EnrichmentBootstrapOptions,
   ): string {
     return [
-      "set -e",
-      ZSTD_INSTALL,
-      ...renderMcpCode(this.agent, opts.codePlan, remoteProj),
-      "touch /tmp/keepon-enriched",
+      this.renderEnrichmentInstalls(opts),
+      this.renderEnrichmentConfig(remoteProj, opts),
+      this.renderEnrichmentCompletion([]),
     ].join("\n");
   }
 }

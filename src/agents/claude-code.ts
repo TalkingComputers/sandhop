@@ -197,6 +197,7 @@ export const CLAUDE_CODE: Agent = {
     ".claude/CLAUDE.md",
     ".claude.json",
     ".claude/commands",
+    ".claude/skills",
     ".claude/agents",
     ".claude/output-styles",
     ".claude/mcp.json",

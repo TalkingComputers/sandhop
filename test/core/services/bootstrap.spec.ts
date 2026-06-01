@@ -71,11 +71,28 @@ test("BootstrapService enrichment installs runtimes and deps, writes rewritten M
   expect(script).toContain("curl -fsSL https://bun.sh/install | bash");
   expect(script).toContain("curl -LsSf https://astral.sh/uv/install.sh | sh");
   expect(script).toContain("cd /home/user/mcp && npm ci");
+  expect(script).not.toContain("set -e");
+  expect(script).toContain(
+    '|| { echo "[keepon] step failed: curl -fsSL https://bun.sh/install | bash" >&2; true; }',
+  );
+  expect(script).toContain(
+    '|| { echo "[keepon] step failed: curl -LsSf https://astral.sh/uv/install.sh | sh" >&2; true; }',
+  );
+  expect(script).toContain(
+    '|| { echo "[keepon] step failed: cd /home/user/mcp && npm ci" >&2; true; }',
+  );
   expect(script).toContain(
     "cat > /home/user/project/.mcp.json <<'KEEPON_MCP_CONFIG'",
   );
   expect(script).toContain('"/home/user/mcp/server.js"');
   expect(script).toContain("touch /tmp/keepon-enriched");
+  expect(script).toContain('echo "[keepon] enrichment summary"');
+  expect(script.indexOf("cd /home/user/mcp && npm ci")).toBeLessThan(
+    script.indexOf("cat > /home/user/project/.mcp.json"),
+  );
+  expect(script.indexOf("cat > /home/user/project/.mcp.json")).toBeLessThan(
+    script.indexOf("touch /tmp/keepon-enriched"),
+  );
   expect(script).not.toContain("mcp-code.tgz");
 });
 
