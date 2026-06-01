@@ -17,7 +17,19 @@ export class FakeHost implements HostDeps {
     outPath: string;
     excludes?: string[];
   }[];
+  copyCalls: {
+    cwd: string;
+    entries: string[];
+    outPath: string;
+    excludes?: string[];
+  }[];
   execCalls: { bin: string; args: string[] }[];
+  spawnPipeCalls: string[];
+  spawnDetachedCalls: {
+    bin: string;
+    args: string[];
+    opts: { cwd: string; env: Record<string, string | undefined> };
+  }[];
 
   constructor(args: {
     home: string;
@@ -36,7 +48,10 @@ export class FakeHost implements HostDeps {
     this.keychainValues = args.keychainValues ?? {};
     this.execValues = args.execValues ?? {};
     this.tarCalls = [];
+    this.copyCalls = [];
     this.execCalls = [];
+    this.spawnPipeCalls = [];
+    this.spawnDetachedCalls = [];
   }
 
   readFile(path: string): string | null {
@@ -48,6 +63,10 @@ export class FakeHost implements HostDeps {
     if (Object.hasOwn(this.files, path))
       return encoder.encode(this.files[path]!);
     throw new Error(`missing bytes ${path}`);
+  }
+
+  async openBlob(path: string): Promise<Blob> {
+    return new Blob([this.readBytes(path)]);
   }
 
   exists(path: string): boolean {
@@ -75,6 +94,10 @@ export class FakeHost implements HostDeps {
       .sort();
   }
 
+  fileSize(path: string): number {
+    return this.readBytes(path).byteLength;
+  }
+
   statMtimeMs(path: string): number {
     if (Object.hasOwn(this.mtimes, path)) return this.mtimes[path]!;
     throw new Error(`missing mtime ${path}`);
@@ -100,6 +123,64 @@ export class FakeHost implements HostDeps {
     const key = [bin, ...args].join(" ");
     if (Object.hasOwn(this.execValues, key)) return this.execValues[key]!;
     throw new Error(`missing exec ${key}`);
+  }
+
+  async spawnPipe(cmd: string): Promise<void> {
+    this.spawnPipeCalls.push(cmd);
+    const archive = cmd.match(/ -o '([^']+)' -f/)?.[1];
+    if (archive !== undefined) this.bytes[archive] = encoder.encode("archive");
+  }
+
+  spawnDetached(
+    bin: string,
+    args: string[],
+    opts: { cwd: string; env: Record<string, string | undefined> },
+  ): void {
+    this.spawnDetachedCalls.push({ bin, args, opts });
+  }
+
+  async splitFile(
+    path: string,
+    chunkBytes: number,
+    outPrefix: string,
+  ): Promise<string[]> {
+    const bytes = this.readBytes(path);
+    const chunks: string[] = [];
+    for (let offset = 0; offset < bytes.byteLength; offset += chunkBytes) {
+      const chunk = `${outPrefix}${String(chunks.length).padStart(6, "0")}`;
+      this.bytes[chunk] = bytes.slice(offset, offset + chunkBytes);
+      chunks.push(chunk);
+    }
+    if (chunks.length === 0) {
+      const chunk = `${outPrefix}000000`;
+      this.bytes[chunk] = new Uint8Array();
+      chunks.push(chunk);
+    }
+    return chunks;
+  }
+
+  async copyTree(
+    cwd: string,
+    entries: string[],
+    outPath: string,
+    opts?: { excludes: string[] },
+  ): Promise<void> {
+    const call =
+      opts === undefined
+        ? { cwd, entries, outPath }
+        : { cwd, entries, outPath, excludes: opts.excludes };
+    this.copyCalls.push(call);
+    for (const entry of entries) {
+      const prefix = `${cwd}/${entry}`;
+      for (const [path, content] of Object.entries(this.files)) {
+        if (path === prefix || path.startsWith(`${prefix}/`))
+          this.files[`${outPath}/${path.slice(cwd.length + 1)}`] = content;
+      }
+      for (const [path, content] of Object.entries(this.bytes)) {
+        if (path === prefix || path.startsWith(`${prefix}/`))
+          this.bytes[`${outPath}/${path.slice(cwd.length + 1)}`] = content;
+      }
+    }
   }
 
   async tarGz(

@@ -17,7 +17,7 @@ export class ProfileService {
       .profilePaths(this.host.home)
       .filter((path) => this.host.exists(joinHome(this.host.home, path)));
     if (entries.length === 0) return null;
-    await this.host.tarGz(this.host.home, entries, outPath);
+    await this.host.copyTree(this.host.home, entries, outPath);
     return outPath;
   }
 }

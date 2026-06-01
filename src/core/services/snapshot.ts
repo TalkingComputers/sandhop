@@ -7,8 +7,7 @@ export class SnapshotService {
     this.host = host;
   }
 
-  async build(cwd: string, outPath: string): Promise<string> {
-    await this.host.tarGz(cwd, ["."], outPath);
-    return outPath;
+  async build(cwd: string): Promise<string> {
+    return this.host.realpath(cwd);
   }
 }

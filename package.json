@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "e2b": "^2.27.0",
+    "p-limit": "^7.3.0",
     "tar": "^7.5.16"
   },
   "devDependencies": {

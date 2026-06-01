@@ -1,5 +1,5 @@
 import { CommandExitError, Sandbox as E2bSandbox } from "e2b";
-import { openAsBlob } from "node:fs";
+import type { HostDeps } from "../../core/ports/host.js";
 import type {
   Capability,
   CreateOptions,
@@ -24,9 +24,11 @@ const toArrayBuffer = (data: Uint8Array): ArrayBuffer => {
 class E2bSandboxAdapter implements Sandbox {
   readonly id: string;
   readonly sandbox: E2bSandboxInstance;
+  readonly host: Pick<HostDeps, "openBlob">;
 
-  constructor(sandbox: E2bSandboxInstance) {
+  constructor(sandbox: E2bSandboxInstance, host: Pick<HostDeps, "openBlob">) {
     this.sandbox = sandbox;
+    this.host = host;
     this.id = sandbox.sandboxId;
   }
 
@@ -39,10 +41,14 @@ class E2bSandboxAdapter implements Sandbox {
   }
 
   async uploadPath(remotePath: string, localPath: string): Promise<void> {
-    await this.sandbox.files.write(remotePath, await openAsBlob(localPath), {
-      requestTimeoutMs: PATH_UPLOAD_TIMEOUT_MS,
-      useOctetStream: true,
-    });
+    await this.sandbox.files.write(
+      remotePath,
+      await this.host.openBlob(localPath),
+      {
+        requestTimeoutMs: PATH_UPLOAD_TIMEOUT_MS,
+        useOctetStream: true,
+      },
+    );
   }
 
   async exec(cmd: string): Promise<RunResult> {
@@ -95,20 +101,28 @@ export class E2bSandboxProvider implements SandboxProvider {
     "extend-timeout",
   ]);
   readonly instances: Record<string, E2bSandboxAdapter> = {};
+  readonly host: Pick<HostDeps, "openBlob">;
+
+  constructor(host: Pick<HostDeps, "openBlob">) {
+    this.host = host;
+  }
 
   async create(opts: CreateOptions): Promise<Sandbox> {
     const sandbox = await E2bSandbox.create(opts.image, {
       envs: opts.envs,
       timeoutMs: opts.timeoutMs,
     });
-    const adapter = new E2bSandboxAdapter(sandbox);
+    const adapter = new E2bSandboxAdapter(sandbox, this.host);
     this.instances[adapter.id] = adapter;
     return adapter;
   }
 
   async connect(id: string): Promise<Sandbox> {
     if (this.instances[id] !== undefined) return this.instances[id];
-    const adapter = new E2bSandboxAdapter(await E2bSandbox.connect(id));
+    const adapter = new E2bSandboxAdapter(
+      await E2bSandbox.connect(id),
+      this.host,
+    );
     this.instances[id] = adapter;
     return adapter;
   }

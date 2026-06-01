@@ -453,10 +453,10 @@ export class McpCodeService {
     };
   }
 
-  async build(cwd: string, outPath: string): Promise<CodePlan | null> {
+  async build(cwd: string, outPath?: string): Promise<CodePlan | null> {
     const plan = this.plan(cwd);
     if (plan.classifications.length === 0) return null;
-    if (plan.mappings.length > 0) {
+    if (outPath !== undefined && plan.mappings.length > 0) {
       const entries = plan.mappings.map((mapping) => {
         if (!mapping.localPath.startsWith(`${this.host.home}/`))
           throw new Error(

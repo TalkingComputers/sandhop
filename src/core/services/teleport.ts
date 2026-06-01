@@ -3,8 +3,8 @@ import type { Agent, AuthBundle, SessionRef } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
 import type { SandboxProvider } from "../ports/provider.js";
 import type { BootstrapService } from "./bootstrap.js";
-import type { CodePlan } from "./mcp-code.js";
 import type { SecretsBundle, SecretsInputs } from "./secrets.js";
+import { TransferService } from "./transfer.js";
 
 export interface TailscaleOption {
   authKey: string;
@@ -26,14 +26,12 @@ export interface TeleportOptions {
 }
 
 export interface TeleportServices {
-  host: Pick<HostDeps, "readBytes">;
-  snapshot: { build(cwd: string, outPath: string): Promise<string> };
+  host: Pick<HostDeps, "fileSize" | "readBytes" | "spawnPipe" | "splitFile">;
+  snapshot: { build(cwd: string): Promise<string> };
   session: {
     latest(cwd: string): SessionRef | Promise<SessionRef>;
     byId(cwd: string, sessionId: string): SessionRef | Promise<SessionRef>;
   };
-  profile: { build(outPath: string): Promise<string | null> };
-  mcpCode?: { build(cwd: string, outPath: string): Promise<CodePlan | null> };
   secrets: {
     collect(
       cwd: string,
@@ -80,35 +78,16 @@ export class TeleportService {
   async run(cwd: string, opts: TeleportOptions): Promise<TeleportResult> {
     const user = "keepon";
     const pass = randomPassword();
-    const bundlePath = makePath("bundle.tgz");
-    const profilePath = makePath("profile.tgz");
-    const mcpCodePath = makePath("mcp-code.tgz");
     opts.onProgress?.("snapshotting");
-    const codePlanPromise =
-      this.services.mcpCode === undefined
-        ? Promise.resolve(null)
-        : this.services.mcpCode.build(cwd, mcpCodePath);
-    const [bundle, session, profile, baseSecrets, auth, cliVersion, codePlan] =
-      await Promise.all([
-        this.services.snapshot.build(cwd, bundlePath),
-        opts.sessionId === undefined
-          ? this.services.session.latest(cwd)
-          : this.services.session.byId(cwd, opts.sessionId),
-        opts.profile
-          ? this.services.profile.build(profilePath)
-          : Promise.resolve(null),
-        this.services.secrets.collect(cwd),
-        this.services.auth.extract(),
-        this.services.version.detect(),
-        codePlanPromise,
-      ]);
-    const secrets =
-      codePlan === null
-        ? baseSecrets
-        : await this.services.secrets.collect(cwd, {
-            envRefs: codePlan.envRefs,
-            referencedFiles: codePlan.referencedFiles,
-          });
+    const [bundle, session, baseSecrets, auth, cliVersion] = await Promise.all([
+      this.services.snapshot.build(cwd),
+      opts.sessionId === undefined
+        ? this.services.session.latest(cwd)
+        : this.services.session.byId(cwd, opts.sessionId),
+      this.services.secrets.collect(cwd),
+      this.services.auth.extract(),
+      this.services.version.detect(),
+    ]);
     const manifest = buildManifest({
       agent: this.agent.id,
       cliVersion,
@@ -118,8 +97,12 @@ export class TeleportService {
       ts: Date.now(),
     });
     const envs = opts.tailscale
-      ? { ...secrets.envs, ...auth.envs, TS_AUTHKEY: opts.tailscale.authKey }
-      : { ...secrets.envs, ...auth.envs };
+      ? {
+          ...baseSecrets.envs,
+          ...auth.envs,
+          TS_AUTHKEY: opts.tailscale.authKey,
+        }
+      : { ...baseSecrets.envs, ...auth.envs };
     opts.onProgress?.("creating sandbox");
     const sandbox = await this.provider.create({
       image: "base",
@@ -127,20 +110,16 @@ export class TeleportService {
       timeoutMs: opts.timeoutMs,
     });
     opts.onProgress?.("uploading bundle");
-    await sandbox.uploadPath("/tmp/bundle.tgz", bundle);
+    await new TransferService(this.services.host, sandbox).send(
+      bundle,
+      manifest.remoteProj,
+      "bundle",
+    );
     await sandbox.uploadFile(
       "/tmp/transcript.jsonl",
       this.services.host.readBytes(session.transcriptPath),
     );
-    if (profile !== null) {
-      opts.onProgress?.("uploading profile");
-      await sandbox.uploadPath("/tmp/profile.tgz", profile);
-    }
-    if (codePlan !== null && codePlan.mappings.length > 0) {
-      opts.onProgress?.("uploading MCP code");
-      await sandbox.uploadPath("/tmp/mcp-code.tgz", mcpCodePath);
-    }
-    for (const file of secrets.files)
+    for (const file of baseSecrets.files)
       await sandbox.uploadFile(expandHome(file.path), file.content);
     for (const file of auth.files)
       await sandbox.uploadFile(expandHome(file.path), file.content);
@@ -150,13 +129,7 @@ export class TeleportService {
     const restore = await sandbox.exec(
       this.services.bootstrap.render(
         manifest,
-        opts.tailscale
-          ? {
-              hasProfile: profile !== null,
-              tailscale: { sandboxId: sandbox.id },
-              codePlan,
-            }
-          : { hasProfile: profile !== null, codePlan },
+        opts.tailscale ? { tailscale: { sandboxId: sandbox.id } } : {},
       ),
     );
     if (restore.exitCode !== 0 || !restore.stdout.includes("KEEPON_RESTORE_OK"))

@@ -14,22 +14,20 @@ const manifest = buildManifest({
   ts: 1,
 });
 
-test("BootstrapService installs exact CLI version, restores tar and transcript, and never sources local secret dirs", () => {
-  const script = new BootstrapService(CLAUDE_CODE).render(manifest, {
-    hasProfile: true,
-  });
+test("BootstrapService core installs exact CLI version, ensures zstd, places transcript, and skips enrichment", () => {
+  const script = new BootstrapService(CLAUDE_CODE).render(manifest, {});
 
   expect(script).toContain("npm i -g @anthropic-ai/claude-code@2.1.160");
-  expect(script).toContain("tar -xzf /tmp/bundle.tgz -C /home/user/project");
+  expect(script).toContain("command -v zstd || sudo apt-get install -y zstd");
   expect(script).toContain('cp /tmp/transcript.jsonl "$dest"');
-  expect(script).toContain("tar -xzf /tmp/profile.tgz -C $HOME");
   expect(script).toContain("KEEPON_RESTORE_OK");
+  expect(script).not.toContain("tar -xzf /tmp/bundle.tgz");
+  expect(script).not.toContain("profile.tgz");
   expect(script).not.toContain("for f in");
 });
 
 test("BootstrapService enables tailscale binary mode when requested", () => {
   const script = new BootstrapService(CLAUDE_CODE).render(manifest, {
-    hasProfile: false,
     tailscale: { sandboxId: "sbx-1" },
   });
 
@@ -37,7 +35,7 @@ test("BootstrapService enables tailscale binary mode when requested", () => {
   expect(script).toContain('--hostname="keepon-sbx-1"');
 });
 
-test("BootstrapService restores MCP code, installs runtimes and deps, and writes rewritten MCP config", () => {
+test("BootstrapService enrichment installs runtimes and deps, writes rewritten MCP config, and marks completion", () => {
   const codePlan: CodePlan = {
     mappings: [{ localPath: "/home/local/mcp", sandboxPath: "/home/user/mcp" }],
     rewrites: [
@@ -57,19 +55,22 @@ test("BootstrapService restores MCP code, installs runtimes and deps, and writes
     classifications: [{ name: "local", kind: "local-path" }],
   };
 
-  const script = new BootstrapService(CLAUDE_CODE).render(manifest, {
-    hasProfile: false,
-    codePlan,
-  });
+  const script = new BootstrapService(CLAUDE_CODE).renderEnrichment(
+    manifest.remoteProj,
+    {
+      codePlan,
+    },
+  );
 
   expect(script).toContain("curl -fsSL https://bun.sh/install | bash");
   expect(script).toContain("curl -LsSf https://astral.sh/uv/install.sh | sh");
-  expect(script).toContain("tar -xzf /tmp/mcp-code.tgz -C $HOME");
   expect(script).toContain("cd /home/user/mcp && npm ci");
   expect(script).toContain(
     "cat > /home/user/project/.mcp.json <<'KEEPON_MCP_CONFIG'",
   );
   expect(script).toContain('"/home/user/mcp/server.js"');
+  expect(script).toContain("touch /tmp/keepon-enriched");
+  expect(script).not.toContain("mcp-code.tgz");
 });
 
 test("BootstrapService prunes stale Codex MCP tables before appending rewritten MCP config", () => {
@@ -91,9 +92,9 @@ test("BootstrapService prunes stale Codex MCP tables before appending rewritten 
     classifications: [{ name: "local", kind: "local-path" }],
   };
 
-  const script = new BootstrapService(CODEX).render(
-    { ...manifest, agent: "codex", cliVersion: "0.136.0" },
-    { hasProfile: false, codePlan },
+  const script = new BootstrapService(CODEX).renderEnrichment(
+    manifest.remoteProj,
+    { codePlan },
   );
 
   expect(script).toContain("node -e");

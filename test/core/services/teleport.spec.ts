@@ -1,7 +1,6 @@
 import { expect, test } from "vitest";
 import { CLAUDE_CODE } from "../../../src/agents/claude-code.js";
 import type { AuthBundle, SessionRef } from "../../../src/core/ports/agent.js";
-import type { CodePlan } from "../../../src/core/services/mcp-code.js";
 import { BootstrapService } from "../../../src/core/services/bootstrap.js";
 import { TeleportService } from "../../../src/core/services/teleport.js";
 import { FakeHost } from "../../fakes/host.js";
@@ -9,7 +8,7 @@ import { FakeProvider } from "../../fakes/provider.js";
 
 const encoder = new TextEncoder();
 
-test("TeleportService fans out collection, fans in, uploads archive paths, starts HTTPS ttyd with native resume", async () => {
+test("TeleportService fast core fans out collection, chunk-uploads the working tree, starts HTTPS ttyd with native resume, and skips enrichment", async () => {
   let inFlight = 0;
   let maxInFlight = 0;
   const track = async <T>(value: T): Promise<T> => {
@@ -23,10 +22,8 @@ test("TeleportService fans out collection, fans in, uploads archive paths, start
     home: "/home/local",
     env: {},
     bytes: {
-      "/tmp/bundle.tgz": encoder.encode("bundle"),
       "/home/local/.claude/projects/-workspace-project/session-id.jsonl":
         encoder.encode("transcript"),
-      "/tmp/profile.tgz": encoder.encode("profile"),
     },
   });
   const provider = new FakeProvider();
@@ -43,20 +40,11 @@ test("TeleportService fans out collection, fans in, uploads archive paths, start
   const service = new TeleportService(provider, CLAUDE_CODE, {
     host,
     snapshot: {
-      build: async (cwd, outPath) => {
-        host.bytes[outPath] = encoder.encode(`bundle:${cwd}`);
-        return track(outPath);
-      },
+      build: async (cwd) => track(cwd),
     },
     session: {
       latest: (cwd) => track(session),
       byId: (cwd, sessionId) => track(session),
-    },
-    profile: {
-      build: async (outPath) => {
-        host.bytes[outPath] = encoder.encode("profile");
-        return track(outPath);
-      },
     },
     secrets: {
       collect: (cwd) => track({ envs: { MCP_TOKEN: "mcp-token" }, files: [] }),
@@ -71,7 +59,7 @@ test("TeleportService fans out collection, fans in, uploads archive paths, start
     timeoutMs: 3_600_000,
   });
 
-  expect(maxInFlight).toBe(6);
+  expect(maxInFlight).toBe(5);
   expect(provider.creates).toEqual([
     {
       image: "base",
@@ -81,12 +69,12 @@ test("TeleportService fans out collection, fans in, uploads archive paths, start
   ]);
   expect(provider.sandbox.pathUploads).toEqual([
     {
-      remotePath: "/tmp/bundle.tgz",
-      localPath: expect.stringMatching(/bundle\.tgz$/),
-    },
-    {
-      remotePath: "/tmp/profile.tgz",
-      localPath: expect.stringMatching(/profile\.tgz$/),
+      remotePath: expect.stringMatching(
+        /\/tmp\/keepon-bundle-.+\.part\.000000$/,
+      ),
+      localPath: expect.stringMatching(
+        /\/tmp\/keepon-bundle-.+\.part\.000000$/,
+      ),
     },
   ]);
   expect(provider.sandbox.uploads.map((upload) => upload.path)).toEqual([
@@ -97,6 +85,8 @@ test("TeleportService fans out collection, fans in, uploads archive paths, start
     "bash -lc 'cd /home/user/project && claude --resume session-id'",
   );
   expect(provider.sandbox.spawns[0]).not.toContain("for f in");
+  expect(provider.sandbox.execs[1]).not.toContain("profile");
+  expect(provider.sandbox.execs[1]).not.toContain("mcp");
   expect(provider.sandbox.exposedPorts).toEqual([7681]);
   expect(result.url).toBe("https://sandbox-sbx-1-7681.example");
   expect(result.user).toBe("keepon");
@@ -108,7 +98,6 @@ test("TeleportService uses tailscale private mode without exposing a public prov
     home: "/home/local",
     env: {},
     bytes: {
-      "/tmp/bundle.tgz": encoder.encode("bundle"),
       "/home/local/.claude/projects/-workspace-project/session-id.jsonl":
         encoder.encode("transcript"),
     },
@@ -122,9 +111,8 @@ test("TeleportService uses tailscale private mode without exposing a public prov
   };
   const service = new TeleportService(provider, CLAUDE_CODE, {
     host,
-    snapshot: { build: async () => "/tmp/bundle.tgz" },
+    snapshot: { build: async () => "/workspace/project" },
     session: { latest: async () => session, byId: async () => session },
-    profile: { build: async () => null },
     secrets: { collect: async () => ({ envs: {}, files: [] }) },
     auth: {
       extract: async () => ({
@@ -153,13 +141,11 @@ test("TeleportService uses tailscale private mode without exposing a public prov
   expect(result.url).toBe("http://keepon-sbx-1.tailnet.test:7681");
 });
 
-test("TeleportService uploads MCP code archives with uploadPath and uploads referenced files as small writes", async () => {
+test("TeleportService uploads core secret and auth files but leaves MCP code to enrichment", async () => {
   const host = new FakeHost({
     home: "/home/local",
     env: {},
     bytes: {
-      "/tmp/bundle.tgz": encoder.encode("bundle"),
-      "/tmp/mcp-code.tgz": encoder.encode("mcp-code"),
       "/home/local/.claude/projects/-workspace-project/session-id.jsonl":
         encoder.encode("transcript"),
     },
@@ -171,22 +157,10 @@ test("TeleportService uploads MCP code archives with uploadPath and uploads refe
       "/home/local/.claude/projects/-workspace-project/session-id.jsonl",
     transcriptName: "session-id.jsonl",
   };
-  const codePlan: CodePlan = {
-    mappings: [{ localPath: "/home/local/mcp", sandboxPath: "/home/user/mcp" }],
-    rewrites: [],
-    runtimes: new Set(),
-    installCmds: [],
-    referencedFiles: ["/home/local/.env.d/mcp.env"],
-    envRefs: ["MCP_TOKEN"],
-    excluded: [],
-    classifications: [{ name: "local", kind: "local-path" }],
-  };
   const service = new TeleportService(provider, CLAUDE_CODE, {
     host,
-    snapshot: { build: async () => "/tmp/bundle.tgz" },
+    snapshot: { build: async () => "/workspace/project" },
     session: { latest: async () => session, byId: async () => session },
-    profile: { build: async () => null },
-    mcpCode: { build: async () => codePlan },
     secrets: {
       collect: async () => ({
         envs: { MCP_TOKEN: "token" },
@@ -209,15 +183,18 @@ test("TeleportService uploads MCP code archives with uploadPath and uploads refe
   });
 
   expect(provider.sandbox.pathUploads).toEqual([
-    { remotePath: "/tmp/bundle.tgz", localPath: "/tmp/bundle.tgz" },
     {
-      remotePath: "/tmp/mcp-code.tgz",
-      localPath: expect.stringMatching(/mcp-code\.tgz$/),
+      remotePath: expect.stringMatching(
+        /\/tmp\/keepon-bundle-.+\.part\.000000$/,
+      ),
+      localPath: expect.stringMatching(
+        /\/tmp\/keepon-bundle-.+\.part\.000000$/,
+      ),
     },
   ]);
   expect(provider.sandbox.uploads).toContainEqual({
     path: "/home/user/.env.d/mcp.env",
     data: "MCP_TOKEN=token\n",
   });
-  expect(provider.sandbox.execs[0]).toContain("tar -xzf /tmp/mcp-code.tgz");
+  expect(provider.sandbox.execs[1]).not.toContain("mcp-code");
 });

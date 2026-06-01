@@ -1,8 +1,6 @@
-import { writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { expect, test, vi } from "vitest";
 import { E2bSandboxProvider } from "../../src/providers/e2b/index.js";
+import { FakeHost } from "../fakes/host.js";
 
 const e2bMocks = vi.hoisted(() => {
   class CommandExitError extends Error {
@@ -46,15 +44,19 @@ test("E2bSandboxProvider creates sandboxes, uploads octet-stream bytes and paths
     stdout: "ok",
     stderr: "",
   });
-  const provider = new E2bSandboxProvider();
+  const localPath = "/tmp/keepon-e2b.txt";
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: { [localPath]: "large" },
+  });
+  const provider = new E2bSandboxProvider(host);
 
   const sandbox = await provider.create({
     image: "base",
     envs: { A: "1" },
     timeoutMs: 600000,
   });
-  const localPath = join(tmpdir(), `keepon-e2b-${Date.now()}.txt`);
-  writeFileSync(localPath, "large");
   await sandbox.uploadFile("/tmp/a", new Uint8Array([1, 2]));
   await sandbox.uploadPath("/tmp/large", localPath);
   await expect(sandbox.exec("echo ok")).resolves.toEqual({
@@ -103,7 +105,9 @@ test("E2bSandboxProvider returns non-zero command exits as RunResult data", asyn
       stderr: "boom",
     }),
   );
-  const provider = new E2bSandboxProvider();
+  const provider = new E2bSandboxProvider(
+    new FakeHost({ home: "/home/local", env: {} }),
+  );
   const sandbox = await provider.create({
     image: "base",
     envs: {},

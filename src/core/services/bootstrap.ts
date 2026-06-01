@@ -3,8 +3,10 @@ import type { Agent } from "../ports/agent.js";
 import type { CodePlan } from "./mcp-code.js";
 
 export interface BootstrapOptions {
-  hasProfile: boolean;
   tailscale?: { sandboxId: string };
+}
+
+export interface EnrichmentBootstrapOptions {
   codePlan?: CodePlan | null;
 }
 
@@ -63,16 +65,11 @@ const renderMcpCode = (
       ? ["curl -LsSf https://astral.sh/uv/install.sh | sh"]
       : []),
   ];
-  const archive =
-    codePlan.mappings.length === 0
-      ? []
-      : ["mkdir -p $HOME && tar -xzf /tmp/mcp-code.tgz -C $HOME"];
   return [
     ...runtimes,
     ...(runtimes.length === 0
       ? []
       : ['export PATH="$HOME/.bun/bin:$HOME/.local/bin:$PATH"']),
-    ...archive,
     ...codePlan.installCmds,
     ...renderMcpConfig(agent, codePlan, remoteProj),
   ];
@@ -98,24 +95,31 @@ export class BootstrapService {
           `sudo tailscale up --authkey="$TS_AUTHKEY" --hostname="keepon-${opts.tailscale.sandboxId}" --accept-dns=false`,
         ]
       : [];
-    const profile = opts.hasProfile
-      ? ["mkdir -p $HOME && tar -xzf /tmp/profile.tgz -C $HOME"]
-      : [];
     return [
       "set -e",
+      "command -v zstd || sudo apt-get install -y zstd",
       "sudo curl -fsSL https://github.com/tsl0922/ttyd/releases/latest/download/ttyd.x86_64 -o /usr/local/bin/ttyd",
       "sudo chmod +x /usr/local/bin/ttyd",
       ...tailscale,
       this.agent.installCmd(manifest.cliVersion),
-      ...profile,
       ...this.agent.preSeed(manifest.remoteProj),
-      ...renderMcpCode(this.agent, opts.codePlan, manifest.remoteProj),
       `mkdir -p ${manifest.remoteProj}`,
-      `tar -xzf /tmp/bundle.tgz -C ${manifest.remoteProj}`,
       `dest="${dest}"`,
       'mkdir -p "$(dirname "$dest")"',
       'cp /tmp/transcript.jsonl "$dest"',
       "echo KEEPON_RESTORE_OK",
+    ].join("\n");
+  }
+
+  renderEnrichment(
+    remoteProj: string,
+    opts: EnrichmentBootstrapOptions,
+  ): string {
+    return [
+      "set -e",
+      "command -v zstd || sudo apt-get install -y zstd",
+      ...renderMcpCode(this.agent, opts.codePlan, remoteProj),
+      "touch /tmp/keepon-enriched",
     ].join("\n");
   }
 }

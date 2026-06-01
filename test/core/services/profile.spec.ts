@@ -22,7 +22,7 @@ test("ProfileService ships portable Codex config without auth, caches, sessions,
     new ProfileService(host, CODEX).build("/tmp/profile.tgz"),
   ).resolves.toBe("/tmp/profile.tgz");
 
-  expect(host.tarCalls).toEqual([
+  expect(host.copyCalls).toEqual([
     {
       cwd: "/home/local",
       entries: [".codex/config.toml", ".codex/prompts"],
@@ -46,7 +46,7 @@ test("ProfileService ships Claude settings, commands, agents, plugins, and outpu
 
   await new ProfileService(host, CLAUDE_CODE).build("/tmp/profile.tgz");
 
-  expect(host.tarCalls[0]!.entries).toEqual([
+  expect(host.copyCalls[0]!.entries).toEqual([
     ".claude/settings.json",
     ".claude/commands",
     ".claude/agents",

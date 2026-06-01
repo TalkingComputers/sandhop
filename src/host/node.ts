@@ -1,13 +1,15 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   existsSync,
+  openAsBlob,
   readFileSync,
   readdirSync,
   realpathSync,
   statSync,
   type Dirent,
 } from "node:fs";
+import { cp, mkdir, open, rm, writeFile } from "node:fs/promises";
 import * as tar from "tar";
 import type { HostDeps } from "../core/ports/host.js";
 
@@ -32,6 +34,13 @@ const hasExcludedSegment = (path: string, excludes: string[]): boolean => {
   return excludes.some((exclude) => segments.includes(exclude));
 };
 
+const dirname = (path: string): string => {
+  const clean = path.replace(/\/+$/, "");
+  const index = clean.lastIndexOf("/");
+  if (index <= 0) return "/";
+  return clean.slice(0, index);
+};
+
 export class NodeHost implements HostDeps {
   env: Record<string, string | undefined>;
   home: string;
@@ -53,6 +62,10 @@ export class NodeHost implements HostDeps {
     return new Uint8Array(readFileSync(path));
   }
 
+  async openBlob(path: string): Promise<Blob> {
+    return openAsBlob(path);
+  }
+
   exists(path: string): boolean {
     return existsSync(path);
   }
@@ -63,6 +76,10 @@ export class NodeHost implements HostDeps {
 
   walk(dir: string): string[] {
     return listFiles(dir);
+  }
+
+  fileSize(path: string): number {
+    return statSync(path).size;
   }
 
   statMtimeMs(path: string): number {
@@ -91,6 +108,93 @@ export class NodeHost implements HostDeps {
 
   exec(bin: string, args: string[]): string {
     return execFileSync(bin, args, { encoding: "utf8" });
+  }
+
+  async spawnPipe(cmd: string): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn("/bin/sh", ["-lc", cmd], { stdio: "inherit" });
+      child.on("error", reject);
+      child.on("exit", (code, signal) => {
+        if (code === 0) {
+          resolve();
+          return;
+        }
+        reject(
+          new Error(
+            signal === null
+              ? `Command failed with exit ${code}: ${cmd}`
+              : `Command failed with signal ${signal}: ${cmd}`,
+          ),
+        );
+      });
+    });
+  }
+
+  spawnDetached(
+    bin: string,
+    args: string[],
+    opts: { cwd: string; env: Record<string, string | undefined> },
+  ): void {
+    spawn(bin, args, {
+      cwd: opts.cwd,
+      detached: true,
+      env: opts.env,
+      stdio: "ignore",
+    }).unref();
+  }
+
+  async splitFile(
+    path: string,
+    chunkBytes: number,
+    outPrefix: string,
+  ): Promise<string[]> {
+    const size = this.fileSize(path);
+    if (size === 0) {
+      const chunk = `${outPrefix}000000`;
+      await writeFile(chunk, new Uint8Array());
+      return [chunk];
+    }
+    const chunks: string[] = [];
+    const file = await open(path, "r");
+    try {
+      let offset = 0;
+      let index = 0;
+      while (offset < size) {
+        const length = Math.min(chunkBytes, size - offset);
+        const buffer = Buffer.allocUnsafe(length);
+        await file.read(buffer, 0, length, offset);
+        const chunk = `${outPrefix}${String(index).padStart(6, "0")}`;
+        await writeFile(chunk, buffer);
+        chunks.push(chunk);
+        offset += length;
+        index += 1;
+      }
+      return chunks;
+    } finally {
+      await file.close();
+    }
+  }
+
+  async copyTree(
+    cwd: string,
+    entries: string[],
+    outPath: string,
+    opts?: { excludes: string[] },
+  ): Promise<void> {
+    await rm(outPath, { recursive: true, force: true });
+    await mkdir(outPath, { recursive: true });
+    for (const entry of entries) {
+      const source = `${cwd}/${entry}`;
+      const dest = `${outPath}/${entry}`;
+      await mkdir(dirname(dest), { recursive: true });
+      await cp(source, dest, {
+        recursive: true,
+        filter:
+          opts === undefined
+            ? undefined
+            : (path) => !hasExcludedSegment(path, opts.excludes),
+      });
+    }
   }
 
   async tarGz(

@@ -1,4 +1,4 @@
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   detectAgents,
   pickAgent,
@@ -6,8 +6,6 @@ import {
 } from "../agents/index.js";
 import { AuthService } from "../core/services/auth.js";
 import { BootstrapService } from "../core/services/bootstrap.js";
-import { McpCodeService } from "../core/services/mcp-code.js";
-import { ProfileService } from "../core/services/profile.js";
 import { SecretsService } from "../core/services/secrets.js";
 import { SessionService } from "../core/services/session.js";
 import { SnapshotService } from "../core/services/snapshot.js";
@@ -28,7 +26,7 @@ const runPush = async (
   onProgress: (msg: string) => void,
 ): Promise<void> => {
   const host = buildHost();
-  const provider = new E2bSandboxProvider();
+  const provider = new E2bSandboxProvider(host);
   const agent = args.agent
     ? pickAgent(args.agent)
     : selectDefaultAgent(detectAgents(host, args.cwd));
@@ -41,8 +39,6 @@ const runPush = async (
     host,
     snapshot: new SnapshotService(host),
     session: new SessionService(host, agent),
-    profile: new ProfileService(host, agent),
-    mcpCode: new McpCodeService(host, agent),
     secrets: new SecretsService(host, agent),
     auth: new AuthService(host, agent),
     version: new VersionService(host, agent),
@@ -57,17 +53,37 @@ const runPush = async (
   });
   console.log(`KEEPON_URL ${result.url}`);
   console.log(`KEEPON_AUTH ${result.user}:${result.pass}`);
+  console.log(`KEEPON_ENRICHING ${result.sandboxId}`);
+  console.log(
+    "enrichment running in background (profile, skills, MCP servers)",
+  );
+  const enrichPath = fileURLToPath(new URL("./enrich.js", import.meta.url));
+  host.spawnDetached(
+    process.execPath,
+    [
+      enrichPath,
+      "--sandbox-id",
+      result.sandboxId,
+      "--agent",
+      agent.id,
+      "--cwd",
+      args.cwd,
+      ...(args.profile ? [] : ["--no-profile"]),
+    ],
+    { cwd: args.cwd, env: process.env },
+  );
 };
 
 export const main = async (argv: string[]): Promise<void> => {
   const args = parseArgs(argv, process.cwd());
-  const provider = new E2bSandboxProvider();
   if (args.cmd === "list") {
+    const provider = new E2bSandboxProvider(buildHost());
     for (const sandbox of await provider.list())
       console.log(`${sandbox.id}\t${sandbox.startedAt.toISOString()}`);
     return;
   }
   if (args.cmd === "kill") {
+    const provider = new E2bSandboxProvider(buildHost());
     if (args.killId === undefined)
       throw new Error("kill requires a sandbox id");
     console.log((await provider.destroy(args.killId)) ? "killed" : "not found");
