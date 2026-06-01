@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { CLAUDE_CODE } from "./adapters.js";
+import { CLAUDE_CODE, CODEX } from "./adapters.js";
 import { buildManifest } from "./manifest.js";
 import { teleport, type SandboxClient } from "./sandbox.js";
 
@@ -54,6 +54,37 @@ test("teleport runs the full sequence and returns url", async () => {
   expect(calls).toContain("write:/tmp/bundle.tgz");
   expect(calls.some((c) => c.startsWith("run:fg"))).toBe(true);
   expect(calls.some((c) => c.startsWith("run:bg"))).toBe(true);
+});
+
+test("teleport expands auth file HOME before upload", async () => {
+  const out = mkdtempSync(join(tmpdir(), "keepon-sb-auth-"));
+  const bundle = join(out, "b.tgz");
+  const transcript = join(out, "t.jsonl");
+  writeFileSync(bundle, "x");
+  writeFileSync(transcript, "{}");
+  const manifest = buildManifest({
+    agent: "codex",
+    originalCwd: "/Users/p/proj",
+    sessionId: "u-1",
+    transcriptName: "rollout-2026-05-31T00-00-00-u-1.jsonl",
+    ts: 1,
+  });
+  const { client, calls } = makeFake();
+
+  await teleport(client, {
+    bundle,
+    transcript,
+    manifest,
+    adapter: CODEX,
+    auth: {
+      envs: {},
+      files: [{ path: "$HOME/.codex/auth.json", content: "{}" }],
+    },
+    timeoutMs: 3_600_000,
+  });
+
+  expect(calls).toContain("write:/home/user/.codex/auth.json");
+  expect(calls).not.toContain("write:$HOME/.codex/auth.json");
 });
 
 test("teleport throws when restore marker missing", async () => {

@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { ADAPTERS, detectAgent } from "./adapters.js";
 import { extractAuth } from "./auth.js";
 import { buildManifest, type AgentId } from "./manifest.js";
@@ -121,7 +122,8 @@ export const main = async (argv: string[]): Promise<void> => {
   await runPush(args);
 };
 
-main(process.argv.slice(2)).catch((e) => {
-  console.error(String(e instanceof Error ? e.message : e));
-  process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
+  main(process.argv.slice(2)).catch((e) => {
+    console.error(String(e instanceof Error ? e.message : e));
+    process.exit(1);
+  });
