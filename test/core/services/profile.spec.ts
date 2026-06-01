@@ -31,11 +31,12 @@ test("ProfileService ships portable Codex config without auth, caches, sessions,
   ]);
 });
 
-test("ProfileService ships Claude settings, commands, skills, agents, plugins, and output styles only when present", async () => {
+test("ProfileService ships Claude settings, commands, skills, agents, plugins, and output styles without raw claude.json", async () => {
   const host = new FakeHost({
     home: "/home/local",
     env: {},
     files: {
+      "/home/local/.claude.json": "{}",
       "/home/local/.claude/settings.json": "{}",
       "/home/local/.claude/commands/ship.md": "ship",
       "/home/local/.claude/skills/review/SKILL.md": "review",

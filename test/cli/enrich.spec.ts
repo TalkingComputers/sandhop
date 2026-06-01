@@ -87,7 +87,14 @@ cwd = "/home/local/mcp"
     ]),
   );
   expect(execLog).toContain("command -v zstd || sudo apt-get install -y zstd");
-  expect(execLog).toContain("cd /home/user/mcp && npm ci");
+  expect(execLog).toContain('KEEPON_LOW_PRIORITY="nice -n 19"');
+  expect(execLog).toContain("nice -n 19 ionice -c3");
+  expect(execLog).toContain(
+    "$KEEPON_LOW_PRIORITY sh -lc 'cd /home/user/mcp && npm ci'",
+  );
+  expect(execLog).toContain(
+    "$KEEPON_LOW_PRIORITY sh -lc 'zstd -d --long=27 -c",
+  );
   expect(execLog).toContain('cat >> "$HOME/.codex/config.toml"');
   expect(execLog).toContain("/home/user/mcp/server.js");
   expect(enrichmentExec).toContain("[keepon] enrichment summary");
@@ -129,7 +136,6 @@ test("enrichSandbox finishes profile and marker after MCP transfer failure", asy
 
   expect(host.copyCalls[0]!.entries).toEqual([
     ".claude/settings.json",
-    ".claude.json",
     ".claude/skills",
   ]);
   const profileIndex = sandbox.execs.findIndex(

@@ -1,3 +1,7 @@
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect, test } from "vitest";
 import { CODEX } from "../../../src/agents/codex.js";
 import { CLAUDE_CODE } from "../../../src/agents/claude-code.js";
@@ -68,32 +72,116 @@ test("BootstrapService enrichment installs runtimes and deps, writes rewritten M
   );
 
   expect(script).toContain("command -v zstd || sudo apt-get install -y zstd");
-  expect(script).toContain("curl -fsSL https://bun.sh/install | bash");
-  expect(script).toContain("curl -LsSf https://astral.sh/uv/install.sh | sh");
-  expect(script).toContain("cd /home/user/mcp && npm ci");
+  expect(script).toContain('KEEPON_LOW_PRIORITY="nice -n 19"');
+  expect(script).toContain("nice -n 19 ionice -c3");
+  expect(script).toContain(
+    "$KEEPON_LOW_PRIORITY sh -lc 'curl -fsSL https://bun.sh/install | bash'",
+  );
+  expect(script).toContain(
+    "$KEEPON_LOW_PRIORITY sh -lc 'curl -LsSf https://astral.sh/uv/install.sh | sh'",
+  );
+  expect(script).toContain(
+    "$KEEPON_LOW_PRIORITY sh -lc 'cd /home/user/mcp && npm ci'",
+  );
   expect(script).not.toContain("set -e");
   expect(script).toContain(
-    '|| { echo "[keepon] step failed: curl -fsSL https://bun.sh/install | bash" >&2; true; }',
+    "|| { echo \"[keepon] step failed: \\$KEEPON_LOW_PRIORITY sh -lc 'curl -fsSL https://bun.sh/install | bash'\" >&2; true; }",
   );
   expect(script).toContain(
-    '|| { echo "[keepon] step failed: curl -LsSf https://astral.sh/uv/install.sh | sh" >&2; true; }',
+    "|| { echo \"[keepon] step failed: \\$KEEPON_LOW_PRIORITY sh -lc 'curl -LsSf https://astral.sh/uv/install.sh | sh'\" >&2; true; }",
   );
   expect(script).toContain(
-    '|| { echo "[keepon] step failed: cd /home/user/mcp && npm ci" >&2; true; }',
+    "|| { echo \"[keepon] step failed: \\$KEEPON_LOW_PRIORITY sh -lc 'cd /home/user/mcp && npm ci'\" >&2; true; }",
   );
-  expect(script).toContain(
-    "cat > /home/user/project/.mcp.json <<'KEEPON_MCP_CONFIG'",
-  );
-  expect(script).toContain('"/home/user/mcp/server.js"');
+  expect(script).toContain("node -e");
+  expect(script).toContain("$HOME/.claude.json");
+  expect(script).toContain("/home/user/mcp/server.js");
   expect(script).toContain("touch /tmp/keepon-enriched");
   expect(script).toContain('echo "[keepon] enrichment summary"');
   expect(script.indexOf("cd /home/user/mcp && npm ci")).toBeLessThan(
-    script.indexOf("cat > /home/user/project/.mcp.json"),
+    script.indexOf("$HOME/.claude.json"),
   );
-  expect(script.indexOf("cat > /home/user/project/.mcp.json")).toBeLessThan(
+  expect(script.indexOf("$HOME/.claude.json")).toBeLessThan(
     script.indexOf("touch /tmp/keepon-enriched"),
   );
   expect(script).not.toContain("mcp-code.tgz");
+});
+
+test("BootstrapService merges Claude MCP servers into existing claude.json without clobbering preseed keys", () => {
+  const home = mkdtempSync(join(tmpdir(), "keepon-claude-"));
+  const remoteProj = join(home, "project");
+  const codePlan: CodePlan = {
+    mappings: [],
+    rewrites: [
+      {
+        name: "local",
+        transport: "stdio",
+        command: "node",
+        args: ["/home/user/mcp/server.js"],
+        cwd: "/home/user/mcp",
+      },
+    ],
+    runtimes: new Set(),
+    installCmds: [],
+    referencedFiles: [],
+    envRefs: [],
+    excluded: [],
+    classifications: [{ name: "local", kind: "local-path" }],
+  };
+  writeFileSync(
+    join(home, ".claude.json"),
+    JSON.stringify({
+      hasCompletedOnboarding: true,
+      projects: {
+        [remoteProj]: {
+          hasTrustDialogAccepted: true,
+          hasCompletedProjectOnboarding: true,
+        },
+      },
+      customApiKeyResponses: { approved: ["last20"], rejected: [] },
+      mcpServers: { stale: { command: "old" } },
+    }),
+  );
+
+  const script = new BootstrapService(CLAUDE_CODE).renderEnrichmentConfig(
+    remoteProj,
+    { codePlan },
+  );
+
+  expect(script).not.toContain("cat >");
+  execFileSync("bash", ["-lc", script], { env: { HOME: home } });
+
+  const parsed = JSON.parse(
+    readFileSync(join(home, ".claude.json"), "utf8"),
+  ) as {
+    hasCompletedOnboarding: boolean;
+    projects: Record<
+      string,
+      {
+        hasTrustDialogAccepted: boolean;
+        hasCompletedProjectOnboarding: boolean;
+      }
+    >;
+    customApiKeyResponses: { approved: string[]; rejected: string[] };
+    mcpServers: Record<string, unknown>;
+  };
+  expect(parsed.hasCompletedOnboarding).toBe(true);
+  expect(parsed.projects[remoteProj]).toEqual({
+    hasTrustDialogAccepted: true,
+    hasCompletedProjectOnboarding: true,
+  });
+  expect(parsed.customApiKeyResponses).toEqual({
+    approved: ["last20"],
+    rejected: [],
+  });
+  expect(parsed.mcpServers).toEqual({
+    local: {
+      transport: "stdio",
+      command: "node",
+      args: ["/home/user/mcp/server.js"],
+      cwd: "/home/user/mcp",
+    },
+  });
 });
 
 test("BootstrapService prunes stale Codex MCP tables before appending rewritten MCP config", () => {

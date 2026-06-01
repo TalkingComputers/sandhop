@@ -161,9 +161,9 @@ const formatMcpConfig = (
     mcpServers[name] = config;
   }
   return {
-    path: `${remoteProj}/.mcp.json`,
-    content: `${JSON.stringify({ mcpServers }, null, 2)}\n`,
-    append: false,
+    path: "$HOME/.claude.json",
+    content: `${JSON.stringify(mcpServers, null, 2)}\n`,
+    mode: "merge-claude-json",
   };
 };
 
@@ -195,7 +195,6 @@ export const CLAUDE_CODE: Agent = {
     ".claude/settings.json",
     ".claude/settings.local.json",
     ".claude/CLAUDE.md",
-    ".claude.json",
     ".claude/commands",
     ".claude/skills",
     ".claude/agents",

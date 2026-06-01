@@ -137,6 +137,7 @@ export const enrichSandbox = async (
         if (profileTree !== null)
           await transfer.send(profileTree, "/home/user", "profile", {
             codec: "zstd",
+            lowPriority: true,
           });
       },
     );
@@ -156,6 +157,7 @@ export const enrichSandbox = async (
               `mcp-${index}`,
               {
                 codec: "zstd",
+                lowPriority: true,
               },
             ),
           ),

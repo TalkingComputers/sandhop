@@ -15,6 +15,8 @@ export type EnrichmentStepResult =
   | { name: string; ok: false; error: string };
 
 const ZSTD_INSTALL = "command -v zstd || sudo apt-get install -y zstd";
+const LOW_PRIORITY_SETUP =
+  'KEEPON_LOW_PRIORITY="nice -n 19"; if command -v ionice >/dev/null 2>&1; then KEEPON_LOW_PRIORITY="nice -n 19 ionice -c3"; fi';
 
 const dirname = (path: string): string => {
   const clean = path.replace(/\/+$/, "");
@@ -33,8 +35,14 @@ const shellLog = (value: string): string =>
     .replaceAll("$", "\\$")
     .replaceAll("`", "\\`");
 
+const quoteShell = (value: string): string =>
+  `'${value.replaceAll("'", "'\\''")}'`;
+
 const nonFatal = (cmd: string): string =>
   `${cmd} || { echo "[keepon] step failed: ${shellLog(cmd)}" >&2; true; }`;
+
+const runLowPriority = (cmd: string): string =>
+  `$KEEPON_LOW_PRIORITY sh -lc ${quoteShell(cmd)}`;
 
 const pruneMcpTablesScript = (path: string): string =>
   [
@@ -47,6 +55,16 @@ const pruneMcpTablesScript = (path: string): string =>
     'fs.writeFileSync(f,out.join("\\n").replace(/\\n*$/,"\\n"))',
   ].join(";");
 
+const mergeClaudeMcpScript = (path: string, content: string): string =>
+  [
+    'const fs=require("fs")',
+    `const f=${JSON.stringify(path)}.replace("$HOME",process.env.HOME)`,
+    `const s=JSON.parse(${JSON.stringify(content)})`,
+    'const j=fs.existsSync(f)?JSON.parse(fs.readFileSync(f,"utf8")):{}',
+    "j.mcpServers=s",
+    'fs.writeFileSync(f,JSON.stringify(j,null,2)+"\\n")',
+  ].join(";");
+
 const renderMcpConfig = (
   agent: Agent,
   codePlan: CodePlan,
@@ -54,11 +72,16 @@ const renderMcpConfig = (
 ): string[] => {
   if (codePlan.rewrites.length === 0) return [];
   const config = agent.formatMcpConfig(codePlan.rewrites, remoteProj);
-  const redirect = config.append ? ">>" : ">";
   const dir = dirname(config.path);
+  if (config.mode === "merge-claude-json")
+    return [
+      `mkdir -p ${shellPath(dir)}`,
+      `node -e ${JSON.stringify(mergeClaudeMcpScript(config.path, config.content))}`,
+    ];
+  const redirect = config.mode === "append" ? ">>" : ">";
   return [
     `mkdir -p ${shellPath(dir)}`,
-    ...(config.append
+    ...(config.mode === "append"
       ? [`node -e ${JSON.stringify(pruneMcpTablesScript(config.path))}`]
       : []),
     `cat ${redirect} ${shellPath(config.path)} <<'KEEPON_MCP_CONFIG'`,
@@ -78,11 +101,11 @@ const renderMcpCode = (codePlan: CodePlan | null | undefined): string[] => {
       : []),
   ];
   return [
-    ...runtimes.map(nonFatal),
+    ...runtimes.map((cmd) => nonFatal(runLowPriority(cmd))),
     ...(runtimes.length === 0
       ? []
       : ['export PATH="$HOME/.bun/bin:$HOME/.local/bin:$PATH"']),
-    ...codePlan.installCmds.map(nonFatal),
+    ...codePlan.installCmds.map((cmd) => nonFatal(runLowPriority(cmd))),
   ];
 };
 
@@ -132,7 +155,7 @@ export class BootstrapService {
   }
 
   renderEnrichmentSetup(): string {
-    return ["set -e", ZSTD_INSTALL].join("\n");
+    return ["set -e", LOW_PRIORITY_SETUP, ZSTD_INSTALL].join("\n");
   }
 
   renderEnrichmentConfig(
@@ -147,7 +170,11 @@ export class BootstrapService {
   }
 
   renderEnrichmentInstalls(opts: EnrichmentBootstrapOptions): string {
-    return [nonFatal(ZSTD_INSTALL), ...renderMcpCode(opts.codePlan)].join("\n");
+    return [
+      LOW_PRIORITY_SETUP,
+      nonFatal(ZSTD_INSTALL),
+      ...renderMcpCode(opts.codePlan),
+    ].join("\n");
   }
 
   renderEnrichmentCompletion(steps: EnrichmentStepResult[]): string {
