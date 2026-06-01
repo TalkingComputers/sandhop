@@ -1,0 +1,23 @@
+{
+  "name": "keepon",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "keepon": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "dev": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "e2b": "^2.27.0",
+    "tar": "^7.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^3.0.0"
+  }
+}
