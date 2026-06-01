@@ -1,3 +1,7 @@
 node_modules/
 .env
 *.log
+dist/
+agentdb.rvf
+agentdb.rvf.lock
+ruvector.db

@@ -1,0 +1,6 @@
+{
+  "name": "keepon",
+  "version": "0.1.0",
+  "description": "Teleport your live local Claude Code / Codex session to a cloud sandbox and continue in the browser.",
+  "commands": ["./commands/keepon.md"]
+}
