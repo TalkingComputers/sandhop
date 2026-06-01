@@ -17,6 +17,32 @@ const remotePath = (home: string, path: string): string => {
   return path;
 };
 
+const HOST_ENV_NAMES = new Set([
+  "HOME",
+  "PATH",
+  "PWD",
+  "OLDPWD",
+  "USER",
+  "LOGNAME",
+  "SHELL",
+  "SHLVL",
+  "TERM",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "LANG",
+  "LC_ALL",
+  "LC_CTYPE",
+  "MAIL",
+  "EDITOR",
+]);
+
+const HOST_ENV_PATTERN =
+  /^(npm_config_|NODE_|FNM_|__MISE|MISE_|NVM_|VOLTA_|ZSH|BASH)/i;
+
+const isHostEnvName = (name: string): boolean =>
+  HOST_ENV_NAMES.has(name) || HOST_ENV_PATTERN.test(name);
+
 export class SecretsService {
   readonly host: HostDeps;
   readonly agent: Agent;
@@ -38,6 +64,7 @@ export class SecretsService {
     }
     const envs: Record<string, string> = {};
     for (const name of [...names].sort()) {
+      if (isHostEnvName(name)) continue;
       const value = this.host.env[name];
       if (value !== undefined) envs[name] = value;
     }

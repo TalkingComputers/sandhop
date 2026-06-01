@@ -29,6 +29,38 @@ MISSING_TOKEN = "${"${MISSING_TOKEN}"}"
   );
 });
 
+test("SecretsService excludes host system env vars from MCP references", () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {
+      HOME: "/Users/parsa",
+      PATH: "/opt/homebrew/bin",
+      npm_config_prefix: "/Users/parsa/.npm-global",
+      MY_API_KEY: "secret",
+    },
+    files: {
+      "/home/local/.codex/config.toml": `[mcp_servers.fetch]
+command = "npx"
+
+[mcp_servers.fetch.env]
+HOME = "${"${HOME}"}"
+PATH = "${"${PATH}"}"
+npm_config_prefix = "${"${npm_config_prefix}"}"
+MY_API_KEY = "${"${MY_API_KEY}"}"
+`,
+    },
+  });
+
+  expect(new SecretsService(host, CODEX).collect("/workspace/project")).toEqual(
+    {
+      envs: {
+        MY_API_KEY: "secret",
+      },
+      files: [],
+    },
+  );
+});
+
 test("SecretsService includes MCP code env refs and referenced source files", () => {
   const host = new FakeHost({
     home: "/home/local",
