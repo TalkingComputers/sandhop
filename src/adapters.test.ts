@@ -1,6 +1,13 @@
-import { mkdtempSync, mkdirSync, writeFileSync, utimesSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+  utimesSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 import { expect, test } from "vitest";
 import {
   CLAUDE_CODE,
@@ -55,4 +62,55 @@ test("resumeCmd composes cd + resume", () => {
   expect(CODEX.resumeCmd("u-1", "/home/user/p")).toBe(
     "cd /home/user/p && codex resume u-1",
   );
+});
+
+test("installCmd pins reviewed CLI versions", () => {
+  expect(CLAUDE_CODE.installCmd).toBe(
+    "npm i -g @anthropic-ai/claude-code@2.1.159",
+  );
+  expect(CODEX.installCmd).toBe("npm i -g @openai/codex@0.135.0");
+});
+
+test("claude preSeed merges onboarding, trust, and api-key approval", () => {
+  const home = mkdtempSync(join(tmpdir(), "keepon-claude-home-"));
+  const command = CLAUDE_CODE.preSeed("/home/user/proj")[0]!;
+  const script = JSON.parse(command.slice("node -e ".length)) as string;
+
+  execFileSync(process.execPath, ["-e", script], {
+    env: {
+      ...process.env,
+      ANTHROPIC_API_KEY: "sk-ant-api03-abcdefghijklmnopqrstu",
+      HOME: home,
+    },
+  });
+
+  expect(CLAUDE_CODE.preSeed("/home/user/proj")).toHaveLength(1);
+  expect(command).not.toContain("bypassPermissionsModeAccepted");
+  expect(JSON.parse(readFileSync(join(home, ".claude.json"), "utf8"))).toEqual({
+    hasCompletedOnboarding: true,
+    projects: {
+      "/home/user/proj": {
+        hasTrustDialogAccepted: true,
+        hasCompletedProjectOnboarding: true,
+      },
+    },
+    customApiKeyResponses: {
+      approved: ["bcdefghijklmnopqrstu"],
+      rejected: [],
+    },
+  });
+});
+
+test("codex preSeed writes reviewed config", () => {
+  const command = CODEX.preSeed("/home/user/proj")[1]!;
+  const config = command
+    .replace("cat > $HOME/.codex/config.toml <<'EOF'\n", "")
+    .replace("\nEOF", "");
+
+  expect(config).toBe(`approval_policy = "never"
+sandbox_mode = "danger-full-access"
+cli_auth_credentials_store = "file"
+
+[projects."/home/user/proj"]
+trust_level = "trusted"`);
 });

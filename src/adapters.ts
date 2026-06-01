@@ -13,7 +13,7 @@ export interface Adapter {
   installCmd: string;
   resumeCmd(sessionId: string, remoteProj: string): string;
   remoteTranscriptPath(remoteEnc: string, transcriptName: string): string;
-  preSeed(): string[];
+  preSeed(remoteProj: string): string[];
   findSessions(home: string, cwd: string): SessionRef[];
 }
 
@@ -41,13 +41,13 @@ const newest = (refs: SessionRef[]): SessionRef[] =>
 
 export const CLAUDE_CODE: Adapter = {
   id: "claude-code",
-  installCmd: "npm i -g @anthropic-ai/claude-code",
+  installCmd: "npm i -g @anthropic-ai/claude-code@2.1.159",
   resumeCmd: (id, proj) => `cd ${proj} && claude --resume ${id}`,
   remoteTranscriptPath: (enc, name) => `$HOME/.claude/projects/${enc}/${name}`,
-  preSeed: () => [
-    "mkdir -p $HOME/.claude",
-    `node -e 'const f=process.env.HOME+"/.claude.json";const fs=require("fs");const j=fs.existsSync(f)?JSON.parse(fs.readFileSync(f,"utf8")):{};j.hasCompletedOnboarding=true;j.bypassPermissionsModeAccepted=true;fs.writeFileSync(f,JSON.stringify(j))'`,
-  ],
+  preSeed: (remoteProj) => {
+    const script = `const fs=require("fs");const f=process.env.HOME+"/.claude.json";const j=fs.existsSync(f)?JSON.parse(fs.readFileSync(f,"utf8")):{};j.hasCompletedOnboarding=true;if(!Object.hasOwn(j,"projects"))j.projects={};j.projects[${JSON.stringify(remoteProj)}]={hasTrustDialogAccepted:true,hasCompletedProjectOnboarding:true};if(process.env.ANTHROPIC_API_KEY){if(!Object.hasOwn(j,"customApiKeyResponses"))j.customApiKeyResponses={};j.customApiKeyResponses.approved=[process.env.ANTHROPIC_API_KEY.slice(-20)];j.customApiKeyResponses.rejected=[];}fs.writeFileSync(f,JSON.stringify(j))`;
+    return [`node -e ${JSON.stringify(script)}`];
+  },
   findSessions: (home, cwd) => {
     const dir = join(home, ".claude", "projects", projectDirName(cwd));
     return newest(
@@ -70,13 +70,20 @@ const codexId = (file: string): string => {
 
 export const CODEX: Adapter = {
   id: "codex",
-  installCmd: "npm i -g @openai/codex",
+  installCmd: "npm i -g @openai/codex@0.135.0",
   resumeCmd: (id, proj) => `cd ${proj} && codex resume ${id}`,
   remoteTranscriptPath: (_enc, name) =>
     `$HOME/.codex/sessions/restored/${name}`,
-  preSeed: () => [
+  preSeed: (remoteProj) => [
     "mkdir -p $HOME/.codex",
-    `printf 'approval_policy = "never"\nsandbox_mode = "workspace-write"\n' > $HOME/.codex/config.toml`,
+    `cat > $HOME/.codex/config.toml <<'EOF'
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+cli_auth_credentials_store = "file"
+
+[projects.${JSON.stringify(remoteProj)}]
+trust_level = "trusted"
+EOF`,
   ],
   findSessions: (home, cwd) => {
     const root = join(home, ".codex", "sessions");

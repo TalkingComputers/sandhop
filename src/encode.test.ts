@@ -8,6 +8,7 @@ test("encodes slashes and dots to dashes", () => {
   expect(projectDirName("/Users/p/.hermes/agent")).toBe(
     "-Users-p--hermes-agent",
   );
+  expect(projectDirName("/Users/p/My Proj_v2")).toBe("-Users-p-My-Proj-v2");
 });
 
 test("safeRemoteProj sanitizes basename and matches encoding", () => {

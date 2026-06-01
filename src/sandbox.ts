@@ -71,15 +71,19 @@ export const teleport = async (
 
 export const e2bClient: SandboxClient = {
   create: async (template, envs, timeoutMs) =>
-    (await Sandbox.create(template, { envs, timeoutMs })).sandboxId,
+    (await Sandbox.create(template, { envs, timeoutMs, secure: false }))
+      .sandboxId,
   writeFile: async (id, path, data) => {
     const sbx = await Sandbox.connect(id);
-    await sbx.files.write(path, data);
+    await sbx.files.write(path, data, {
+      requestTimeoutMs: 0,
+      useOctetStream: true,
+    });
   },
   run: async (id, cmd, background) => {
     const sbx = await Sandbox.connect(id);
     if (background) {
-      await sbx.commands.run(cmd, { background: true });
+      await sbx.commands.run(cmd, { background: true, timeoutMs: 0 });
       return;
     }
     const r = await sbx.commands.run(cmd);

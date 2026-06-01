@@ -8,7 +8,7 @@ export const renderBootstrap = (m: Manifest, a: Adapter): string => {
     "sudo curl -fsSL https://github.com/tsl0922/ttyd/releases/latest/download/ttyd.x86_64 -o /usr/local/bin/ttyd",
     "sudo chmod +x /usr/local/bin/ttyd",
     a.installCmd,
-    ...a.preSeed(),
+    ...a.preSeed(m.remoteProj),
     `mkdir -p ${m.remoteProj}`,
     `tar -xzf /tmp/bundle.tgz -C ${m.remoteProj}`,
     `dest="${dest}"`,
