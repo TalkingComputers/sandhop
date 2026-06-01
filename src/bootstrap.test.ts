@@ -25,3 +25,16 @@ test("bootstrap installs exact CLI version, pre-seeds, extracts, and copies tran
   expect(s).not.toContain("sed");
   expect(s).toContain("KEEPON_RESTORE_OK");
 });
+
+test("bootstrap starts tailscale userspace networking when enabled", () => {
+  const s = renderBootstrap(m, CLAUDE_CODE, {
+    tailscale: { sandboxId: "sbx-1" },
+  });
+  expect(s).toContain("curl -fsSL https://tailscale.com/install.sh | sh");
+  expect(s).toContain(
+    "sudo tailscaled --tun=userspace-networking --socks5-server=localhost:1055 --outbound-http-proxy-listen=localhost:1055 --statedir=/tmp/tailscaled &",
+  );
+  expect(s).toContain(
+    'sudo tailscale up --authkey="$TS_AUTHKEY" --hostname="keepon-sbx-1" --accept-dns=false',
+  );
+});

@@ -23,6 +23,10 @@ export interface SandboxClient {
   host(id: string, port: number): Promise<string>;
 }
 
+export interface TailscaleOption {
+  authKey: string;
+}
+
 const expandHome = (p: string): string => p.replace(/^\$HOME/, "/home/user");
 
 const instances = new Map<string, Sandbox>();
@@ -43,14 +47,19 @@ export const teleport = async (
     manifest: Manifest;
     adapter: Adapter;
     auth: AuthBundle;
+    tailscale?: TailscaleOption;
     timeoutMs: number;
     onProgress?: (msg: string) => void;
   },
 ): Promise<{ url: string; sandboxId: string; user: string; pass: string }> => {
   const user = "keepon";
   const pass = randomBytes(18).toString("base64url");
+  const envs = opts.tailscale
+    ? { ...opts.auth.envs, TS_AUTHKEY: opts.tailscale.authKey }
+    : opts.auth.envs;
   opts.onProgress?.("creating sandbox");
-  const id = await client.create("base", opts.auth.envs, opts.timeoutMs);
+  const id = await client.create("base", envs, opts.timeoutMs);
+  const tailscaleHostname = `keepon-${id}`;
   opts.onProgress?.(
     `uploading bundle (${(statSync(opts.bundle).size / 1024 / 1024).toFixed(2)} MB)`,
   );
@@ -72,7 +81,11 @@ export const teleport = async (
   );
   const restore = (await client.run(
     id,
-    renderBootstrap(opts.manifest, opts.adapter),
+    renderBootstrap(
+      opts.manifest,
+      opts.adapter,
+      opts.tailscale ? { tailscale: { sandboxId: id } } : undefined,
+    ),
     false,
   )) as RunResult;
   if (!restore.stdout.includes("KEEPON_RESTORE_OK"))
@@ -85,9 +98,38 @@ export const teleport = async (
   );
   await client.run(
     id,
-    `ttyd -p 7681 -W -c ${user}:${pass} bash -lc '${resume}'`,
+    opts.tailscale
+      ? `ttyd -i 127.0.0.1 -p 7681 -W -c ${user}:${pass} bash -lc '${resume}'`
+      : `ttyd -p 7681 -W -c ${user}:${pass} bash -lc '${resume}'`,
     true,
   );
+  if (opts.tailscale) {
+    const ready = (await client.run(
+      id,
+      "bash -lc 'for i in {1..60}; do (echo >/dev/tcp/127.0.0.1/7681) >/dev/null 2>&1 && exit 0; sleep 0.5; done; echo ttyd not ready >&2; exit 1'",
+      false,
+    )) as RunResult;
+    if (ready.exitCode !== 0)
+      throw new Error(`ttyd readiness failed: ${ready.stderr}`);
+    const script = `const fs=require("fs");const hostname=${JSON.stringify(`${tailscaleHostname}.`)};const status=JSON.parse(fs.readFileSync(0,"utf8"));const dnsName=status.Self.DNSName;if(!dnsName.startsWith(hostname))throw new Error("unexpected DNSName "+dnsName);process.stdout.write(dnsName.slice(hostname.length).replace(/\\.$/,""))`;
+    const status = (await client.run(
+      id,
+      `tailscale status --json | node -e ${JSON.stringify(script)}`,
+      false,
+    )) as RunResult;
+    if (status.exitCode !== 0)
+      throw new Error(`Tailscale status failed: ${status.stderr}`);
+    const suffix = status.stdout.trim();
+    if (!suffix)
+      throw new Error("Tailscale status returned an empty MagicDNS suffix");
+    opts.onProgress?.("ready");
+    return {
+      url: `http://${tailscaleHostname}.${suffix}:7681`,
+      sandboxId: id,
+      user,
+      pass,
+    };
+  }
   const url = `https://${await client.host(id, 7681)}`;
   opts.onProgress?.("ready");
   return { url, sandboxId: id, user, pass };

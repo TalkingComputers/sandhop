@@ -7,7 +7,13 @@ import { ADAPTERS, detectAgent } from "./adapters.js";
 import { extractAuth } from "./auth.js";
 import { buildManifest, type AgentId } from "./manifest.js";
 import { buildBundle } from "./snapshot.js";
-import { e2bClient, killSession, listSessions, teleport } from "./sandbox.js";
+import {
+  e2bClient,
+  killSession,
+  listSessions,
+  teleport,
+  type TailscaleOption,
+} from "./sandbox.js";
 
 export interface ParsedArgs {
   cmd: "push" | "list" | "kill";
@@ -15,6 +21,7 @@ export interface ParsedArgs {
   session?: string;
   killId?: string;
   cwd: string;
+  tailscale: boolean;
 }
 
 const flag = (argv: string[], name: string): string | undefined => {
@@ -35,7 +42,19 @@ export const parseArgs = (argv: string[], cwd: string): ParsedArgs => {
     session: flag(argv, "--session"),
     killId: cmd === "kill" ? argv[1] : undefined,
     cwd: flag(argv, "--cwd") ?? cwd,
+    tailscale: argv.includes("--tailscale"),
   };
+};
+
+export const readTailscaleOption = (
+  args: ParsedArgs,
+  env: Record<string, string | undefined>,
+): TailscaleOption | undefined => {
+  if (!args.tailscale) return undefined;
+  const authKey = env.TS_AUTHKEY;
+  if (!authKey)
+    throw new Error("TS_AUTHKEY is required when --tailscale is set");
+  return { authKey };
 };
 
 export const detectCliVersion = (agent: AgentId): string => {
@@ -89,6 +108,7 @@ const runPush = async (
   const sessionId = ref.sessionId;
   const transcriptName = basename(ref.transcriptPath);
   const cliVersion = detectCliVersion(agent);
+  const tailscale = readTailscaleOption(args, process.env);
 
   const manifest = buildManifest({
     agent,
@@ -119,6 +139,7 @@ const runPush = async (
     manifest,
     adapter: ADAPTERS[agent],
     auth,
+    tailscale,
     timeoutMs: 3_600_000,
     onProgress,
   });

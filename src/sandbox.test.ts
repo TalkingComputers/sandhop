@@ -50,9 +50,10 @@ const makeFake = () => {
     },
     run: async (_id, cmd, bg) => {
       calls.push(`run:${bg ? "bg" : "fg"}:${cmd}`);
-      return bg
-        ? undefined
-        : { exitCode: 0, stdout: "KEEPON_RESTORE_OK\n", stderr: "" };
+      if (bg) return undefined;
+      if (cmd.includes("tailscale status --json"))
+        return { exitCode: 0, stdout: "tailnet.ts.net\n", stderr: "" };
+      return { exitCode: 0, stdout: "KEEPON_RESTORE_OK\n", stderr: "" };
     },
     host: async (_id, port) => `sbx-1-${port}.e2b.app`,
   };
@@ -100,6 +101,10 @@ test("teleport runs the full sequence and returns url", async () => {
   expect(calls.some((c) => c.startsWith("run:fg"))).toBe(true);
   expect(calls.some((c) => c.startsWith("run:bg"))).toBe(true);
   expect(calls.find((c) => c.startsWith("run:bg"))).toContain("-c keepon:");
+  expect(calls.find((c) => c.startsWith("run:bg"))).not.toContain(
+    "-i 127.0.0.1",
+  );
+  expect(calls.some((c) => c.includes("tailscale"))).toBe(false);
   expect(progress).toEqual([
     "creating sandbox",
     "uploading bundle (0.00 MB)",
@@ -107,6 +112,49 @@ test("teleport runs the full sequence and returns url", async () => {
     "restoring session",
     "ready",
   ]);
+});
+
+test("teleport runs tailscale private channel when requested", async () => {
+  const out = mkdtempSync(join(tmpdir(), "keepon-sb-ts-"));
+  const bundle = join(out, "b.tgz");
+  const transcript = join(out, "t.jsonl");
+  writeFileSync(bundle, "x");
+  writeFileSync(transcript, "{}");
+  const manifest = buildManifest({
+    agent: "claude-code",
+    cliVersion: "2.1.160",
+    originalCwd: "/Users/p/proj",
+    sessionId: "abc",
+    transcriptName: "abc.jsonl",
+    ts: 1,
+  });
+  const { client, calls } = makeFake();
+
+  const res = await teleport(client, {
+    bundle,
+    transcript,
+    manifest,
+    adapter: CLAUDE_CODE,
+    auth: { envs: { ANTHROPIC_API_KEY: "sk-ant-api03-x" }, files: [] },
+    tailscale: { authKey: "tskey-auth-abc" },
+    timeoutMs: 3_600_000,
+  });
+
+  expect(res.url).toBe("http://keepon-sbx-1.tailnet.ts.net:7681");
+  expect(calls[0]).toBe("create:base:ANTHROPIC_API_KEY,TS_AUTHKEY");
+  expect(calls.find((c) => c.startsWith("run:fg"))).toContain(
+    '--hostname="keepon-sbx-1"',
+  );
+  expect(calls.find((c) => c.startsWith("run:bg"))).toContain(
+    "ttyd -i 127.0.0.1 -p 7681 -W -c keepon:",
+  );
+  expect(calls).toContain(
+    "run:fg:bash -lc 'for i in {1..60}; do (echo >/dev/tcp/127.0.0.1/7681) >/dev/null 2>&1 && exit 0; sleep 0.5; done; echo ttyd not ready >&2; exit 1'",
+  );
+  expect(calls.some((c) => c.includes("tailscale status --json"))).toBe(true);
+  expect(calls.find((c) => c.includes("tailscale status --json"))).toContain(
+    "Self.DNSName",
+  );
 });
 
 test("teleport expands auth file HOME before upload", async () => {
