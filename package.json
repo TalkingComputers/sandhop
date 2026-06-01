@@ -3,13 +3,13 @@
   "version": "0.1.0",
   "type": "module",
   "bin": {
-    "keepon": "dist/cli.js"
+    "keepon": "dist/cli/main.js"
   },
   "scripts": {
     "build": "tsc",
     "prepare": "tsc",
     "test": "vitest run",
-    "dev": "tsx src/cli.ts"
+    "dev": "tsx src/cli/main.ts"
   },
   "dependencies": {
     "e2b": "^2.27.0",

@@ -6,7 +6,7 @@ Run the Keepon engine to teleport THIS session to the cloud, then give the user 
 
 Steps:
 
-1. Run: `node ${CLAUDE_PLUGIN_ROOT}/../dist/cli.js push --cwd "$(pwd)"`
+1. Run: `node ${CLAUDE_PLUGIN_ROOT}/../dist/cli/main.js push --cwd "$(pwd)"`
 2. The command prints `KEEPON_URL <url>` and `KEEPON_AUTH keepon:<pass>`. Extract both.
 3. Reply with exactly: "Your session is live: <url> — log in with user `keepon`, password `<pass>`." — nothing else.
 

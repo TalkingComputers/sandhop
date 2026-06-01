@@ -1,6 +1,5 @@
 import { safeRemoteProj } from "./encode.js";
-
-export type AgentId = "claude-code" | "codex";
+import type { AgentId } from "./ports/agent.js";
 
 export interface Manifest {
   agent: AgentId;
