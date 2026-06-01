@@ -1,5 +1,4 @@
-import { createReadStream } from "node:fs";
-import { Readable } from "node:stream";
+import { readFileSync } from "node:fs";
 import { Sandbox } from "e2b";
 import type { Adapter } from "./adapters.js";
 import type { AuthBundle } from "./auth.js";
@@ -18,19 +17,12 @@ export interface SandboxClient {
     envs: Record<string, string>,
     timeoutMs: number,
   ): Promise<string>;
-  writeFile(
-    id: string,
-    path: string,
-    data: ReadableStream<Uint8Array> | string,
-  ): Promise<void>;
+  writeFile(id: string, path: string, data: Uint8Array | string): Promise<void>;
   run(id: string, cmd: string, background: boolean): Promise<RunResult | void>;
   host(id: string, port: number): Promise<string>;
 }
 
 const expandHome = (p: string): string => p.replace(/^\$HOME/, "/home/user");
-
-const streamFile = (path: string): ReadableStream<Uint8Array> =>
-  Readable.toWeb(createReadStream(path)) as ReadableStream<Uint8Array>;
 
 export const teleport = async (
   client: SandboxClient,
@@ -44,11 +36,15 @@ export const teleport = async (
   },
 ): Promise<{ url: string; sandboxId: string }> => {
   const id = await client.create("base", opts.auth.envs, opts.timeoutMs);
-  await client.writeFile(id, "/tmp/bundle.tgz", streamFile(opts.bundle));
+  await client.writeFile(
+    id,
+    "/tmp/bundle.tgz",
+    new Uint8Array(readFileSync(opts.bundle)),
+  );
   await client.writeFile(
     id,
     "/tmp/transcript.jsonl",
-    streamFile(opts.transcript),
+    new Uint8Array(readFileSync(opts.transcript)),
   );
   for (const f of opts.auth.files)
     await client.writeFile(id, expandHome(f.path), f.content);
@@ -75,8 +71,9 @@ export const e2bClient: SandboxClient = {
       .sandboxId,
   writeFile: async (id, path, data) => {
     const sbx = await Sandbox.connect(id);
-    await sbx.files.write(path, data, {
-      requestTimeoutMs: 0,
+    const body = typeof data === "string" ? data : new Uint8Array(data).buffer;
+    await sbx.files.write(path, body, {
+      requestTimeoutMs: 600000,
       useOctetStream: true,
     });
   },
@@ -86,7 +83,10 @@ export const e2bClient: SandboxClient = {
       await sbx.commands.run(cmd, { background: true, timeoutMs: 0 });
       return;
     }
-    const r = await sbx.commands.run(cmd);
+    const r = await sbx.commands.run(cmd, {
+      timeoutMs: 600000,
+      requestTimeoutMs: 600000,
+    });
     return { exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr };
   },
   host: async (id, port) => (await Sandbox.connect(id)).getHost(port),
