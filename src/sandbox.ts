@@ -24,6 +24,12 @@ export interface SandboxClient {
 
 const expandHome = (p: string): string => p.replace(/^\$HOME/, "/home/user");
 
+const copyArrayBuffer = (data: Uint8Array): ArrayBuffer => {
+  const buffer = new ArrayBuffer(data.byteLength);
+  new Uint8Array(buffer).set(data);
+  return buffer;
+};
+
 export const teleport = async (
   client: SandboxClient,
   opts: {
@@ -70,7 +76,10 @@ export const e2bClient: SandboxClient = {
     (await Sandbox.create(template, { envs, timeoutMs })).sandboxId,
   writeFile: async (id, path, data) => {
     const sbx = await Sandbox.connect(id);
-    await sbx.files.write(path, typeof data === "string" ? data : data.buffer);
+    await sbx.files.write(
+      path,
+      typeof data === "string" ? data : copyArrayBuffer(data),
+    );
   },
   run: async (id, cmd, background) => {
     const sbx = await Sandbox.connect(id);
