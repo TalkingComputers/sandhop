@@ -25,11 +25,10 @@ export interface McpServer {
   url?: string;
 }
 
-export interface McpConfigWrite {
-  path: string;
-  content: string;
-  append: boolean;
-}
+export type McpConfigWrite =
+  | { path: string; content: string; mode: "append" }
+  | { path: string; content: string; mode: "overwrite" }
+  | { path: string; content: string; mode: "merge-claude-json" };
 
 export type AgentHostDeps = Pick<
   HostDeps,

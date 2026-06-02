@@ -72,3 +72,24 @@ test("TransferService zstd codec keeps multithreaded zstd compression and zstd i
   );
   expect(provider.sandbox.execs[0]).not.toContain("apt-get");
 });
+
+test("TransferService can run sandbox extraction under low CPU and IO priority", async () => {
+  const host = new FakeHost({ home: "/home/local", env: {} });
+  const provider = new FakeProvider();
+
+  await new TransferService(host, provider.sandbox).send(
+    "/workspace/profile",
+    "/home/user",
+    "profile",
+    { codec: "zstd", lowPriority: true },
+  );
+
+  expect(provider.sandbox.execs[0]).toContain(
+    'KEEPON_LOW_PRIORITY="nice -n 19"',
+  );
+  expect(provider.sandbox.execs[0]).toContain("nice -n 19 ionice -c3");
+  expect(provider.sandbox.execs[0]).toContain(
+    "$KEEPON_LOW_PRIORITY sh -lc 'zstd -d --long=27 -c",
+  );
+  expect(provider.sandbox.execs[0]).toContain(" | tar -xf - -C ");
+});

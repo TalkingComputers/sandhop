@@ -210,7 +210,7 @@ const formatMcpConfig = (servers: McpServer[]): McpConfigWrite => {
   return {
     path: "$HOME/.codex/config.toml",
     content: lines.join("\n"),
-    append: true,
+    mode: "append",
   };
 };
 

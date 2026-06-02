@@ -11,6 +11,7 @@ export type TransferCodec = "gzip" | "zstd";
 
 export interface TransferOptions {
   codec: TransferCodec;
+  lowPriority?: boolean;
 }
 
 const alphabet =
@@ -24,6 +25,9 @@ const randomId = (): string => {
 
 const shellQuote = (value: string): string =>
   `'${value.replaceAll("'", "'\\''")}'`;
+
+const LOW_PRIORITY_SETUP =
+  'KEEPON_LOW_PRIORITY="nice -n 19"; if command -v ionice >/dev/null 2>&1; then KEEPON_LOW_PRIORITY="nice -n 19 ionice -c3"; fi';
 
 const fileName = (path: string): string => path.split("/").pop()!;
 
@@ -59,17 +63,24 @@ const makeExtractionCommands = (
   codec: TransferCodec,
   remoteArchive: string,
   sandboxDestDir: string,
+  lowPriority: boolean,
 ): string[] => {
+  const runExtract = (cmd: string): string =>
+    lowPriority ? `$KEEPON_LOW_PRIORITY sh -lc ${shellQuote(cmd)}` : cmd;
   if (codec === "gzip")
     return [
       `gzip -t ${shellQuote(remoteArchive)}`,
       `mkdir -p ${shellQuote(sandboxDestDir)}`,
-      `tar -xzf ${shellQuote(remoteArchive)} -C ${shellQuote(sandboxDestDir)}`,
+      runExtract(
+        `tar -xzf ${shellQuote(remoteArchive)} -C ${shellQuote(sandboxDestDir)}`,
+      ),
     ];
   return [
     `zstd -t ${shellQuote(remoteArchive)}`,
     `mkdir -p ${shellQuote(sandboxDestDir)}`,
-    `zstd -d --long=27 -c ${shellQuote(remoteArchive)} | tar -xf - -C ${shellQuote(sandboxDestDir)}`,
+    runExtract(
+      `zstd -d --long=27 -c ${shellQuote(remoteArchive)} | tar -xf - -C ${shellQuote(sandboxDestDir)}`,
+    ),
   ];
 };
 
@@ -117,12 +128,19 @@ export class TransferService {
     const remoteArchive = makeArchivePath(safe, id, codec);
     const catInputs = remoteChunks.map(shellQuote).join(" ");
     const cleanup = [remoteArchive, ...remoteChunks].map(shellQuote).join(" ");
+    const lowPriority = opts?.lowPriority === true;
     const restore = await this.sandbox.exec(
       [
         "set -e",
+        ...(lowPriority ? [LOW_PRIORITY_SETUP] : []),
         `cat ${catInputs} > ${shellQuote(remoteArchive)}`,
         `test "$(wc -c < ${shellQuote(remoteArchive)} | tr -d ' ')" = ${shellQuote(String(totalBytes))}`,
-        ...makeExtractionCommands(codec, remoteArchive, sandboxDestDir),
+        ...makeExtractionCommands(
+          codec,
+          remoteArchive,
+          sandboxDestDir,
+          lowPriority,
+        ),
         `rm -f ${cleanup}`,
       ].join("\n"),
     );
