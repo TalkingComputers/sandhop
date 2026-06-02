@@ -1,6 +1,7 @@
 import type { Manifest } from "../manifest.js";
 import type { Agent } from "../ports/agent.js";
 import type { CodePlan } from "./mcp-code.js";
+import type { ScriptCapturePlan } from "./scripts.js";
 
 export interface BootstrapOptions {
   tailscale?: { sandboxId: string };
@@ -174,6 +175,15 @@ export class BootstrapService {
       LOW_PRIORITY_SETUP,
       nonFatal(ZSTD_INSTALL),
       ...renderMcpCode(opts.codePlan),
+    ].join("\n");
+  }
+
+  renderSettingsScriptInstalls(plan: ScriptCapturePlan | null): string {
+    if (plan === null || plan.installCmds.length === 0)
+      return 'echo "[keepon] settings script installs skipped"';
+    return [
+      LOW_PRIORITY_SETUP,
+      ...plan.installCmds.map((cmd) => nonFatal(runLowPriority(cmd))),
     ].join("\n");
   }
 

@@ -13,6 +13,11 @@ import { McpCodeService } from "../core/services/mcp-code.js";
 import { ProfileService } from "../core/services/profile.js";
 import { ReinstallService } from "../core/services/reinstall.js";
 import { SecretsService } from "../core/services/secrets.js";
+import {
+  LOCAL_PATH_EXCLUDES,
+  ScriptCaptureService,
+  type ScriptCapturePlan,
+} from "../core/services/scripts.js";
 import { TransferService } from "../core/services/transfer.js";
 import { NodeHost } from "../host/node.js";
 import { E2bSandboxProvider } from "../providers/e2b/index.js";
@@ -143,6 +148,7 @@ export const enrichSandbox = async (
     const mcpCode = new McpCodeService(host, agent);
     const reinstall = new ReinstallService(host, agent);
     const secrets = new SecretsService(host, agent);
+    const scripts = new ScriptCaptureService(host);
     const bootstrap = new BootstrapService(agent);
     const steps: EnrichmentStepResult[] = [];
     await recordScriptStep(
@@ -166,6 +172,43 @@ export const enrichSandbox = async (
       },
     );
     let codePlan: CodePlan | null = null;
+    let scriptPlan: ScriptCapturePlan | null = null;
+    await recordStep(
+      sandbox,
+      steps,
+      "settings scripts transfer + rewrite",
+      async (): Promise<void> => {
+        if (agent.id !== "claude-code") return;
+        scriptPlan = scripts.plan(args.cwd);
+        if (
+          scriptPlan.mappings.length === 0 &&
+          scriptPlan.rewrites.length === 0
+        )
+          return;
+        await Promise.all(
+          scriptPlan.mappings.map((mapping, index) =>
+            transfer.send(
+              mapping.localPath,
+              mapping.sandboxPath,
+              `settings-scripts-${index}`,
+              {
+                codec: "zstd",
+                lowPriority: true,
+                excludes: LOCAL_PATH_EXCLUDES,
+              },
+            ),
+          ),
+        );
+        for (const rewrite of scriptPlan.rewrites)
+          await sandbox.uploadFile(rewrite.sandboxPath, rewrite.content);
+      },
+    );
+    await recordScriptStep(
+      sandbox,
+      steps,
+      "settings script dependency installs",
+      bootstrap.renderSettingsScriptInstalls(scriptPlan),
+    );
     await recordStep(
       sandbox,
       steps,

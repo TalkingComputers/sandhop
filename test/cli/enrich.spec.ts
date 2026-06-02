@@ -205,3 +205,114 @@ test("enrichSandbox runs reinstall commands nice, HTTPS-preferred, fault-isolate
   expect(log).toContain("[keepon] reinstall step failed:");
   expect(log).toContain("touch /tmp/keepon-enriched");
 });
+
+test("enrichSandbox ships Claude settings scripts and uploads rewritten settings", async () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: {
+      "/home/local/.claude/settings.json": JSON.stringify({
+        hooks: {
+          PreToolUse: [
+            {
+              hooks: [
+                {
+                  type: "command",
+                  command: "/home/local/hook-app/bin/hook.sh --strict",
+                },
+                { type: "command", command: "echo inline" },
+              ],
+            },
+          ],
+        },
+        statusLine: {
+          type: "command",
+          command: "~/.claude/statusline.sh --json",
+        },
+        apiKeyHelper: "$HOME/bin/api-key-helper.sh",
+      }),
+      "/home/local/work/.claude/settings.json": JSON.stringify({
+        hooks: {
+          Stop: [
+            {
+              hooks: [
+                {
+                  type: "command",
+                  command: "python ./scripts/project-hook.py",
+                },
+              ],
+            },
+          ],
+        },
+      }),
+      "/home/local/hook-app/package.json": "{}",
+      "/home/local/hook-app/bin/hook.sh": "#!/bin/sh\n",
+      "/home/local/hook-app/node_modules/pkg/index.js": "",
+      "/home/local/hook-app/.git/config": "",
+      "/home/local/.claude/statusline.sh": "#!/bin/sh\n",
+      "/home/local/bin/api-key-helper.sh": "#!/bin/sh\n",
+      "/home/local/work/scripts/project-hook.py": "#!/usr/bin/env python\n",
+    },
+  });
+  const sandbox = new FakeSandbox("sbx-1");
+
+  await enrichSandbox(
+    {
+      sandboxId: "sbx-1",
+      agent: "claude-code",
+      cwd: "/home/local/work",
+      profile: true,
+    },
+    host,
+    sandbox,
+  );
+
+  const userUpload = sandbox.uploads.find(
+    (upload) => upload.path === "/home/user/.claude/settings.json",
+  );
+  const projectUpload = sandbox.uploads.find(
+    (upload) => upload.path === "/home/user/work/.claude/settings.json",
+  );
+  const userSettings = JSON.parse(String(userUpload!.data)) as {
+    hooks: { PreToolUse: { hooks: { command: string }[] }[] };
+    statusLine: { command: string };
+    apiKeyHelper: string;
+  };
+  const projectSettings = JSON.parse(String(projectUpload!.data)) as {
+    hooks: { Stop: { hooks: { command: string }[] }[] };
+  };
+  const log = sandbox.execs.join("\n");
+
+  expect(host.spawnPipeCalls).toEqual(
+    expect.arrayContaining([
+      expect.stringContaining("-C '/home/local/hook-app' ."),
+      expect.stringContaining("-C '/home/local/.claude' 'statusline.sh'"),
+      expect.stringContaining("-C '/home/local/bin' 'api-key-helper.sh'"),
+      expect.stringContaining(
+        "-C '/home/local/work/scripts' 'project-hook.py'",
+      ),
+    ]),
+  );
+  expect(host.spawnPipeCalls).toEqual(
+    expect.arrayContaining([
+      expect.stringContaining("--exclude 'node_modules'"),
+      expect.stringContaining("--exclude '.git'"),
+    ]),
+  );
+  expect(log).toContain('KEEPON_LOW_PRIORITY="nice -n 19"');
+  expect(log).toContain("nice -n 19 ionice -c3");
+  expect(log).toContain("step ok: settings scripts transfer + rewrite");
+  expect(userSettings.hooks.PreToolUse[0]!.hooks[0]!.command).toBe(
+    "/home/user/hook-app/bin/hook.sh --strict",
+  );
+  expect(userSettings.hooks.PreToolUse[0]!.hooks[1]!.command).toBe(
+    "echo inline",
+  );
+  expect(userSettings.statusLine.command).toBe(
+    "/home/user/.claude/statusline.sh --json",
+  );
+  expect(userSettings.apiKeyHelper).toBe("/home/user/bin/api-key-helper.sh");
+  expect(projectSettings.hooks.Stop[0]!.hooks[0]!.command).toBe(
+    "python /home/user/work/scripts/project-hook.py",
+  );
+});

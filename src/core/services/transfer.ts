@@ -5,13 +5,17 @@ import type { Sandbox } from "../ports/provider.js";
 const CHUNK_BYTES = 90 * 1024 * 1024;
 const UPLOAD_CONCURRENCY = 8;
 
-type TransferHost = Pick<HostDeps, "fileSize" | "spawnPipe" | "splitFile">;
+type TransferHost = Pick<
+  HostDeps,
+  "exists" | "fileSize" | "isDirectory" | "spawnPipe" | "splitFile"
+>;
 
 export type TransferCodec = "gzip" | "zstd";
 
 export interface TransferOptions {
   codec: TransferCodec;
   lowPriority?: boolean;
+  excludes?: string[];
 }
 
 const alphabet =
@@ -30,6 +34,13 @@ const LOW_PRIORITY_SETUP =
   'KEEPON_LOW_PRIORITY="nice -n 19"; if command -v ionice >/dev/null 2>&1; then KEEPON_LOW_PRIORITY="nice -n 19 ionice -c3"; fi';
 
 const fileName = (path: string): string => path.split("/").pop()!;
+
+const dirname = (path: string): string => {
+  const clean = path.replace(/\/+$/, "");
+  const index = clean.lastIndexOf("/");
+  if (index <= 0) return "/";
+  return clean.slice(0, index);
+};
 
 const safeLabel = (label: string): string =>
   label.replace(/[^A-Za-z0-9.-]/g, "-");
@@ -52,20 +63,66 @@ const TAR_CREATE_SETUP = [
   'case "$(tar --help 2>/dev/null)" in *--no-mac-metadata*) KEEPON_TAR_MAC_FLAGS="--no-mac-metadata";; esac',
 ].join("; ");
 
-export const makeTarGzipCommand = (archive: string, cwd: string): string =>
-  `${TAR_CREATE_SETUP}; tar $KEEPON_TAR_MAC_FLAGS -czf ${shellQuote(archive)} -C ${shellQuote(cwd)} .`;
+export interface TarCreateOptions {
+  isDirectory?: boolean;
+  excludes?: string[];
+}
 
-const makeTarStreamCommand = (cwd: string): string =>
-  `${TAR_CREATE_SETUP}; tar $KEEPON_TAR_MAC_FLAGS -cf - -C ${shellQuote(cwd)} .`;
+const tarSource = (
+  path: string,
+  isDirectory: boolean,
+): { cwd: string; entry: string } =>
+  isDirectory
+    ? { cwd: path, entry: "." }
+    : { cwd: dirname(path), entry: fileName(path) };
+
+const tarExcludeArgs = (excludes: string[] | undefined): string =>
+  excludes === undefined
+    ? ""
+    : excludes.map((exclude) => ` --exclude ${shellQuote(exclude)}`).join("");
+
+const tarEntryArg = (entry: string): string =>
+  entry === "." ? "." : shellQuote(entry);
+
+export const makeTarGzipCommand = (
+  archive: string,
+  cwd: string,
+  opts?: TarCreateOptions,
+): string => {
+  const source = tarSource(cwd, opts?.isDirectory !== false);
+  return [
+    `${TAR_CREATE_SETUP}; tar $KEEPON_TAR_MAC_FLAGS${tarExcludeArgs(opts?.excludes)}`,
+    `-czf ${shellQuote(archive)}`,
+    `-C ${shellQuote(source.cwd)}`,
+    tarEntryArg(source.entry),
+  ].join(" ");
+};
+
+const makeTarStreamCommand = (
+  path: string,
+  isDirectory: boolean,
+  excludes: string[] | undefined,
+): string => {
+  const source = tarSource(path, isDirectory);
+  return [
+    `${TAR_CREATE_SETUP}; tar $KEEPON_TAR_MAC_FLAGS${tarExcludeArgs(excludes)}`,
+    "-cf -",
+    `-C ${shellQuote(source.cwd)}`,
+    tarEntryArg(source.entry),
+  ].join(" ");
+};
 
 const makeCompressionCommand = (
   codec: TransferCodec,
-  localTree: string,
+  localPath: string,
   archive: string,
+  isDirectory: boolean,
+  excludes: string[] | undefined,
 ): string => {
-  if (codec === "gzip") return makeTarGzipCommand(archive, localTree);
+  if (codec === "gzip")
+    return makeTarGzipCommand(archive, localPath, { isDirectory, excludes });
   return [
-    makeTarStreamCommand(localTree),
+    makeTarStreamCommand(localPath, isDirectory, excludes),
     `zstd -T0 -8 --long=27 --check -o ${shellQuote(archive)} -f`,
   ].join(" | ");
 };
@@ -105,18 +162,29 @@ export class TransferService {
   }
 
   async send(
-    localTree: string,
-    sandboxDestDir: string,
+    localPath: string,
+    sandboxDestPath: string,
     label: string,
     opts?: TransferOptions,
   ): Promise<void> {
     const safe = safeLabel(label);
     const id = randomId();
     const codec = readCodec(opts);
+    const isDirectory =
+      !this.host.exists(localPath) || this.host.isDirectory(localPath);
+    const sandboxDestDir = isDirectory
+      ? sandboxDestPath
+      : dirname(sandboxDestPath);
     const archive = makeArchivePath(safe, id, codec);
     const prefix = `/tmp/keepon-${safe}-${id}.part.`;
     await this.host.spawnPipe(
-      makeCompressionCommand(codec, localTree, archive),
+      makeCompressionCommand(
+        codec,
+        localPath,
+        archive,
+        isDirectory,
+        opts?.excludes,
+      ),
     );
     const chunks = await this.host.splitFile(archive, CHUNK_BYTES, prefix);
     const chunkSizes = chunks.map((chunk) => this.host.fileSize(chunk));

@@ -41,8 +41,8 @@ export interface CodePlan {
   classifications: ClassifiedServer[];
 }
 
-const SANDBOX_HOME = "/home/user";
-const EXCLUDES = ["node_modules", ".venv", ".git"];
+export const SANDBOX_HOME = "/home/user";
+export const LOCAL_PATH_EXCLUDES = ["node_modules", ".venv", ".git"];
 const MARKERS = [
   "package.json",
   "pyproject.toml",
@@ -52,17 +52,17 @@ const MARKERS = [
   ".git",
 ];
 
-const dirname = (path: string): string => {
+export const dirname = (path: string): string => {
   const trimmed = path.replace(/\/+$/, "");
   const index = trimmed.lastIndexOf("/");
   if (index <= 0) return "/";
   return trimmed.slice(0, index);
 };
 
-const basename = (path: string): string =>
+export const basename = (path: string): string =>
   path.replace(/\/+$/, "").split("/").pop()!;
 
-const joinPath = (dir: string, name: string): string =>
+export const joinPath = (dir: string, name: string): string =>
   dir === "/" ? `/${name}` : `${dir}/${name}`;
 
 const isHomePath = (path: string): boolean =>
@@ -77,7 +77,7 @@ const isPathLike = (value: string): boolean =>
   value.startsWith("../") ||
   isHomePath(value);
 
-const uniqueSorted = (values: Iterable<string>): string[] =>
+export const uniqueSorted = (values: Iterable<string>): string[] =>
   [...new Set(values)].sort();
 
 const addEnvRefs = (refs: Set<string>, value: string): void => {
@@ -89,7 +89,7 @@ const addEnvRefs = (refs: Set<string>, value: string): void => {
   }
 };
 
-const expandEnv = (
+export const expandEnv = (
   value: string,
   home: string,
   env: Record<string, string | undefined>,
@@ -114,7 +114,7 @@ const expandHomeOnly = (value: string, home: string): string =>
     .replaceAll("${HOME}", home)
     .replaceAll("$HOME", home);
 
-const maybeRealpath = (host: HostDeps, path: string): string | null => {
+export const maybeRealpath = (host: HostDeps, path: string): string | null => {
   if (!host.exists(path)) return null;
   return host.realpath(path);
 };
@@ -151,19 +151,21 @@ const isBinary = (host: HostDeps, path: string): boolean => {
 const isAppBundlePath = (path: string): boolean =>
   /\/Applications\/[^/]+\.app\//.test(path);
 
-const nearestRoot = (host: HostDeps, path: string): string => {
+export const hasRootMarker = (host: HostDeps, path: string): boolean =>
+  MARKERS.some((marker) => host.exists(joinPath(path, marker)));
+
+export const nearestRoot = (host: HostDeps, path: string): string => {
   const start = host.isDirectory(path) ? path : dirname(path);
   let current = start;
   for (;;) {
-    if (MARKERS.some((marker) => host.exists(joinPath(current, marker))))
-      return current;
+    if (hasRootMarker(host, current)) return current;
     const parent = dirname(current);
     if (parent === current) return start;
     current = parent;
   }
 };
 
-const sandboxPath = (host: HostDeps, localPath: string): string => {
+export const sandboxPath = (host: HostDeps, localPath: string): string => {
   if (localPath === host.home) return SANDBOX_HOME;
   if (localPath.startsWith(`${host.home}/`))
     return `${SANDBOX_HOME}${localPath.slice(host.home.length)}`;
@@ -173,7 +175,7 @@ const sandboxPath = (host: HostDeps, localPath: string): string => {
 const replaceAll = (value: string, from: string, to: string): string =>
   value.split(from).join(to);
 
-const remapValue = (
+export const remapValue = (
   value: string,
   host: HostDeps,
   mappings: PathMapping[],
@@ -314,7 +316,7 @@ const addRuntime = (
     runtimes.add("uv");
 };
 
-const installCmd = (
+export const installCmd = (
   host: HostDeps,
   root: string,
   sandboxRoot: string,
@@ -465,7 +467,7 @@ export class McpCodeService {
         return mapping.localPath.slice(this.host.home.length + 1);
       });
       await this.host.tarGz(this.host.home, entries, outPath, {
-        excludes: EXCLUDES,
+        excludes: LOCAL_PATH_EXCLUDES,
       });
     }
     return plan;
