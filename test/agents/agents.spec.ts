@@ -12,11 +12,11 @@ test("declarative agents install exact versions and compose native resume comman
     "npm i -g @anthropic-ai/claude-code@2.1.160",
   );
   expect(CLAUDE_CODE.resumeCmd("session-id", "/home/user/project")).toBe(
-    "cd /home/user/project && claude --resume session-id",
+    'cd "/home/user/project" && claude --resume session-id',
   );
   expect(CODEX.installCmd("0.136.0")).toBe("npm i -g @openai/codex@0.136.0");
   expect(CODEX.resumeCmd("session-id", "/home/user/project")).toBe(
-    "cd /home/user/project && codex resume session-id",
+    'cd "/home/user/project" && codex resume session-id',
   );
 });
 

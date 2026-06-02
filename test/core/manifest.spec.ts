@@ -1,12 +1,15 @@
 import { expect, test } from "vitest";
+import { projectDirName } from "../../src/core/encode.js";
 import { buildManifest } from "../../src/core/manifest.js";
 
 test("buildManifest carries session metadata and derives remote paths", () => {
+  const originalCwd = "/Users/parsa/My Project";
+
   expect(
     buildManifest({
       agent: "codex",
       cliVersion: "0.136.0",
-      originalCwd: "/Users/parsa/My Project",
+      originalCwd,
       sessionId: "session-id",
       transcriptName: "rollout.jsonl",
       ts: 1,
@@ -14,9 +17,9 @@ test("buildManifest carries session metadata and derives remote paths", () => {
   ).toEqual({
     agent: "codex",
     cliVersion: "0.136.0",
-    originalCwd: "/Users/parsa/My Project",
-    remoteProj: "/home/user/My-Project",
-    remoteEnc: "-home-user-My-Project",
+    originalCwd,
+    remoteProj: originalCwd,
+    remoteEnc: projectDirName(originalCwd),
     sessionId: "session-id",
     transcriptName: "rollout.jsonl",
     ts: 1,

@@ -96,7 +96,9 @@ Design notes live in [`docs/design/`](docs/design/): [production fixes](docs/des
 - Large dirty trees still take time to archive and upload.
 - Detached enrichment can finish after the terminal is already usable; check `/tmp/keepon-enrich.log` inside the sandbox.
 - Local-only services, databases, localhost URLs, and private files outside captured config are not reachable unless you provision them or tunnel them.
-- Codex resume works only with credentials accepted for the original session/org.
+- Codex resume replays the session's encrypted reasoning to the API, which is org-bound: the shipped credential must belong to the same org that created the rollout. The default `~/.codex/auth.json` is shipped as-is, so this holds for ordinary OpenAI logins. Sessions created under a custom provider profile (e.g. an Azure profile) resume only if that provider's credential is the active one; ChatGPT-OAuth `auth.json` (no `OPENAI_API_KEY`) is unverified for cross-machine resume.
+- The working tree is restored at its original absolute path inside the sandbox so the resumed session's recorded cwd matches (no directory picker) and absolute path references stay valid.
+- The agent CLI is installed at the exact local version, so Codex may show its standard "update available" notice if your local version is behind the latest (sometimes a one-keypress prompt, sometimes a banner). It carries no data loss; choose "skip" to continue in the resumed session.
 - Cloud rebuilds need network access to git/npm/bun/uv sources referenced by your manifests.
 
 ## Development

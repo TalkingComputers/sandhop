@@ -87,11 +87,11 @@ test("TeleportService fast core fans out collection, uploads one gzip bundle, st
     "/tmp/transcript.jsonl",
   ]);
   expect(provider.sandbox.execs[0]).toContain(
-    "tar -xzf /tmp/bundle.tgz -C /home/user/project",
+    'tar -xzf /tmp/bundle.tgz -C "/workspace/project"',
   );
   expect(provider.sandbox.spawns[0]).toContain("ttyd -p 7681 -W -c keepon:");
   expect(provider.sandbox.spawns[0]).toContain(
-    "bash -lc 'cd /home/user/project && claude --resume session-id'",
+    "bash -lc 'cd \"/workspace/project\" && claude --resume session-id'",
   );
   expect(provider.sandbox.spawns[0]).not.toContain("for f in");
   expect(provider.sandbox.execs).toHaveLength(1);

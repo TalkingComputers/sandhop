@@ -7,9 +7,9 @@ test("projectDirName replaces every non-alphanumeric character", () => {
   );
 });
 
-test("safeRemoteProj keeps a safe basename and encoded transcript directory", () => {
-  expect(safeRemoteProj("/Users/parsa/Desktop/My Project@2026")).toEqual({
-    dir: "/home/user/My-Project-2026",
-    enc: "-home-user-My-Project-2026",
+test("safeRemoteProj mirrors the original cwd and encodes the transcript directory", () => {
+  expect(safeRemoteProj("/Users/alice/proj")).toEqual({
+    dir: "/Users/alice/proj",
+    enc: "-Users-alice-proj",
   });
 });

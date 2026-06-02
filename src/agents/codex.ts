@@ -318,5 +318,5 @@ export const CODEX: Agent = {
   remoteTranscriptPath: (remoteEnc, transcriptName) =>
     `$HOME/.codex/sessions/restored/${transcriptName}`,
   resumeCmd: (sessionId, remoteProj) =>
-    `cd ${remoteProj} && codex resume ${sessionId}`,
+    `cd "${remoteProj}" && codex resume ${sessionId}`,
 };

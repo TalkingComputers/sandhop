@@ -12,7 +12,7 @@ import type { CodePlan } from "../../../src/core/services/mcp-code.js";
 const manifest = buildManifest({
   agent: "claude-code",
   cliVersion: "2.1.160",
-  originalCwd: "/workspace/project",
+  originalCwd: "/private/tmp/keepon-codex2",
   sessionId: "session-id",
   transcriptName: "session-id.jsonl",
   ts: 1,
@@ -24,15 +24,63 @@ test("BootstrapService core installs exact CLI version, places transcript, and s
   expect(script).toContain("npm i -g @anthropic-ai/claude-code@2.1.160");
   expect(script).not.toContain("zstd");
   expect(script).not.toContain("apt-get");
-  expect(script).toContain("mkdir -p /home/user/project");
-  expect(script).toContain("tar -xzf /tmp/bundle.tgz -C /home/user/project");
+  expect(script).toContain('sudo mkdir -p "/private/tmp/keepon-codex2"');
+  expect(script).toContain(
+    'sudo chown -R "$(id -u):$(id -g)" "/private/tmp/keepon-codex2"',
+  );
+  expect(script).toContain(
+    'git config --global --add safe.directory "/private/tmp/keepon-codex2"',
+  );
+  expect(script).toContain(
+    'tar -xzf /tmp/bundle.tgz -C "/private/tmp/keepon-codex2"',
+  );
   expect(
-    script.indexOf("tar -xzf /tmp/bundle.tgz -C /home/user/project"),
+    script.indexOf('sudo mkdir -p "/private/tmp/keepon-codex2"'),
+  ).toBeLessThan(
+    script.indexOf(
+      'sudo chown -R "$(id -u):$(id -g)" "/private/tmp/keepon-codex2"',
+    ),
+  );
+  expect(
+    script.indexOf(
+      'sudo chown -R "$(id -u):$(id -g)" "/private/tmp/keepon-codex2"',
+    ),
+  ).toBeLessThan(
+    script.indexOf(
+      'git config --global --add safe.directory "/private/tmp/keepon-codex2"',
+    ),
+  );
+  expect(
+    script.indexOf(
+      'git config --global --add safe.directory "/private/tmp/keepon-codex2"',
+    ),
+  ).toBeLessThan(
+    script.indexOf('tar -xzf /tmp/bundle.tgz -C "/private/tmp/keepon-codex2"'),
+  );
+  expect(
+    script.indexOf('tar -xzf /tmp/bundle.tgz -C "/private/tmp/keepon-codex2"'),
   ).toBeLessThan(script.indexOf('cp /tmp/transcript.jsonl "$dest"'));
   expect(script).toContain('cp /tmp/transcript.jsonl "$dest"');
   expect(script).toContain("KEEPON_RESTORE_OK");
   expect(script).not.toContain("profile.tgz");
   expect(script).not.toContain("for f in");
+});
+
+test("BootstrapService quotes remote project shell paths with spaces", () => {
+  const spacedManifest = buildManifest({
+    agent: "claude-code",
+    cliVersion: "2.1.160",
+    originalCwd: "/Users/alice/My Project",
+    sessionId: "session-id",
+    transcriptName: "session-id.jsonl",
+    ts: 1,
+  });
+  const script = new BootstrapService(CLAUDE_CODE).render(spacedManifest, {});
+
+  expect(script).toContain('sudo mkdir -p "/Users/alice/My Project"');
+  expect(script).toContain(
+    'tar -xzf /tmp/bundle.tgz -C "/Users/alice/My Project"',
+  );
 });
 
 test("BootstrapService enables tailscale binary mode when requested", () => {

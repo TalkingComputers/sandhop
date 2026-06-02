@@ -69,7 +69,7 @@ test("ScriptCaptureService maps local scripts from Claude settings and rewrites 
   ]);
   expect(plan.rewrites.map((rewrite) => rewrite.sandboxPath)).toEqual([
     "/home/user/.claude/settings.json",
-    "/home/user/work/.claude/settings.json",
+    "/home/local/work/.claude/settings.json",
   ]);
 
   const userSettings = JSON.parse(plan.rewrites[0]!.content) as {

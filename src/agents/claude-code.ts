@@ -221,5 +221,5 @@ export const CLAUDE_CODE: Agent = {
   remoteTranscriptPath: (remoteEnc, transcriptName) =>
     `$HOME/.claude/projects/${remoteEnc}/${transcriptName}`,
   resumeCmd: (sessionId, remoteProj) =>
-    `cd ${remoteProj} && claude --resume ${sessionId}`,
+    `cd "${remoteProj}" && claude --resume ${sessionId}`,
 };

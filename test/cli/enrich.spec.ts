@@ -100,6 +100,42 @@ cwd = "/home/local/mcp"
   expect(enrichmentExec).toContain("[keepon] enrichment summary");
 });
 
+test("enrichSandbox re-applies Codex preseed after profile transfer", async () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: {
+      "/home/local/.codex/config.toml": 'model = "gpt-5.4"\n',
+    },
+  });
+  const sandbox = new FakeSandbox("sbx-1");
+
+  await enrichSandbox(
+    {
+      sandboxId: "sbx-1",
+      agent: "codex",
+      cwd: "/workspace/project",
+      profile: true,
+    },
+    host,
+    sandbox,
+  );
+
+  const profileIndex = sandbox.execs.findIndex(
+    (cmd) => cmd.includes("/tmp/keepon-profile-") && cmd.includes("zstd -d"),
+  );
+  const preseedIndex = sandbox.execs.findIndex(
+    (cmd, index) =>
+      index > profileIndex &&
+      cmd.includes("/workspace/project") &&
+      cmd.includes("trust_level") &&
+      cmd.includes("cli_auth_credentials_store"),
+  );
+
+  expect(profileIndex).toBeGreaterThan(-1);
+  expect(preseedIndex).toBeGreaterThan(profileIndex);
+});
+
 test("enrichSandbox finishes profile and marker after MCP transfer failure", async () => {
   const host = new FakeHost({
     home: "/home/local",
@@ -271,7 +307,7 @@ test("enrichSandbox ships Claude settings scripts and uploads rewritten settings
     (upload) => upload.path === "/home/user/.claude/settings.json",
   );
   const projectUpload = sandbox.uploads.find(
-    (upload) => upload.path === "/home/user/work/.claude/settings.json",
+    (upload) => upload.path === "/home/local/work/.claude/settings.json",
   );
   const userSettings = JSON.parse(String(userUpload!.data)) as {
     hooks: { PreToolUse: { hooks: { command: string }[] }[] };

@@ -171,6 +171,12 @@ export const enrichSandbox = async (
           });
       },
     );
+    await recordScriptStep(
+      sandbox,
+      steps,
+      "re-apply preseed (trust + root config)",
+      agent.preSeed(safeRemoteProj(args.cwd).dir).join("\n"),
+    );
     let codePlan: CodePlan | null = null;
     let scriptPlan: ScriptCapturePlan | null = null;
     await recordStep(
