@@ -6,8 +6,11 @@ export interface HostDeps {
   openBlob(path: string): Promise<Blob>;
   exists(path: string): boolean;
   isDirectory(path: string): boolean;
+  isSymlink(path: string): boolean;
+  readlink(path: string): string;
   walk(dir: string): string[];
   fileSize(path: string): number;
+  dirSizeBytes(path: string): number;
   statMtimeMs(path: string): number;
   keychain(service: string, account: string | null): string | null;
   realpath(path: string): string;

@@ -31,18 +31,41 @@ test("ProfileService ships portable Codex config without auth, caches, sessions,
   ]);
 });
 
-test("ProfileService ships Claude settings, commands, skills, agents, plugins, and output styles without raw claude.json", async () => {
+test("ProfileService ships Claude manifests and only small non-reproducible skill dirs", async () => {
   const host = new FakeHost({
     home: "/home/local",
     env: {},
+    directorySizes: {
+      "/home/local/.claude/skills/local": 1024,
+      "/home/local/.claude/skills/big": 6 * 1024 * 1024,
+      "/home/local/.claude/skills/git": 1024,
+      "/home/local/.claude/skills/node": 1024,
+      "/home/local/.claude/skills/linked": 1024,
+    },
+    symlinks: {
+      "/home/local/.claude/skills/linked":
+        "/home/local/.claude/skills/git/skills/linked",
+    },
     files: {
       "/home/local/.claude.json": "{}",
       "/home/local/.claude/settings.json": "{}",
+      "/home/local/.claude/settings.local.json": "{}",
+      "/home/local/.claude/CLAUDE.md": "instructions",
       "/home/local/.claude/commands/ship.md": "ship",
-      "/home/local/.claude/skills/review/SKILL.md": "review",
+      "/home/local/.claude/skills/local/SKILL.md": "local",
+      "/home/local/.claude/skills/big/SKILL.md": "big",
+      "/home/local/.claude/skills/git/SKILL.md": "git",
+      "/home/local/.claude/skills/git/.git/config":
+        '[remote "origin"]\n\turl = https://github.com/acme/gstack.git\n',
+      "/home/local/.claude/skills/node/SKILL.md": "node",
+      "/home/local/.claude/skills/node/node_modules/pkg/index.js": "pkg",
+      "/home/local/.claude/skills/no-skill/README.md": "readme",
       "/home/local/.claude/agents/reviewer.md": "reviewer",
       "/home/local/.claude/output-styles/plain.md": "plain",
+      "/home/local/.claude/plugins/known_marketplaces.json": "{}",
+      "/home/local/.claude/plugins/installed_plugins.json": "{}",
       "/home/local/.claude/plugins/cache/blob": "plugin",
+      "/home/local/.claude/plugins/marketplaces/official/README.md": "market",
     },
   });
 
@@ -50,10 +73,11 @@ test("ProfileService ships Claude settings, commands, skills, agents, plugins, a
 
   expect(host.copyCalls[0]!.entries).toEqual([
     ".claude/settings.json",
+    ".claude/settings.local.json",
+    ".claude/CLAUDE.md",
     ".claude/commands",
-    ".claude/skills",
-    ".claude/agents",
-    ".claude/output-styles",
-    ".claude/plugins",
+    ".claude/plugins/known_marketplaces.json",
+    ".claude/plugins/installed_plugins.json",
+    ".claude/skills/local",
   ]);
 });

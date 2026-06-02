@@ -8,6 +8,8 @@ export class FakeHost implements HostDeps {
   home: string;
   files: Record<string, string>;
   bytes: Record<string, Uint8Array>;
+  symlinks: Record<string, string>;
+  directorySizes: Record<string, number>;
   mtimes: Record<string, number>;
   keychainValues: Record<string, string>;
   execValues: Record<string, string>;
@@ -36,6 +38,8 @@ export class FakeHost implements HostDeps {
     env: Record<string, string | undefined>;
     files?: Record<string, string>;
     bytes?: Record<string, Uint8Array>;
+    symlinks?: Record<string, string>;
+    directorySizes?: Record<string, number>;
     mtimes?: Record<string, number>;
     keychainValues?: Record<string, string>;
     execValues?: Record<string, string>;
@@ -44,6 +48,8 @@ export class FakeHost implements HostDeps {
     this.env = args.env;
     this.files = args.files ?? {};
     this.bytes = args.bytes ?? {};
+    this.symlinks = args.symlinks ?? {};
+    this.directorySizes = args.directorySizes ?? {};
     this.mtimes = args.mtimes ?? {};
     this.keychainValues = args.keychainValues ?? {};
     this.execValues = args.execValues ?? {};
@@ -54,14 +60,36 @@ export class FakeHost implements HostDeps {
     this.spawnDetachedCalls = [];
   }
 
+  linkedPath(path: string): string {
+    if (!Object.hasOwn(this.symlinks, path)) return path;
+    const target = this.symlinks[path]!;
+    if (target.startsWith("/")) return target;
+    const dir = path.slice(0, path.lastIndexOf("/"));
+    return `${dir}/${target}`
+      .split("/")
+      .reduce<string[]>((parts, part) => {
+        if (part === "" && parts.length === 0) return [""];
+        if (part === "" || part === ".") return parts;
+        if (part === "..") {
+          parts.pop();
+          return parts;
+        }
+        parts.push(part);
+        return parts;
+      }, [])
+      .join("/");
+  }
+
   readFile(path: string): string | null {
-    return Object.hasOwn(this.files, path) ? this.files[path]! : null;
+    const linked = this.linkedPath(path);
+    return Object.hasOwn(this.files, linked) ? this.files[linked]! : null;
   }
 
   readBytes(path: string): Uint8Array {
-    if (Object.hasOwn(this.bytes, path)) return this.bytes[path]!;
-    if (Object.hasOwn(this.files, path))
-      return encoder.encode(this.files[path]!);
+    const linked = this.linkedPath(path);
+    if (Object.hasOwn(this.bytes, linked)) return this.bytes[linked]!;
+    if (Object.hasOwn(this.files, linked))
+      return encoder.encode(this.files[linked]!);
     throw new Error(`missing bytes ${path}`);
   }
 
@@ -70,32 +98,59 @@ export class FakeHost implements HostDeps {
   }
 
   exists(path: string): boolean {
-    const prefix = `${path}/`;
+    const linked = this.linkedPath(path);
+    const prefix = `${linked}/`;
     return (
-      Object.hasOwn(this.files, path) ||
-      Object.hasOwn(this.bytes, path) ||
+      Object.hasOwn(this.files, linked) ||
+      Object.hasOwn(this.bytes, linked) ||
+      Object.hasOwn(this.symlinks, path) ||
       Object.keys(this.files).some((filePath) => filePath.startsWith(prefix)) ||
-      Object.keys(this.bytes).some((filePath) => filePath.startsWith(prefix))
+      Object.keys(this.bytes).some((filePath) => filePath.startsWith(prefix)) ||
+      Object.keys(this.symlinks).some((filePath) => filePath.startsWith(prefix))
     );
   }
 
   isDirectory(path: string): boolean {
-    const prefix = `${path}/`;
+    const linked = this.linkedPath(path);
+    const prefix = `${linked}/`;
     return (
       Object.keys(this.files).some((filePath) => filePath.startsWith(prefix)) ||
-      Object.keys(this.bytes).some((filePath) => filePath.startsWith(prefix))
+      Object.keys(this.bytes).some((filePath) => filePath.startsWith(prefix)) ||
+      Object.keys(this.symlinks).some((filePath) => filePath.startsWith(prefix))
     );
+  }
+
+  isSymlink(path: string): boolean {
+    return Object.hasOwn(this.symlinks, path);
+  }
+
+  readlink(path: string): string {
+    if (Object.hasOwn(this.symlinks, path)) return this.symlinks[path]!;
+    throw new Error(`missing symlink ${path}`);
   }
 
   walk(dir: string): string[] {
     const prefix = `${dir}/`;
-    return [...Object.keys(this.files), ...Object.keys(this.bytes)]
+    return [
+      ...Object.keys(this.files),
+      ...Object.keys(this.bytes),
+      ...Object.keys(this.symlinks),
+    ]
       .filter((path) => path.startsWith(prefix))
       .sort();
   }
 
   fileSize(path: string): number {
     return this.readBytes(path).byteLength;
+  }
+
+  dirSizeBytes(path: string): number {
+    if (Object.hasOwn(this.directorySizes, path))
+      return this.directorySizes[path]!;
+    const prefix = `${path}/`;
+    return [...Object.keys(this.files), ...Object.keys(this.bytes)]
+      .filter((filePath) => filePath.startsWith(prefix))
+      .reduce((size, filePath) => size + this.fileSize(filePath), 0);
   }
 
   statMtimeMs(path: string): number {
