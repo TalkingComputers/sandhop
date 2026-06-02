@@ -1,13 +1,41 @@
 {
   "name": "keepon",
   "version": "0.1.0",
+  "description": "Teleport live local Claude Code and Codex sessions to auth-gated cloud sandbox terminals.",
   "type": "module",
   "bin": {
     "keepon": "dist/cli/main.js"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TalkingComputers/keepon.git"
+  },
+  "license": "MIT",
+  "author": "Talking Computers",
+  "keywords": [
+    "claude-code",
+    "codex",
+    "e2b",
+    "sandbox",
+    "terminal",
+    "agent",
+    "teleport",
+    "ttyd"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "dist",
+    "plugin",
+    "docs/ARCHITECTURE.md",
+    "docs/design",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
-    "build": "tsc",
-    "prepare": "tsc",
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc",
+    "prepare": "npm run build",
     "test": "vitest run",
     "dev": "tsx src/cli/main.ts"
   },

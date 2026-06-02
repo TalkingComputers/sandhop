@@ -74,9 +74,11 @@ test("TeleportService fast core fans out collection, uploads one gzip bundle, st
   });
   expect(host.spawnPipeCalls).toEqual([
     expect.stringMatching(
-      /^tar -czf '\/tmp\/keepon-.+-bundle\.tgz' -C '\/workspace\/project' \.$/,
+      /tar \$KEEPON_TAR_MAC_FLAGS -czf '\/tmp\/keepon-.+-bundle\.tgz' -C '\/workspace\/project' \./,
     ),
   ]);
+  expect(host.spawnPipeCalls[0]).toContain("COPYFILE_DISABLE=1");
+  expect(host.spawnPipeCalls[0]).toContain("--no-mac-metadata");
   expect(host.spawnPipeCalls[0]).not.toContain("zstd");
   expect(provider.sandbox.execs[0]).not.toContain("zstd");
   expect(provider.sandbox.execs[0]).not.toContain("apt-get");

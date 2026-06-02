@@ -14,7 +14,7 @@ test("TransferService defaults to gzip, chunks locally, uploads chunks, verifies
   );
 
   expect(host.spawnPipeCalls).toHaveLength(1);
-  expect(host.spawnPipeCalls[0]).toContain("tar -czf '/tmp/keepon-bundle-");
+  expect(host.spawnPipeCalls[0]).toContain("-czf '/tmp/keepon-bundle-");
   expect(host.spawnPipeCalls[0]).toContain("-C '/workspace/project' .");
   expect(host.spawnPipeCalls[0]).not.toContain("zstd");
   expect(provider.sandbox.pathUploads).toEqual([
@@ -37,6 +37,20 @@ test("TransferService defaults to gzip, chunks locally, uploads chunks, verifies
   expect(provider.sandbox.execs[0]).not.toContain("sudo");
 });
 
+test("TransferService disables macOS AppleDouble metadata while creating archives", async () => {
+  const host = new FakeHost({ home: "/home/local", env: {} });
+  const provider = new FakeProvider();
+
+  await new TransferService(host, provider.sandbox).send(
+    "/workspace/project",
+    "/home/user/project",
+    "bundle",
+  );
+
+  expect(host.spawnPipeCalls[0]).toContain("COPYFILE_DISABLE=1");
+  expect(host.spawnPipeCalls[0]).toContain("--no-mac-metadata");
+});
+
 test("TransferService zstd codec keeps multithreaded zstd compression and zstd integrity checks", async () => {
   const host = new FakeHost({ home: "/home/local", env: {} });
   const provider = new FakeProvider();
@@ -49,9 +63,8 @@ test("TransferService zstd codec keeps multithreaded zstd compression and zstd i
   );
 
   expect(host.spawnPipeCalls).toHaveLength(1);
-  expect(host.spawnPipeCalls[0]).toContain(
-    "tar -cf - -C '/workspace/project' . | zstd -T0 -8 --long=27 --check",
-  );
+  expect(host.spawnPipeCalls[0]).toContain("-cf - -C '/workspace/project' .");
+  expect(host.spawnPipeCalls[0]).toContain("| zstd -T0 -8 --long=27 --check");
   expect(provider.sandbox.pathUploads).toEqual([
     {
       remotePath: expect.stringMatching(

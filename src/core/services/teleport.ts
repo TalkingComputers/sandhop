@@ -4,6 +4,7 @@ import type { HostDeps } from "../ports/host.js";
 import type { SandboxProvider } from "../ports/provider.js";
 import type { BootstrapService } from "./bootstrap.js";
 import type { SecretsBundle, SecretsInputs } from "./secrets.js";
+import { makeTarGzipCommand } from "./transfer.js";
 
 export interface TailscaleOption {
   authKey: string;
@@ -110,9 +111,7 @@ export class TeleportService {
     });
     opts.onProgress?.("uploading bundle");
     const bundlePath = makePath("bundle.tgz");
-    await this.services.host.spawnPipe(
-      `tar -czf ${shellQuote(bundlePath)} -C ${shellQuote(bundle)} .`,
-    );
+    await this.services.host.spawnPipe(makeTarGzipCommand(bundlePath, bundle));
     await sandbox.uploadFile(
       "/tmp/bundle.tgz",
       this.services.host.readBytes(bundlePath),

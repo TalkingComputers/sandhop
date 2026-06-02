@@ -46,15 +46,26 @@ const makeArchivePath = (
 ): string =>
   `/tmp/keepon-${safe}-${id}.${codec === "gzip" ? "tar.gz" : "tar.zst"}`;
 
+const TAR_CREATE_SETUP = [
+  "export COPYFILE_DISABLE=1",
+  'KEEPON_TAR_MAC_FLAGS=""',
+  'case "$(tar --help 2>/dev/null)" in *--no-mac-metadata*) KEEPON_TAR_MAC_FLAGS="--no-mac-metadata";; esac',
+].join("; ");
+
+export const makeTarGzipCommand = (archive: string, cwd: string): string =>
+  `${TAR_CREATE_SETUP}; tar $KEEPON_TAR_MAC_FLAGS -czf ${shellQuote(archive)} -C ${shellQuote(cwd)} .`;
+
+const makeTarStreamCommand = (cwd: string): string =>
+  `${TAR_CREATE_SETUP}; tar $KEEPON_TAR_MAC_FLAGS -cf - -C ${shellQuote(cwd)} .`;
+
 const makeCompressionCommand = (
   codec: TransferCodec,
   localTree: string,
   archive: string,
 ): string => {
-  if (codec === "gzip")
-    return `tar -czf ${shellQuote(archive)} -C ${shellQuote(localTree)} .`;
+  if (codec === "gzip") return makeTarGzipCommand(archive, localTree);
   return [
-    `tar -cf - -C ${shellQuote(localTree)} .`,
+    makeTarStreamCommand(localTree),
     `zstd -T0 -8 --long=27 --check -o ${shellQuote(archive)} -f`,
   ].join(" | ");
 };

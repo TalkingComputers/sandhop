@@ -185,7 +185,7 @@ export class FakeHost implements HostDeps {
     const zstdArchive = cmd.match(/ -o '([^']+)' -f/)?.[1];
     if (zstdArchive !== undefined)
       this.bytes[zstdArchive] = encoder.encode("archive");
-    const gzipArchive = cmd.match(/^tar -czf '([^']+)' /)?.[1];
+    const gzipArchive = cmd.match(/ -czf '([^']+)' /)?.[1];
     if (gzipArchive !== undefined)
       this.bytes[gzipArchive] = encoder.encode("archive");
   }

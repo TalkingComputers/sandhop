@@ -150,7 +150,10 @@ export class NodeHost implements HostDeps {
 
   async spawnPipe(cmd: string): Promise<void> {
     await new Promise<void>((resolve, reject) => {
-      const child = spawn("/bin/sh", ["-lc", cmd], { stdio: "inherit" });
+      const child = spawn("/bin/sh", ["-lc", cmd], {
+        env: { ...process.env, COPYFILE_DISABLE: "1" },
+        stdio: "inherit",
+      });
       child.on("error", reject);
       child.on("exit", (code, signal) => {
         if (code === 0) {
@@ -241,17 +244,24 @@ export class NodeHost implements HostDeps {
     outPath: string,
     opts?: { excludes: string[] },
   ): Promise<void> {
-    await tar.create(
-      {
-        gzip: true,
-        file: outPath,
-        cwd,
-        filter:
-          opts === undefined
-            ? undefined
-            : (path) => !hasExcludedSegment(path, opts.excludes),
-      },
-      entries,
-    );
+    const previous = process.env.COPYFILE_DISABLE;
+    process.env.COPYFILE_DISABLE = "1";
+    try {
+      await tar.create(
+        {
+          gzip: true,
+          file: outPath,
+          cwd,
+          filter:
+            opts === undefined
+              ? undefined
+              : (path) => !hasExcludedSegment(path, opts.excludes),
+        },
+        entries,
+      );
+    } finally {
+      if (previous === undefined) delete process.env.COPYFILE_DISABLE;
+      else process.env.COPYFILE_DISABLE = previous;
+    }
   }
 }

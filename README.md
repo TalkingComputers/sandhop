@@ -1,90 +1,112 @@
 # Keepon
 
-Keepon teleports a live local Claude Code or Codex session into an e2b sandbox and returns a browser terminal where the same session continues running. It ships the current working tree byte-for-byte, restores the selected transcript, installs the exact local CLI version, and starts the real agent TUI behind `ttyd`.
+Keepon teleports a live local Claude Code or Codex session to a cloud sandbox and lets you continue it in an auth-gated browser terminal. It sends the dirty working tree, the active transcript, and the agent auth needed to resume the same session remotely.
 
-## Output
+## Why Keepon
 
-```text
-KEEPON_URL https://<host>
-KEEPON_AUTH keepon:<password>
-```
+Claude on the web and Codex cloud are good for clean repo tasks. Keepon is for the messy local moment: uncommitted files, generated state, local slash commands, MCP config, and either Claude Code or Codex. The wedge is dirty-tree + cross-tool teleport, not another hosted agent UI.
 
-Default access is HTTPS plus per-teleport `ttyd` Basic Auth. `--tailscale` switches to a private tailnet URL and binds `ttyd` to loopback in the sandbox.
-
-## Architecture
-
-The code follows `docs/ARCHITECTURE.md`:
-
-- `src/core/ports`: `SandboxProvider`/`Sandbox`/`Capability`, `Agent`, and `HostDeps` ports.
-- `src/core/services`: `SnapshotService`, `SessionService`, `ProfileService`, `SecretsService`, `AuthService`, `VersionService`, `BootstrapService`, and `TeleportService`.
-- `src/agents`: declarative Claude Code and Codex agent records.
-- `src/providers/e2b`: e2b SDK adapter.
-- `src/host/node.ts`: Node filesystem, process, keychain, exec, and tar adapter.
-- `src/cli`: args plus the single composition root.
-
-`src/core` imports only `src/core` modules. Vendor SDKs and Node filesystem/process APIs stay at the edges.
-
-## Data model
-
-- `SnapshotService` tars the cwd with entries `['.']`; no language inspection and no excludes.
-- `SessionService` finds the real Claude Code or Codex transcript for the cwd and preserves the original transcript filename.
-- `ProfileService` ships portable agent config: settings, instructions, commands/prompts, rules/agents/output styles, plugins, and MCP definitions. It does not ship caches, sessions, auth files, or secret directories.
-- `McpCodeService` ships local-path MCP server project roots, rewrites their config for the sandbox home, reinstalls dependencies, and captures files referenced by `source <file>` wrapper commands.
-- `SecretsService` scans MCP config files, extracts referenced env var names, and captures only those values from `process.env`.
-- `AuthService` ships agent auth as env tokens or portable credential files.
-- `TeleportService` runs collection services with `Promise.all`, creates the sandbox, uploads bundle/profile/transcript/auth, runs bootstrap, starts native resume, and returns URL/auth.
-
-## Usage
+## Quickstart
 
 ```bash
-npm install
+npm install -g keepon
+```
+
+From source:
+
+```bash
+git clone https://github.com/TalkingComputers/keepon.git
+cd keepon
+npm ci
 npm run build
+```
+
+Set sandbox and agent auth:
+
+```bash
+export E2B_API_KEY=...
+export ANTHROPIC_API_KEY=...        # Claude Code, or CLAUDE_CODE_OAUTH_TOKEN
+export OPENAI_API_KEY=...           # Codex, or CODEX_API_KEY / ~/.codex/auth.json
+```
+
+Run from a live local agent session:
+
+```bash
+/keepon
+```
+
+Or run the engine directly:
+
+```bash
 node dist/cli/main.js push --cwd "$(pwd)"
 ```
 
-Force an agent:
+Output:
 
-```bash
-node dist/cli/main.js push --agent codex --cwd "$(pwd)"
-node dist/cli/main.js push --agent claude-code --cwd "$(pwd)"
+```text
+KEEPON_URL https://<sandbox-host>
+KEEPON_AUTH keepon:<password>
+KEEPON_ENRICHING <sandbox-id>
 ```
 
-Resume a specific session:
+Open `KEEPON_URL` and sign in with the `KEEPON_AUTH` user/password.
+
+## Flags
 
 ```bash
-node dist/cli/main.js push --session <session-id> --cwd "$(pwd)"
-```
-
-Disable profile shipping:
-
-```bash
+node dist/cli/main.js push --tailscale --cwd "$(pwd)"
 node dist/cli/main.js push --no-profile --cwd "$(pwd)"
 ```
 
-Use Tailscale:
+- `--tailscale`: exposes ttyd on a private tailnet URL instead of the public HTTPS port. Requires `TS_AUTHKEY`.
+- `--no-profile`: skips profile, plugin, skill, and MCP enrichment. The core working tree + transcript still move.
+
+## How it works
+
+Keepon has a fast core path and a detached enrichment path.
+
+1. Core collects the current working tree root, transcript, auth, secrets, and local CLI version in parallel.
+2. Core creates a single-tenant ephemeral sandbox, uploads the project bundle and transcript, installs the matching Claude Code or Codex CLI, restores the transcript, starts ttyd, and returns the URL. Target: under 2 minutes for ordinary projects.
+3. A detached in-cloud enrichment transfers portable profile and MCP local-code state, then rebuilds reproducible plugins, skills, and dependencies from manifests and refs. Reproducible bulk is rebuilt instead of blindly uploaded, preserving byte-equivalent versions while keeping the URL fast.
+
+## Security model
+
+- Agent auth and captured MCP secrets travel as sandbox env/credential files over TLS, not inside the project tarball.
+- Default access is HTTPS plus per-teleport ttyd Basic Auth.
+- `--tailscale` binds ttyd to loopback in the sandbox and returns a private tailnet URL.
+- Each push creates a single-tenant ephemeral sandbox. Kill it with `node dist/cli/main.js kill <sandbox-id>`.
+- Keepon does not log secret values.
+
+## Architecture
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Keepon is a TypeScript modular monolith with a hexagonal core, service layer, provider adapters, and agent adapters:
+
+- `src/core`: ports, pure data types, and orchestration services.
+- `src/host`: local Node filesystem/process/keychain/tar adapter.
+- `src/providers`: sandbox provider adapters, currently E2B.
+- `src/agents`: Claude Code and Codex adapters.
+- `src/cli`: composition root and direct CLI entrypoints.
+- `plugin/`: `/keepon` command/prompt wrappers.
+
+Design notes live in [`docs/design/`](docs/design/): [production fixes](docs/design/production-fixes.md), [profile sync](docs/design/profile-sync.md), [fast core](docs/design/fast-core.md), [transfer](docs/design/transfer.md), [fast reinstall](docs/design/fast-reinstall.md), and [review fixes](docs/design/review-fixes.md).
+
+## Limitations
+
+- You need an existing local Claude Code or Codex session for the target cwd.
+- Large dirty trees still take time to archive and upload.
+- Detached enrichment can finish after the terminal is already usable; check `/tmp/keepon-enrich.log` inside the sandbox.
+- Local-only services, databases, localhost URLs, and private files outside captured config are not reachable unless you provision them or tunnel them.
+- Codex resume works only with credentials accepted for the original session/org.
+- Cloud rebuilds need network access to git/npm/bun/uv sources referenced by your manifests.
+
+## Development
 
 ```bash
-TS_AUTHKEY=<tskey-auth-...> node dist/cli/main.js push --tailscale --cwd "$(pwd)"
+npm ci
+npm run build
+npx vitest run
 ```
 
-List and kill sandboxes:
+## License
 
-```bash
-node dist/cli/main.js list
-node dist/cli/main.js kill <sandbox-id>
-```
-
-Required environment for real teleports:
-
-- `E2B_API_KEY`
-- Claude Code: `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`, or a supported local Keychain credential
-- Codex: non-empty `~/.codex/auth.json`, OS Keychain `Codex Auth`, `OPENAI_API_KEY`, or `CODEX_API_KEY`
-- Tailscale mode only: `TS_AUTHKEY`
-
-## MCP local code limits
-
-- `npx`, `uvx`, bare-command, and remote-URL MCP servers are treated as remotely installable or remote.
-- Local-path MCP roots are copied without `node_modules`, `.venv`, or `.git`; dependencies are reinstalled in the sandbox with `npm`, `bun`, or `uv`.
-- Native or venv dependencies are reinstalled, not copied.
-- `localhost` DSNs and local data stores are not reachable remotely without provisioning or a tunnel.
-- Browser MCPs may need a browser install inside the sandbox.
+MIT © Talking Computers
