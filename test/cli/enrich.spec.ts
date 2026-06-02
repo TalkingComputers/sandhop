@@ -136,7 +136,7 @@ test("enrichSandbox finishes profile and marker after MCP transfer failure", asy
 
   expect(host.copyCalls[0]!.entries).toEqual([
     ".claude/settings.json",
-    ".claude/skills",
+    ".claude/skills/ship",
   ]);
   const profileIndex = sandbox.execs.findIndex(
     (cmd) => cmd.includes("/tmp/keepon-profile-") && cmd.includes("zstd -d"),
@@ -156,4 +156,52 @@ test("enrichSandbox finishes profile and marker after MCP transfer failure", asy
     "[keepon] step failed: mcp code transfer + config rewrite",
   );
   expect(log).toContain("[keepon] enrichment summary");
+});
+
+test("enrichSandbox runs reinstall commands nice, HTTPS-preferred, fault-isolated, and logged", async () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: {
+      "/home/local/.claude/settings.json": JSON.stringify({
+        enabledPlugins: { "serena@official": false },
+      }),
+      "/home/local/.claude/plugins/known_marketplaces.json": JSON.stringify({
+        official: {
+          source: { source: "github", repo: "anthropics/claude-plugins" },
+        },
+      }),
+      "/home/local/.claude/plugins/installed_plugins.json": JSON.stringify({
+        version: 2,
+        plugins: { "serena@official": [{ scope: "user" }] },
+      }),
+    },
+  });
+  const sandbox = new FakeSandbox("sbx-1");
+
+  await enrichSandbox(
+    {
+      sandboxId: "sbx-1",
+      agent: "claude-code",
+      cwd: "/workspace/project",
+      profile: true,
+    },
+    host,
+    sandbox,
+  );
+
+  const log = sandbox.execs.join("\n");
+
+  expect(log).toContain("CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1");
+  expect(log).toContain(
+    "$KEEPON_LOW_PRIORITY sh -lc 'claude plugin marketplace add anthropics/claude-plugins'",
+  );
+  expect(log).toContain(
+    "$KEEPON_LOW_PRIORITY sh -lc 'claude plugin install serena@official --scope user'",
+  );
+  expect(log).toContain(
+    "$KEEPON_LOW_PRIORITY sh -lc 'claude plugin disable serena@official'",
+  );
+  expect(log).toContain("[keepon] reinstall step failed:");
+  expect(log).toContain("touch /tmp/keepon-enriched");
 });

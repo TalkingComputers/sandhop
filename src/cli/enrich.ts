@@ -11,6 +11,7 @@ import {
 import type { CodePlan } from "../core/services/mcp-code.js";
 import { McpCodeService } from "../core/services/mcp-code.js";
 import { ProfileService } from "../core/services/profile.js";
+import { ReinstallService } from "../core/services/reinstall.js";
 import { SecretsService } from "../core/services/secrets.js";
 import { TransferService } from "../core/services/transfer.js";
 import { NodeHost } from "../host/node.js";
@@ -46,6 +47,16 @@ const parseEnrichArgs = (argv: string[]): EnrichArgs => ({
 const shellQuote = (value: string): string =>
   `'${value.replaceAll("'", "'\\''")}'`;
 
+const shellLog = (value: string): string =>
+  value
+    .replaceAll("\\", "\\\\")
+    .replaceAll('"', '\\"')
+    .replaceAll("$", "\\$")
+    .replaceAll("`", "\\`");
+
+const LOW_PRIORITY_SETUP =
+  'KEEPON_LOW_PRIORITY="nice -n 19"; if command -v ionice >/dev/null 2>&1; then KEEPON_LOW_PRIORITY="nice -n 19 ionice -c3"; fi';
+
 const expandHome = (path: string): string =>
   path.replace(/^\$HOME/, "/home/user");
 
@@ -66,6 +77,18 @@ const runLogged = async (
   script: string,
 ): Promise<RunResult> =>
   sandbox.exec(["{", script, "} >> /tmp/keepon-enrich.log 2>&1"].join("\n"));
+
+const renderReinstall = (commands: string[]): string => {
+  if (commands.length === 0) return 'echo "[keepon] reinstall skipped"';
+  return [
+    LOW_PRIORITY_SETUP,
+    "export CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1",
+    ...commands.map(
+      (command) =>
+        `$KEEPON_LOW_PRIORITY sh -lc ${shellQuote(command)} || { echo "[keepon] reinstall step failed: ${shellLog(command)}" >&2; true; }`,
+    ),
+  ].join("\n");
+};
 
 const recordStep = async (
   sandbox: Sandbox,
@@ -118,6 +141,7 @@ export const enrichSandbox = async (
     const transfer = new TransferService(host, sandbox);
     const profile = new ProfileService(host, agent);
     const mcpCode = new McpCodeService(host, agent);
+    const reinstall = new ReinstallService(host, agent);
     const secrets = new SecretsService(host, agent);
     const bootstrap = new BootstrapService(agent);
     const steps: EnrichmentStepResult[] = [];
@@ -183,6 +207,12 @@ export const enrichSandbox = async (
       steps,
       "per-MCP dependency installs",
       bootstrap.renderEnrichmentInstalls({ codePlan }),
+    );
+    await recordScriptStep(
+      sandbox,
+      steps,
+      "plugin and git skill reinstall",
+      renderReinstall(reinstall.plan().commands),
     );
     await runLogged(sandbox, bootstrap.renderEnrichmentCompletion(steps)).catch(
       async (error: unknown): Promise<void> => {
