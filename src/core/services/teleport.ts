@@ -2,13 +2,10 @@ import { buildManifest } from "../manifest.js";
 import type { Agent, AuthBundle, SessionRef } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
 import type { SandboxProvider } from "../ports/provider.js";
+import type { Transport } from "../ports/transport.js";
 import type { BootstrapService } from "./bootstrap.js";
 import type { SecretsBundle, SecretsInputs } from "./secrets.js";
 import { makeTarGzipCommand } from "./transfer.js";
-
-export interface TailscaleOption {
-  authKey: string;
-}
 
 export interface TeleportResult {
   url: string;
@@ -20,7 +17,7 @@ export interface TeleportResult {
 export interface TeleportOptions {
   sessionId?: string;
   profile: boolean;
-  tailscale?: TailscaleOption;
+  transport: Transport;
   timeoutMs: number;
   onProgress?: (msg: string) => void;
 }
@@ -96,13 +93,7 @@ export class TeleportService {
       transcriptName: session.transcriptName,
       ts: Date.now(),
     });
-    const envs = opts.tailscale
-      ? {
-          ...baseSecrets.envs,
-          ...auth.envs,
-          TS_AUTHKEY: opts.tailscale.authKey,
-        }
-      : { ...baseSecrets.envs, ...auth.envs };
+    const envs = { ...baseSecrets.envs, ...auth.envs };
     opts.onProgress?.("creating sandbox");
     const sandbox = await this.provider.create({
       image: "base",
@@ -128,46 +119,26 @@ export class TeleportService {
       `installing ${this.agent.pkg}@${manifest.cliVersion} + ttyd`,
     );
     const restore = await sandbox.exec(
-      this.services.bootstrap.render(
-        manifest,
-        opts.tailscale ? { tailscale: { sandboxId: sandbox.id } } : {},
-      ),
+      this.services.bootstrap.render(manifest, {
+        transportSteps: opts.transport.bootstrapSteps(),
+      }),
     );
     if (restore.exitCode !== 0 || !restore.stdout.includes("KEEPON_RESTORE_OK"))
       throw new Error(`Restore failed: ${restore.stderr}`);
     opts.onProgress?.("restoring session");
     const resume = this.agent.resumeCmd(session.sessionId, manifest.remoteProj);
+    const bind = opts.transport.ttydBindAddress();
+    const bindFlag = bind === "0.0.0.0" ? "" : `-i ${bind} `;
     await sandbox.spawn(
-      opts.tailscale
-        ? `ttyd -i 127.0.0.1 -p 7681 -W -c ${user}:${pass} bash -lc ${shellQuote(resume)}`
-        : `ttyd -p 7681 -W -c ${user}:${pass} bash -lc ${shellQuote(resume)}`,
+      `ttyd ${bindFlag}-p 7681 -W -c ${user}:${pass} bash -lc ${shellQuote(resume)}`,
     );
-    if (opts.tailscale) {
-      const ready = await sandbox.exec(
-        "bash -lc 'for i in {1..60}; do (echo >/dev/tcp/127.0.0.1/7681) >/dev/null 2>&1 && exit 0; sleep 0.5; done; echo ttyd not ready >&2; exit 1'",
-      );
-      if (ready.exitCode !== 0)
-        throw new Error(`ttyd readiness failed: ${ready.stderr}`);
-      const tailscaleHostname = `keepon-${sandbox.id}.`;
-      const script = `const fs=require("fs");const hostname=${JSON.stringify(tailscaleHostname)};const status=JSON.parse(fs.readFileSync(0,"utf8"));const dnsName=status.Self.DNSName;if(!dnsName.startsWith(hostname))throw new Error("unexpected DNSName "+dnsName);process.stdout.write(dnsName.slice(hostname.length).replace(/\\.$/,""))`;
-      const status = await sandbox.exec(
-        `tailscale status --json | node -e ${JSON.stringify(script)}`,
-      );
-      if (status.exitCode !== 0)
-        throw new Error(`Tailscale status failed: ${status.stderr}`);
-      const suffix = status.stdout.trim();
-      if (!suffix)
-        throw new Error("Tailscale status returned an empty MagicDNS suffix");
-      opts.onProgress?.("ready");
-      return {
-        url: `http://keepon-${sandbox.id}.${suffix}:7681`,
-        sandboxId: sandbox.id,
-        user,
-        pass,
-      };
-    }
-    const exposed = await sandbox.exposePort(7681);
+    const { url } = await opts.transport.expose({
+      sandbox,
+      localPort: 7681,
+      user,
+      pass,
+    });
     opts.onProgress?.("ready");
-    return { url: exposed.url, sandboxId: sandbox.id, user, pass };
+    return { url, sandboxId: sandbox.id, user, pass };
   }
 }

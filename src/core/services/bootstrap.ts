@@ -4,7 +4,7 @@ import type { CodePlan } from "./mcp-code.js";
 import type { ScriptCapturePlan } from "./scripts.js";
 
 export interface BootstrapOptions {
-  tailscale?: { sandboxId: string };
+  transportSteps?: string[];
 }
 
 export interface EnrichmentBootstrapOptions {
@@ -131,19 +131,11 @@ export class BootstrapService {
       manifest.remoteEnc,
       manifest.transcriptName,
     );
-    const tailscale = opts.tailscale
-      ? [
-          "curl -fsSL https://tailscale.com/install.sh | sh",
-          "mkdir -p /tmp/tailscaled",
-          "sudo tailscaled --tun=userspace-networking --socks5-server=localhost:1055 --outbound-http-proxy-listen=localhost:1055 --statedir=/tmp/tailscaled &",
-          `sudo tailscale up --authkey="$TS_AUTHKEY" --hostname="keepon-${opts.tailscale.sandboxId}" --accept-dns=false`,
-        ]
-      : [];
     return [
       "set -e",
       "sudo curl -fsSL https://github.com/tsl0922/ttyd/releases/latest/download/ttyd.x86_64 -o /usr/local/bin/ttyd",
       "sudo chmod +x /usr/local/bin/ttyd",
-      ...tailscale,
+      ...(opts.transportSteps ?? []),
       this.agent.installCmd(manifest.cliVersion),
       ...this.agent.preSeed(manifest.remoteProj),
       `sudo mkdir -p "${manifest.remoteProj}"`,

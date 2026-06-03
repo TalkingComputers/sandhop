@@ -54,12 +54,29 @@ Open `KEEPON_URL` and sign in with the `KEEPON_AUTH` user/password.
 ## Flags
 
 ```bash
-node dist/cli/main.js push --tailscale --cwd "$(pwd)"
+node dist/cli/main.js push --tunnel cloudflared --cwd "$(pwd)"
 node dist/cli/main.js push --no-profile --cwd "$(pwd)"
 ```
 
-- `--tailscale`: exposes ttyd on a private tailnet URL instead of the public HTTPS port. Requires `TS_AUTHKEY`.
+- `--tunnel public`: exposes ttyd through the sandbox provider HTTPS port. This is the default.
+- `--tunnel cloudflared`: exposes ttyd through Cloudflare Tunnel.
 - `--no-profile`: skips profile, plugin, skill, and MCP enrichment. The core working tree + transcript still move.
+
+## Private access
+
+`--tunnel cloudflared` binds ttyd to loopback and starts cloudflared inside the sandbox.
+
+Quick tunnel mode needs no Cloudflare setup and returns a `*.trycloudflare.com` URL protected by Keepon's per-teleport ttyd Basic Auth.
+
+Named tunnel mode uses your configured Cloudflare Tunnel and Access policy:
+
+```bash
+export CLOUDFLARE_TUNNEL_TOKEN=...
+export CLOUDFLARE_TUNNEL_HOSTNAME=keepon.example.com
+node dist/cli/main.js push --tunnel cloudflared --cwd "$(pwd)"
+```
+
+Keepon returns `https://$CLOUDFLARE_TUNNEL_HOSTNAME`; Cloudflare must already route that hostname to the named tunnel.
 
 ## How it works
 
@@ -73,7 +90,7 @@ Keepon has a fast core path and a detached enrichment path.
 
 - Agent auth and captured MCP secrets travel as sandbox env/credential files over TLS, not inside the project tarball.
 - Default access is HTTPS plus per-teleport ttyd Basic Auth.
-- `--tailscale` binds ttyd to loopback in the sandbox and returns a private tailnet URL.
+- `--tunnel cloudflared` binds ttyd to loopback in the sandbox and returns either a quick tunnel URL or your Access-gated named tunnel hostname.
 - Each push creates a single-tenant ephemeral sandbox. Kill it with `node dist/cli/main.js kill <sandbox-id>`.
 - Keepon does not log secret values.
 
@@ -85,6 +102,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Keepon is a TypeScript modular
 - `src/host`: local Node filesystem/process/keychain/tar adapter.
 - `src/providers`: sandbox provider adapters, currently E2B.
 - `src/agents`: Claude Code and Codex adapters.
+- `src/transports`: public provider and cloudflared URL adapters.
 - `src/cli`: composition root and direct CLI entrypoints.
 - `plugin/`: `/keepon` command/prompt wrappers.
 

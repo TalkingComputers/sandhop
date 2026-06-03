@@ -83,13 +83,15 @@ test("BootstrapService quotes remote project shell paths with spaces", () => {
   );
 });
 
-test("BootstrapService enables tailscale binary mode when requested", () => {
+test("BootstrapService injects transport steps before agent install", () => {
   const script = new BootstrapService(CLAUDE_CODE).render(manifest, {
-    tailscale: { sandboxId: "sbx-1" },
+    transportSteps: ["install cloudflared"],
   });
 
-  expect(script).toContain("curl -fsSL https://tailscale.com/install.sh | sh");
-  expect(script).toContain('--hostname="keepon-sbx-1"');
+  expect(script).toContain("install cloudflared");
+  expect(script.indexOf("install cloudflared")).toBeLessThan(
+    script.indexOf("npm i -g @anthropic-ai/claude-code@2.1.160"),
+  );
 });
 
 test("BootstrapService enrichment installs runtimes and deps, writes rewritten MCP config, and marks completion", () => {

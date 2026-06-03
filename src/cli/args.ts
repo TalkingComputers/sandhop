@@ -1,5 +1,7 @@
 import type { AgentId } from "../core/ports/agent.js";
-import type { TailscaleOption } from "../core/services/teleport.js";
+import type { Transport } from "../core/ports/transport.js";
+import { CloudflaredTransport } from "../transports/cloudflared.js";
+import { PublicTransport } from "../transports/public.js";
 
 export interface ParsedArgs {
   cmd: "push" | "list" | "kill";
@@ -7,7 +9,7 @@ export interface ParsedArgs {
   session?: string;
   killId?: string;
   cwd: string;
-  tailscale: boolean;
+  transport: "public" | "cloudflared";
   profile: boolean;
 }
 
@@ -25,6 +27,12 @@ const readAgent = (value: string | undefined): AgentId | undefined => {
   throw new Error(`Unknown agent ${value}`);
 };
 
+const readTransport = (value: string | undefined): "public" | "cloudflared" => {
+  if (value === undefined) return "public";
+  if (value === "public" || value === "cloudflared") return value;
+  throw new Error("--tunnel must be 'public' or 'cloudflared'");
+};
+
 export const parseArgs = (argv: string[], cwd: string): ParsedArgs => {
   const cmd = argv[0] === "list" || argv[0] === "kill" ? argv[0] : "push";
   return {
@@ -33,18 +41,20 @@ export const parseArgs = (argv: string[], cwd: string): ParsedArgs => {
     session: readFlag(argv, "--session"),
     killId: cmd === "kill" ? argv[1] : undefined,
     cwd: readFlag(argv, "--cwd") ?? cwd,
-    tailscale: argv.includes("--tailscale"),
+    transport: readTransport(
+      argv.includes("--tunnel") ? readFlag(argv, "--tunnel") : undefined,
+    ),
     profile: !argv.includes("--no-profile"),
   };
 };
 
-export const readTailscaleOption = (
+export const buildTransport = (
   args: ParsedArgs,
   env: Record<string, string | undefined>,
-): TailscaleOption | undefined => {
-  if (!args.tailscale) return undefined;
-  const authKey = env.TS_AUTHKEY;
-  if (authKey === undefined)
-    throw new Error("TS_AUTHKEY is required when --tailscale is set");
-  return { authKey };
+): Transport => {
+  if (args.transport === "public") return new PublicTransport();
+  return new CloudflaredTransport({
+    token: env.CLOUDFLARE_TUNNEL_TOKEN,
+    hostname: env.CLOUDFLARE_TUNNEL_HOSTNAME,
+  });
 };

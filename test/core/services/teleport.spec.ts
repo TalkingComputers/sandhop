@@ -1,8 +1,10 @@
 import { expect, test } from "vitest";
 import { CLAUDE_CODE } from "../../../src/agents/claude-code.js";
 import type { AuthBundle, SessionRef } from "../../../src/core/ports/agent.js";
+import type { Transport } from "../../../src/core/ports/transport.js";
 import { BootstrapService } from "../../../src/core/services/bootstrap.js";
 import { TeleportService } from "../../../src/core/services/teleport.js";
+import { PublicTransport } from "../../../src/transports/public.js";
 import { FakeHost } from "../../fakes/host.js";
 import { FakeProvider } from "../../fakes/provider.js";
 
@@ -56,6 +58,7 @@ test("TeleportService fast core fans out collection, uploads one gzip bundle, st
 
   const result = await service.run("/workspace/project", {
     profile: true,
+    transport: new PublicTransport(),
     timeoutMs: 3_600_000,
   });
 
@@ -90,6 +93,7 @@ test("TeleportService fast core fans out collection, uploads one gzip bundle, st
     'tar -xzf /tmp/bundle.tgz -C "/workspace/project"',
   );
   expect(provider.sandbox.spawns[0]).toContain("ttyd -p 7681 -W -c keepon:");
+  expect(provider.sandbox.spawns[0]).not.toContain("-i 127.0.0.1");
   expect(provider.sandbox.spawns[0]).toContain(
     "bash -lc 'cd \"/workspace/project\" && claude --resume session-id'",
   );
@@ -103,7 +107,7 @@ test("TeleportService fast core fans out collection, uploads one gzip bundle, st
   expect(result.pass).toMatch(/^[A-Za-z0-9_-]{24}$/);
 });
 
-test("TeleportService uses tailscale private mode without exposing a public provider port", async () => {
+test("TeleportService injects transport bootstrap steps and loopback ttyd bind", async () => {
   const host = new FakeHost({
     home: "/home/local",
     env: {},
@@ -113,6 +117,12 @@ test("TeleportService uses tailscale private mode without exposing a public prov
     },
   });
   const provider = new FakeProvider();
+  const cloudflaredTransport: Transport = {
+    id: "cloudflared",
+    ttydBindAddress: () => "127.0.0.1",
+    bootstrapSteps: () => ["install cloudflared"],
+    expose: async (ctx) => ({ url: `https://cloudflared-${ctx.sandbox.id}` }),
+  };
   const session: SessionRef = {
     sessionId: "session-id",
     transcriptPath:
@@ -136,19 +146,19 @@ test("TeleportService uses tailscale private mode without exposing a public prov
 
   const result = await service.run("/workspace/project", {
     profile: false,
-    tailscale: { authKey: "tskey-auth-test" },
+    transport: cloudflaredTransport,
     timeoutMs: 3_600_000,
   });
 
   expect(provider.creates[0]!.envs).toEqual({
     ANTHROPIC_API_KEY: "sk-ant-api03-test",
-    TS_AUTHKEY: "tskey-auth-test",
   });
+  expect(provider.sandbox.execs[0]).toContain("install cloudflared");
   expect(provider.sandbox.spawns[0]).toContain(
     "ttyd -i 127.0.0.1 -p 7681 -W -c keepon:",
   );
   expect(provider.sandbox.exposedPorts).toEqual([]);
-  expect(result.url).toBe("http://keepon-sbx-1.tailnet.test:7681");
+  expect(result.url).toBe("https://cloudflared-sbx-1");
 });
 
 test("TeleportService uploads core secret and auth files but leaves MCP code to enrichment", async () => {
@@ -189,6 +199,7 @@ test("TeleportService uploads core secret and auth files but leaves MCP code to 
 
   await service.run("/workspace/project", {
     profile: false,
+    transport: new PublicTransport(),
     timeoutMs: 3_600_000,
   });
 

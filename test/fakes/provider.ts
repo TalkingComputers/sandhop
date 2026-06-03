@@ -12,6 +12,7 @@ export class FakeSandbox implements Sandbox {
   uploads: { path: string; data: Uint8Array | string }[];
   pathUploads: { remotePath: string; localPath: string }[];
   execs: string[];
+  execResults: RunResult[];
   spawns: string[];
   exposedPorts: number[];
   destroyed: boolean;
@@ -21,6 +22,7 @@ export class FakeSandbox implements Sandbox {
     this.uploads = [];
     this.pathUploads = [];
     this.execs = [];
+    this.execResults = [];
     this.spawns = [];
     this.exposedPorts = [];
     this.destroyed = false;
@@ -36,13 +38,8 @@ export class FakeSandbox implements Sandbox {
 
   async exec(cmd: string): Promise<RunResult> {
     this.execs.push(cmd);
-    if (cmd.includes("tailscale status --json")) {
-      return {
-        exitCode: 0,
-        stdout: "tailnet.test\n",
-        stderr: "",
-      };
-    }
+    const result = this.execResults.shift();
+    if (result !== undefined) return result;
     return { exitCode: 0, stdout: "KEEPON_RESTORE_OK\n", stderr: "" };
   }
 

@@ -13,7 +13,7 @@ import { TeleportService } from "../core/services/teleport.js";
 import { VersionService } from "../core/services/version.js";
 import { NodeHost } from "../host/node.js";
 import { E2bSandboxProvider } from "../providers/e2b/index.js";
-import { parseArgs, readTailscaleOption } from "./args.js";
+import { buildTransport, parseArgs } from "./args.js";
 
 const buildHost = (): NodeHost => {
   const home = process.env.HOME;
@@ -47,7 +47,7 @@ const runPush = async (
   const result = await service.run(args.cwd, {
     sessionId: args.session,
     profile: args.profile,
-    tailscale: readTailscaleOption(args, process.env),
+    transport: buildTransport(args, process.env),
     timeoutMs: 3_600_000,
     onProgress,
   });
