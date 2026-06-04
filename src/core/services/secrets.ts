@@ -11,6 +11,13 @@ export interface SecretsBundle {
   files: { path: string; content: string }[];
 }
 
+export interface SecretsCollector {
+  collect(
+    cwd: string,
+    inputs?: SecretsInputs,
+  ): SecretsBundle | Promise<SecretsBundle>;
+}
+
 const remotePath = (home: string, path: string): string => {
   if (path === home) return "$HOME";
   if (path.startsWith(`${home}/`)) return `$HOME${path.slice(home.length)}`;
@@ -43,7 +50,7 @@ const HOST_ENV_PATTERN =
 const isHostEnvName = (name: string): boolean =>
   HOST_ENV_NAMES.has(name) || HOST_ENV_PATTERN.test(name);
 
-export class SecretsService {
+export class SecretsService implements SecretsCollector {
   readonly host: HostDeps;
   readonly agent: Agent;
 

@@ -1,17 +1,16 @@
 import { safeRemoteProj } from "../encode.js";
+import { expandEnv, joinPath } from "../paths.js";
 import type { HostDeps } from "../ports/host.js";
+import { installCmd } from "./mcp-classify.js";
 import {
-  expandEnv,
   hasRootMarker,
-  installCmd,
-  joinPath,
   LOCAL_PATH_EXCLUDES,
   maybeRealpath,
   nearestRoot,
   remapValue,
   sandboxPath,
   type PathMapping,
-} from "./mcp-code.js";
+} from "./mcp-paths.js";
 
 export interface SettingsRewrite {
   localPath: string;

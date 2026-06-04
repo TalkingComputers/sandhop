@@ -32,7 +32,11 @@ const runPush = async (
     : selectDefaultAgent(detectAgents(host, args.cwd));
   const sessions = agent.matchSession(host, args.cwd);
   if (sessions.length === 0)
-    throw new Error(`No Claude Code or Codex session found for ${args.cwd}`);
+    throw new Error(
+      args.agent === undefined
+        ? `No Claude Code or Codex session found for ${args.cwd}`
+        : `No ${agent.id} session found for ${args.cwd}`,
+    );
   if (args.agent === undefined && detectAgents(host, args.cwd).length > 1)
     console.error(`Multiple agents found; using ${agent.id}`);
   const service = new TeleportService(provider, agent, {

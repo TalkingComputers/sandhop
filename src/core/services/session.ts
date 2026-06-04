@@ -1,7 +1,12 @@
 import type { Agent, SessionRef } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
 
-export class SessionService {
+export interface SessionReader {
+  latest(cwd: string): SessionRef | Promise<SessionRef>;
+  byId(cwd: string, id: string): SessionRef | Promise<SessionRef>;
+}
+
+export class SessionService implements SessionReader {
   readonly host: HostDeps;
   readonly agent: Agent;
 

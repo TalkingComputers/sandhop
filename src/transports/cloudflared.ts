@@ -3,6 +3,7 @@ import type {
   TransportContext,
   TransportResult,
 } from "../core/ports/transport.js";
+import { shellQuote } from "../core/shell.js";
 
 export interface CloudflaredOptions {
   token?: string;
@@ -10,9 +11,6 @@ export interface CloudflaredOptions {
 }
 
 const LOG_PATH = "/tmp/keepon-cloudflared.log";
-
-const shellQuote = (value: string): string =>
-  `'${value.replaceAll("'", "'\\''")}'`;
 
 export class CloudflaredTransport implements Transport {
   readonly id = "cloudflared" as const;

@@ -159,6 +159,22 @@ test("DaytonaSandboxProvider uploads files, exposes ports, and destroys", async 
   expect(daytonaMocks.deleteSandbox).toHaveBeenCalledWith(600);
 });
 
+test("DaytonaSandboxProvider reconnects after adapter destroy", async () => {
+  const { DaytonaSandboxProvider } = await loadProvider();
+  const provider = new DaytonaSandboxProvider(
+    new FakeHost({
+      home: "/home/local",
+      env: { DAYTONA_API_KEY: "api-key" },
+    }),
+  );
+  const sandbox = await provider.create({ envs: {}, timeoutMs: 600000 });
+
+  await sandbox.destroy();
+  await provider.connect("daytona-sbx");
+
+  expect(daytonaMocks.get).toHaveBeenCalledWith("daytona-sbx");
+});
+
 test("DaytonaSandboxProvider missing package throws install hint", async () => {
   vi.resetModules();
   vi.doMock("@daytonaio/sdk", () => {

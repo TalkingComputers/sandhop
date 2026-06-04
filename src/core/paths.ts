@@ -1,0 +1,50 @@
+export const SANDBOX_HOME = "/home/user";
+
+export const dirname = (path: string): string => {
+  if (path === "/") return "/";
+  const clean = path.replace(/\/+$/, "");
+  if (clean === "") return ".";
+  const index = clean.lastIndexOf("/");
+  if (index < 0) return ".";
+  if (index === 0) return "/";
+  return clean.slice(0, index);
+};
+
+export const basename = (path: string): string =>
+  path.replace(/\/+$/, "").split("/").pop()!;
+
+export const joinPath = (dir: string, path: string): string => {
+  if (dir === ".") return path;
+  if (dir === "/") return `/${path}`;
+  return `${dir}/${path}`;
+};
+
+export const expandHome = (path: string, home: string): string =>
+  path
+    .replace(/^~/, home)
+    .replaceAll("${HOME}", home)
+    .replaceAll("$HOME", home);
+
+export const sandboxExpandHome = (path: string): string =>
+  expandHome(path, SANDBOX_HOME);
+
+export const expandEnv = (
+  value: string,
+  home: string,
+  env: Record<string, string | undefined>,
+): string =>
+  expandHome(value, home).replace(
+    /\$\{([A-Z][A-Z0-9_]*)\}|\$([A-Z][A-Z0-9_]*)/g,
+    (token, braced: string | undefined, bare: string | undefined) => {
+      const name = braced ?? bare;
+      if (name === undefined) return token;
+      const envValue = env[name];
+      return envValue === undefined ? token : envValue;
+    },
+  );
+
+export const makeTempPath = (name: string): string =>
+  `/tmp/keepon-${Date.now()}-${name}`;
+
+export const uniqueSorted = (values: Iterable<string>): string[] =>
+  [...new Set(values)].sort();

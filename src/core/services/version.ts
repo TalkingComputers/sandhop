@@ -1,7 +1,11 @@
 import type { Agent } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
 
-export class VersionService {
+export interface VersionDetector {
+  detect(): string | Promise<string>;
+}
+
+export class VersionService implements VersionDetector {
   readonly host: HostDeps;
   readonly agent: Agent;
 

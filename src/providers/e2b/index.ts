@@ -100,7 +100,6 @@ export class E2bSandboxProvider implements SandboxProvider {
     "live-file-upload",
     "extend-timeout",
   ]);
-  readonly instances: Record<string, E2bSandboxAdapter> = {};
   readonly host: Pick<HostDeps, "openBlob">;
 
   constructor(host: Pick<HostDeps, "openBlob">) {
@@ -112,19 +111,11 @@ export class E2bSandboxProvider implements SandboxProvider {
       envs: opts.envs,
       timeoutMs: opts.timeoutMs,
     });
-    const adapter = new E2bSandboxAdapter(sandbox, this.host);
-    this.instances[adapter.id] = adapter;
-    return adapter;
+    return new E2bSandboxAdapter(sandbox, this.host);
   }
 
   async connect(id: string): Promise<Sandbox> {
-    if (this.instances[id] !== undefined) return this.instances[id];
-    const adapter = new E2bSandboxAdapter(
-      await E2bSandbox.connect(id),
-      this.host,
-    );
-    this.instances[id] = adapter;
-    return adapter;
+    return new E2bSandboxAdapter(await E2bSandbox.connect(id), this.host);
   }
 
   async list(): Promise<SandboxInfo[]> {

@@ -60,10 +60,16 @@ class ModalSandboxAdapter implements Sandbox {
   readonly id: string;
   readonly sandbox: ModalSandboxInstance;
   readonly host: Pick<HostDeps, "openBlob">;
+  readonly onDestroy: (id: string) => void;
 
-  constructor(sandbox: ModalSandboxInstance, host: Pick<HostDeps, "openBlob">) {
+  constructor(
+    sandbox: ModalSandboxInstance,
+    host: Pick<HostDeps, "openBlob">,
+    onDestroy: (id: string) => void,
+  ) {
     this.sandbox = sandbox;
     this.host = host;
+    this.onDestroy = onDestroy;
     this.id = sandbox.sandboxId;
   }
 
@@ -115,6 +121,7 @@ class ModalSandboxAdapter implements Sandbox {
 
   async destroy(): Promise<void> {
     await this.sandbox.terminate();
+    this.onDestroy(this.id);
   }
 }
 
@@ -185,7 +192,9 @@ export class ModalSandboxProvider implements SandboxProvider {
   }
 
   private track(sandbox: ModalSandboxInstance): Sandbox {
-    const adapter = new ModalSandboxAdapter(sandbox, this.host);
+    const adapter = new ModalSandboxAdapter(sandbox, this.host, (id) => {
+      delete this.instances[id];
+    });
     this.instances[adapter.id] = adapter;
     return adapter;
   }

@@ -64,6 +64,8 @@ export interface Agent {
   formatMcpConfig(servers: McpServer[], remoteProj: string): McpConfigWrite;
   authEnv(deps: AgentHostDeps): AuthBundle;
   installCmd(version: string): string;
+  supportsSettingsScripts(): boolean;
+  supportsReinstall(): boolean;
   preSeed(remoteProj: string): string[];
   remoteTranscriptPath(remoteEnc: string, transcriptName: string): string;
   resumeCmd(sessionId: string, remoteProj: string): string;

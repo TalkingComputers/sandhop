@@ -1,6 +1,6 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import type { RunResult } from "../../src/core/ports/provider.js";
-import { enrichSandbox } from "../../src/cli/enrich.js";
+import { enrichSandbox, runEnrichCli } from "../../src/cli/enrich.js";
 import { FakeHost } from "../fakes/host.js";
 import { FakeProvider, FakeSandbox } from "../fakes/provider.js";
 
@@ -17,6 +17,17 @@ class FailingMcpSandbox extends FakeSandbox {
     return super.exec(cmd);
   }
 }
+
+test("runEnrichCli returns non-zero on top-level failure", async () => {
+  const error = vi
+    .spyOn(console, "error")
+    .mockImplementation((): void => undefined);
+
+  await expect(runEnrichCli([])).resolves.toBe(1);
+
+  expect(error).toHaveBeenCalledWith("--sandbox-id is required");
+  error.mockRestore();
+});
 
 test("enrichSandbox sends profile and MCP roots with TransferService, uploads sourced files, writes config, and marks completion", async () => {
   const host = new FakeHost({

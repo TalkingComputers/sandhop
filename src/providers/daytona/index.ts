@@ -14,6 +14,7 @@ import type {
   SandboxInfo,
   SandboxProvider,
 } from "../../core/ports/provider.js";
+import { shellQuote } from "../../core/shell.js";
 
 type DaytonaModule = typeof import("@daytonaio/sdk");
 type DaytonaClient = InstanceType<DaytonaModule["Daytona"]>;
@@ -91,9 +92,6 @@ const loadDaytona = async (): Promise<DaytonaModule> => {
   }
 };
 
-const shellQuote = (value: string): string =>
-  `'${value.replaceAll("'", "'\\''")}'`;
-
 const timeoutSeconds = (timeoutMs: number): number =>
   Math.ceil(timeoutMs / 1000);
 
@@ -114,11 +112,17 @@ class DaytonaSandboxAdapter implements Sandbox {
   readonly id: string;
   readonly sandbox: DaytonaSandboxInstance;
   readonly timeoutSeconds: number;
+  readonly onDestroy: (id: string) => void;
   hasSession: boolean;
 
-  constructor(sandbox: DaytonaSandboxInstance, timeoutSecondsValue: number) {
+  constructor(
+    sandbox: DaytonaSandboxInstance,
+    timeoutSecondsValue: number,
+    onDestroy: (id: string) => void,
+  ) {
     this.sandbox = sandbox;
     this.timeoutSeconds = timeoutSecondsValue;
+    this.onDestroy = onDestroy;
     this.id = sandbox.id;
     this.hasSession = false;
   }
@@ -175,6 +179,7 @@ class DaytonaSandboxAdapter implements Sandbox {
 
   async destroy(): Promise<void> {
     await this.sandbox.delete(this.timeoutSeconds);
+    this.onDestroy(this.id);
   }
 }
 
@@ -258,7 +263,13 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     sandbox: DaytonaSandboxInstance,
     timeoutSecondsValue: number,
   ): Sandbox {
-    const adapter = new DaytonaSandboxAdapter(sandbox, timeoutSecondsValue);
+    const adapter = new DaytonaSandboxAdapter(
+      sandbox,
+      timeoutSecondsValue,
+      (id) => {
+        delete this.instances[id];
+      },
+    );
     this.instances[adapter.id] = adapter;
     return adapter;
   }

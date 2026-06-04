@@ -1,5 +1,7 @@
 import type { Agent } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
+import { dirname, joinPath } from "../paths.js";
+import { shellQuote } from "../shell.js";
 
 export interface ReinstallPlan {
   commands: string[];
@@ -14,18 +16,11 @@ interface GitSkill {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const shellQuote = (value: string): string =>
-  `'${value.replaceAll("'", "'\\''")}'`;
-
 const shellPath = (value: string): string =>
   `"${value
     .replaceAll("\\", "\\\\")
     .replaceAll('"', '\\"')
     .replaceAll("`", "\\`")}"`;
-
-const joinPath = (dir: string, path: string): string => `${dir}/${path}`;
-
-const dirname = (path: string): string => path.slice(0, path.lastIndexOf("/"));
 
 const normalizePath = (path: string): string =>
   path
@@ -250,7 +245,7 @@ export class ReinstallService {
   }
 
   plan(): ReinstallPlan {
-    if (this.agent.id !== "claude-code") return { commands: [] };
+    if (!this.agent.supportsReinstall()) return { commands: [] };
     const gitSkillPlan = this.listGitSkillCommands();
     return {
       commands: [

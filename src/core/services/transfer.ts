@@ -1,6 +1,8 @@
 import pLimit from "p-limit";
+import { basename, dirname } from "../paths.js";
 import type { HostDeps } from "../ports/host.js";
 import type { Sandbox } from "../ports/provider.js";
+import { LOW_PRIORITY_SETUP, shellQuote } from "../shell.js";
 
 const CHUNK_BYTES = 90 * 1024 * 1024;
 const UPLOAD_CONCURRENCY = 8;
@@ -25,21 +27,6 @@ const randomId = (): string => {
   const bytes = new Uint8Array(12);
   globalThis.crypto.getRandomValues(bytes);
   return [...bytes].map((byte) => alphabet[byte % alphabet.length]!).join("");
-};
-
-const shellQuote = (value: string): string =>
-  `'${value.replaceAll("'", "'\\''")}'`;
-
-const LOW_PRIORITY_SETUP =
-  'KEEPON_LOW_PRIORITY="nice -n 19"; if command -v ionice >/dev/null 2>&1; then KEEPON_LOW_PRIORITY="nice -n 19 ionice -c3"; fi';
-
-const fileName = (path: string): string => path.split("/").pop()!;
-
-const dirname = (path: string): string => {
-  const clean = path.replace(/\/+$/, "");
-  const index = clean.lastIndexOf("/");
-  if (index <= 0) return "/";
-  return clean.slice(0, index);
 };
 
 const safeLabel = (label: string): string =>
@@ -74,7 +61,7 @@ const tarSource = (
 ): { cwd: string; entry: string } =>
   isDirectory
     ? { cwd: path, entry: "." }
-    : { cwd: dirname(path), entry: fileName(path) };
+    : { cwd: dirname(path), entry: basename(path) };
 
 const tarExcludeArgs = (excludes: string[] | undefined): string =>
   excludes === undefined
@@ -189,7 +176,7 @@ export class TransferService {
     const chunks = await this.host.splitFile(archive, CHUNK_BYTES, prefix);
     const chunkSizes = chunks.map((chunk) => this.host.fileSize(chunk));
     const remoteChunks = chunks.map(
-      (chunk) => `/tmp/keepon-${safe}-${id}.${fileName(chunk)}`,
+      (chunk) => `/tmp/keepon-${safe}-${id}.${basename(chunk)}`,
     );
     const limit = pLimit(UPLOAD_CONCURRENCY);
     await Promise.all(

@@ -27,6 +27,7 @@ const modalMocks = vi.hoisted(() => {
   const fromName = vi.fn(async () => ({ appId: "app-id" }));
   const fromRegistry = vi.fn((image: string) => ({ image }));
   const create = vi.fn(async () => sandbox);
+  const fromId = vi.fn(async () => sandbox);
   const list = vi.fn(async function* () {
     yield {
       sandboxId: "modal-sbx",
@@ -36,13 +37,14 @@ const modalMocks = vi.hoisted(() => {
   const ModalClient = vi.fn(() => ({
     apps: { fromName },
     images: { fromRegistry },
-    sandboxes: { create, list },
+    sandboxes: { create, fromId, list },
   }));
   return {
     ModalClient,
     close,
     create,
     exec,
+    fromId,
     fromName,
     fromRegistry,
     list,
@@ -153,6 +155,22 @@ test("ModalSandboxProvider uploads files, exposes ports, and destroys", async ()
   expect(modalMocks.close).toHaveBeenCalledTimes(3);
   expect(modalMocks.tunnels).toHaveBeenCalledWith(60000);
   expect(modalMocks.terminate).toHaveBeenCalled();
+});
+
+test("ModalSandboxProvider reconnects after adapter destroy", async () => {
+  const { ModalSandboxProvider } = await loadProvider();
+  const provider = new ModalSandboxProvider(
+    new FakeHost({
+      home: "/home/local",
+      env: { MODAL_TOKEN_ID: "id", MODAL_TOKEN_SECRET: "secret" },
+    }),
+  );
+  const sandbox = await provider.create({ envs: {}, timeoutMs: 600000 });
+
+  await sandbox.destroy();
+  await provider.connect("modal-sbx");
+
+  expect(modalMocks.fromId).toHaveBeenCalledWith("modal-sbx");
 });
 
 test("ModalSandboxProvider missing package throws install hint", async () => {

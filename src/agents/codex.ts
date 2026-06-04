@@ -311,6 +311,8 @@ export const CODEX: Agent = {
   formatMcpConfig,
   authEnv,
   installCmd: (version) => `npm i -g @openai/codex@${version}`,
+  supportsSettingsScripts: () => false,
+  supportsReinstall: () => false,
   preSeed: (remoteProj) => [
     "mkdir -p $HOME/.codex",
     `node -e ${JSON.stringify(buildCodexPreSeedScript(remoteProj))}`,

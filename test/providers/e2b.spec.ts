@@ -120,3 +120,20 @@ test("E2bSandboxProvider returns non-zero command exits as RunResult data", asyn
     stderr: "boom",
   });
 });
+
+test("E2bSandboxProvider reconnects after adapter destroy", async () => {
+  e2bMocks.Sandbox.connect.mockClear();
+  const provider = new E2bSandboxProvider(
+    new FakeHost({ home: "/home/local", env: {} }),
+  );
+  const sandbox = await provider.create({
+    image: "base",
+    envs: {},
+    timeoutMs: 600000,
+  });
+
+  await sandbox.destroy();
+  await provider.connect("sbx-created");
+
+  expect(e2bMocks.Sandbox.connect).toHaveBeenCalledWith("sbx-created");
+});

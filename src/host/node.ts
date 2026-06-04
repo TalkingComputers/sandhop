@@ -13,6 +13,7 @@ import {
 } from "node:fs";
 import { cp, mkdir, open, rm, writeFile } from "node:fs/promises";
 import * as tar from "tar";
+import { dirname } from "../core/paths.js";
 import type { HostDeps } from "../core/ports/host.js";
 
 const listFiles = (dir: string): string[] => {
@@ -58,13 +59,6 @@ const sizeDir = (dir: string): number => {
 const hasExcludedSegment = (path: string, excludes: string[]): boolean => {
   const segments = path.split("/");
   return excludes.some((exclude) => segments.includes(exclude));
-};
-
-const dirname = (path: string): string => {
-  const clean = path.replace(/\/+$/, "");
-  const index = clean.lastIndexOf("/");
-  if (index <= 0) return "/";
-  return clean.slice(0, index);
 };
 
 export class NodeHost implements HostDeps {
@@ -244,24 +238,18 @@ export class NodeHost implements HostDeps {
     outPath: string,
     opts?: { excludes: string[] },
   ): Promise<void> {
-    const previous = process.env.COPYFILE_DISABLE;
-    process.env.COPYFILE_DISABLE = "1";
-    try {
-      await tar.create(
-        {
-          gzip: true,
-          file: outPath,
-          cwd,
-          filter:
-            opts === undefined
-              ? undefined
-              : (path) => !hasExcludedSegment(path, opts.excludes),
-        },
-        entries,
-      );
-    } finally {
-      if (previous === undefined) delete process.env.COPYFILE_DISABLE;
-      else process.env.COPYFILE_DISABLE = previous;
-    }
+    await tar.create(
+      {
+        gzip: true,
+        file: outPath,
+        cwd,
+        portable: true,
+        filter:
+          opts === undefined
+            ? undefined
+            : (path) => !hasExcludedSegment(path, opts.excludes),
+      },
+      entries,
+    );
   }
 }

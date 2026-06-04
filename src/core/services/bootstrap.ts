@@ -1,5 +1,13 @@
 import type { Manifest } from "../manifest.js";
+import { dirname } from "../paths.js";
 import type { Agent } from "../ports/agent.js";
+import {
+  LOW_PRIORITY_SETUP,
+  SUDO_SETUP,
+  nonFatal,
+  runLowPriority,
+  shellLog,
+} from "../shell.js";
 import type { CodePlan } from "./mcp-code.js";
 import type { ScriptCapturePlan } from "./scripts.js";
 
@@ -15,39 +23,12 @@ export type EnrichmentStepResult =
   | { name: string; ok: true }
   | { name: string; ok: false; error: string };
 
-const SUDO_SETUP =
-  'SUDO=""; if [ "$(id -u)" != 0 ] && command -v sudo >/dev/null 2>&1; then SUDO="sudo"; fi';
 const ARCH_SETUP =
   'ARCH=$(uname -m); case "$ARCH" in aarch64|arm64) TTYD_ARCH=aarch64; CF_ARCH=arm64;; *) TTYD_ARCH=x86_64; CF_ARCH=amd64;; esac';
 const ZSTD_INSTALL = "command -v zstd || $SUDO apt-get install -y zstd";
-const LOW_PRIORITY_SETUP =
-  'KEEPON_LOW_PRIORITY="nice -n 19"; if command -v ionice >/dev/null 2>&1; then KEEPON_LOW_PRIORITY="nice -n 19 ionice -c3"; fi';
-
-const dirname = (path: string): string => {
-  const clean = path.replace(/\/+$/, "");
-  const index = clean.lastIndexOf("/");
-  if (index <= 0) return "/";
-  return clean.slice(0, index);
-};
 
 const shellPath = (path: string): string =>
   path.startsWith("$HOME") ? `"${path}"` : path;
-
-const shellLog = (value: string): string =>
-  value
-    .replaceAll("\\", "\\\\")
-    .replaceAll('"', '\\"')
-    .replaceAll("$", "\\$")
-    .replaceAll("`", "\\`");
-
-const quoteShell = (value: string): string =>
-  `'${value.replaceAll("'", "'\\''")}'`;
-
-const nonFatal = (cmd: string): string =>
-  `${cmd} || { echo "[keepon] step failed: ${shellLog(cmd)}" >&2; true; }`;
-
-const runLowPriority = (cmd: string): string =>
-  `$KEEPON_LOW_PRIORITY sh -lc ${quoteShell(cmd)}`;
 
 const pruneMcpTablesScript = (path: string): string =>
   [
@@ -186,6 +167,18 @@ export class BootstrapService {
       SUDO_SETUP,
       LOW_PRIORITY_SETUP,
       ...plan.installCmds.map((cmd) => nonFatal(runLowPriority(cmd))),
+    ].join("\n");
+  }
+
+  renderReinstall(commands: string[]): string {
+    if (commands.length === 0) return 'echo "[keepon] reinstall skipped"';
+    return [
+      LOW_PRIORITY_SETUP,
+      "export CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1",
+      ...commands.map(
+        (command) =>
+          `${runLowPriority(command)} || { echo "[keepon] reinstall step failed: ${shellLog(command)}" >&2; true; }`,
+      ),
     ].join("\n");
   }
 

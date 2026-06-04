@@ -1,7 +1,11 @@
 import type { Agent, AuthBundle } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
 
-export class AuthService {
+export interface AuthExtractor {
+  extract(): AuthBundle | Promise<AuthBundle>;
+}
+
+export class AuthService implements AuthExtractor {
   readonly host: HostDeps;
   readonly agent: Agent;
 

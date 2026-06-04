@@ -1,11 +1,17 @@
 import { buildManifest } from "../manifest.js";
-import type { Agent, AuthBundle, SessionRef } from "../ports/agent.js";
+import { makeTempPath, sandboxExpandHome } from "../paths.js";
+import type { Agent } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
 import type { SandboxProvider } from "../ports/provider.js";
 import type { Transport } from "../ports/transport.js";
+import { shellQuote } from "../shell.js";
+import type { AuthExtractor } from "./auth.js";
 import type { BootstrapService } from "./bootstrap.js";
-import type { SecretsBundle, SecretsInputs } from "./secrets.js";
+import type { SecretsCollector } from "./secrets.js";
+import type { SessionReader } from "./session.js";
+import type { SnapshotBuilder } from "./snapshot.js";
 import { makeTarGzipCommand } from "./transfer.js";
+import type { VersionDetector } from "./version.js";
 
 export interface TeleportResult {
   url: string;
@@ -24,19 +30,11 @@ export interface TeleportOptions {
 
 export interface TeleportServices {
   host: Pick<HostDeps, "readBytes" | "spawnPipe">;
-  snapshot: { build(cwd: string): Promise<string> };
-  session: {
-    latest(cwd: string): SessionRef | Promise<SessionRef>;
-    byId(cwd: string, sessionId: string): SessionRef | Promise<SessionRef>;
-  };
-  secrets: {
-    collect(
-      cwd: string,
-      inputs?: SecretsInputs,
-    ): SecretsBundle | Promise<SecretsBundle>;
-  };
-  auth: { extract(): AuthBundle | Promise<AuthBundle> };
-  version: { detect(): string | Promise<string> };
+  snapshot: SnapshotBuilder;
+  session: SessionReader;
+  secrets: SecretsCollector;
+  auth: AuthExtractor;
+  version: VersionDetector;
   bootstrap: BootstrapService;
 }
 
@@ -48,14 +46,6 @@ const randomPassword = (): string => {
   globalThis.crypto.getRandomValues(bytes);
   return [...bytes].map((byte) => alphabet[byte & 63]!).join("");
 };
-
-const shellQuote = (value: string): string =>
-  `'${value.replaceAll("'", "'\\''")}'`;
-
-const expandHome = (path: string): string =>
-  path.replace(/^\$HOME/, "/home/user");
-
-const makePath = (name: string): string => `/tmp/keepon-${Date.now()}-${name}`;
 
 export class TeleportService {
   readonly provider: SandboxProvider;
@@ -101,7 +91,7 @@ export class TeleportService {
       ports: [7681],
     });
     opts.onProgress?.("uploading bundle");
-    const bundlePath = makePath("bundle.tgz");
+    const bundlePath = makeTempPath("bundle.tgz");
     await this.services.host.spawnPipe(makeTarGzipCommand(bundlePath, bundle));
     await sandbox.uploadFile(
       "/tmp/bundle.tgz",
@@ -112,9 +102,9 @@ export class TeleportService {
       this.services.host.readBytes(session.transcriptPath),
     );
     for (const file of baseSecrets.files)
-      await sandbox.uploadFile(expandHome(file.path), file.content);
+      await sandbox.uploadFile(sandboxExpandHome(file.path), file.content);
     for (const file of auth.files)
-      await sandbox.uploadFile(expandHome(file.path), file.content);
+      await sandbox.uploadFile(sandboxExpandHome(file.path), file.content);
     opts.onProgress?.(
       `installing ${this.agent.pkg}@${manifest.cliVersion} + ttyd`,
     );

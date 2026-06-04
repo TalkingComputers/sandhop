@@ -1,6 +1,10 @@
 import type { HostDeps } from "../ports/host.js";
 
-export class SnapshotService {
+export interface SnapshotBuilder {
+  build(cwd: string): Promise<string>;
+}
+
+export class SnapshotService implements SnapshotBuilder {
   readonly host: HostDeps;
 
   constructor(host: HostDeps) {
