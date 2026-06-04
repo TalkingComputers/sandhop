@@ -3,8 +3,6 @@ import type { Sandbox } from "./provider.js";
 export interface TransportContext {
   sandbox: Sandbox;
   localPort: number;
-  user: string;
-  pass: string;
 }
 
 export interface TransportResult {

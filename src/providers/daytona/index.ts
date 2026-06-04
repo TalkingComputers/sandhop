@@ -1,8 +1,4 @@
-import type {
-  CreateSandboxBaseParams,
-  CreateSandboxFromImageParams,
-  DaytonaConfig,
-} from "@daytonaio/sdk";
+import type { CreateSandboxBaseParams, DaytonaConfig } from "@daytonaio/sdk";
 import type { HostDeps } from "../../core/ports/host.js";
 import type {
   CreateOptions,
@@ -47,10 +43,6 @@ interface DaytonaSandboxInstance {
   delete(timeout?: number): Promise<void>;
 }
 
-type DaytonaCreateParams =
-  | CreateSandboxBaseParams
-  | CreateSandboxFromImageParams;
-
 interface DaytonaCredentials {
   apiKey: string;
   apiUrl: string | undefined;
@@ -70,15 +62,11 @@ const timeoutSeconds = (timeoutMs: number): number =>
 const autoStopMinutes = (timeoutMs: number): number =>
   Math.max(1, Math.ceil(timeoutMs / 60000));
 
-const buildCreateParams = (opts: CreateOptions): DaytonaCreateParams => {
-  const base: CreateSandboxBaseParams = {
-    autoStopInterval: autoStopMinutes(opts.timeoutMs),
-    envVars: opts.envs,
-    ephemeral: true,
-  };
-  if (opts.image === undefined) return base;
-  return { ...base, image: opts.image };
-};
+const buildCreateParams = (opts: CreateOptions): CreateSandboxBaseParams => ({
+  autoStopInterval: autoStopMinutes(opts.timeoutMs),
+  envVars: opts.envs,
+  ephemeral: true,
+});
 
 class DaytonaSandboxAdapter implements Sandbox {
   readonly id: string;

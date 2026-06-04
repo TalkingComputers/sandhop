@@ -62,7 +62,6 @@ test("VercelSandboxProvider creates a named sandbox with creds and maps exec res
   );
 
   const sandbox = await provider.create({
-    image: "ignored",
     envs: { A: "1" },
     timeoutMs: 3_600_000,
     ports: [3000, 7681],

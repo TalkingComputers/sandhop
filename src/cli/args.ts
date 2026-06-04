@@ -111,11 +111,11 @@ export const parseEnrichArgs = (argv: string[]): ParsedEnrichArgs => ({
 
 export const buildTransport = (
   args: ParsedArgs,
-  env: Record<string, string | undefined>,
+  hostEnv: Record<string, string | undefined>,
 ): Transport => {
   if (args.transport !== "cloudflared") return new PublicTransport();
   return new CloudflaredTransport({
-    token: env.CLOUDFLARE_TUNNEL_TOKEN,
-    hostname: env.CLOUDFLARE_TUNNEL_HOSTNAME,
+    token: hostEnv.CLOUDFLARE_TUNNEL_TOKEN,
+    hostname: hostEnv.CLOUDFLARE_TUNNEL_HOSTNAME,
   });
 };

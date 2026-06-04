@@ -55,7 +55,6 @@ test("E2bSandboxProvider creates sandboxes, uploads octet-stream bytes and paths
   const provider = new E2bSandboxProvider(host);
 
   const sandbox = await provider.create({
-    image: "base",
     envs: { A: "1" },
     timeoutMs: 600000,
   });
@@ -111,7 +110,6 @@ test("E2bSandboxProvider returns non-zero command exits as RunResult data", asyn
     new FakeHost({ home: "/home/local", env }),
   );
   const sandbox = await provider.create({
-    image: "base",
     envs: {},
     timeoutMs: 600000,
   });
@@ -129,7 +127,6 @@ test("E2bSandboxProvider reconnects after adapter destroy", async () => {
     new FakeHost({ home: "/home/local", env }),
   );
   const sandbox = await provider.create({
-    image: "base",
     envs: {},
     timeoutMs: 600000,
   });

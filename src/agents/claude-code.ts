@@ -161,7 +161,6 @@ export const CLAUDE_CODE: Agent = {
   bin: "claude",
   detectVersionArgs: ["--version"],
   parseVersion,
-  sessionsRoot: (home) => joinClaudeLocalPath(home, CLAUDE_PROJECTS_PATH),
   matchSession: (deps, cwd) => {
     const root = `${joinClaudeLocalPath(
       deps.home,

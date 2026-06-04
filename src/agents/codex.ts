@@ -217,7 +217,6 @@ export const CODEX: Agent = {
   bin: "codex",
   detectVersionArgs: ["--version"],
   parseVersion,
-  sessionsRoot: (home) => `${home}/.codex/sessions`,
   matchSession: (deps, cwd) => {
     const root = `${deps.home}/.codex/sessions`;
     return sortNewest(

@@ -94,7 +94,7 @@ export class E2bSandboxProvider implements SandboxProvider {
 
   async create(opts: CreateOptions): Promise<Sandbox> {
     const credentials = this.credentials();
-    const sandbox = await E2bSandbox.create(opts.image ?? "base", {
+    const sandbox = await E2bSandbox.create("base", {
       ...credentials,
       envs: opts.envs,
       timeoutMs: opts.timeoutMs,

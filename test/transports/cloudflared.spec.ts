@@ -14,8 +14,6 @@ test("CloudflaredTransport quick mode returns the trycloudflare URL", async () =
   const result = await transport.expose({
     sandbox,
     localPort: 7681,
-    user: "keepon",
-    pass: "pass",
   });
 
   expect(transport.id).toBe("cloudflared");
@@ -43,8 +41,6 @@ test("CloudflaredTransport named mode returns the configured hostname", async ()
   const result = await transport.expose({
     sandbox,
     localPort: 7681,
-    user: "keepon",
-    pass: "pass",
   });
 
   expect(sandbox.spawns).toEqual([
@@ -62,8 +58,6 @@ test("CloudflaredTransport named mode requires a hostname", async () => {
     transport.expose({
       sandbox,
       localPort: 7681,
-      user: "keepon",
-      pass: "pass",
     }),
   ).rejects.toThrow(
     "CLOUDFLARE_TUNNEL_HOSTNAME is required for a named cloudflared tunnel",

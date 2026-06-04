@@ -4,7 +4,6 @@ import { FakeProvider } from "../fakes/provider.js";
 test("provider conformance: fake sandbox supports path uploads, command results, background spawn, ports, and destroy", async () => {
   const provider = new FakeProvider();
   const sandbox = await provider.create({
-    image: "base",
     envs: {},
     timeoutMs: 1,
   });

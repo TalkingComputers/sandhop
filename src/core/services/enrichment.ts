@@ -109,7 +109,7 @@ export class EnrichmentService {
         "profile transfer + extract",
         async (): Promise<void> => {
           if (!profile) return;
-          await this.sendProfile(cwd);
+          await this.sendProfile();
         },
       );
       await recordScriptStep(
@@ -165,7 +165,7 @@ export class EnrichmentService {
     }
   }
 
-  private async sendProfile(cwd: string): Promise<void> {
+  private async sendProfile(): Promise<void> {
     const profileTree = await this.profile.build(makeTempPath("profile"));
     if (profileTree !== null)
       await this.transfer.send(profileTree, "/home/user", "profile", {

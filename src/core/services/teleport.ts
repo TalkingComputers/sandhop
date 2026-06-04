@@ -114,8 +114,6 @@ export class TeleportService {
     const { url } = await opts.transport.expose({
       sandbox,
       localPort: 7681,
-      user,
-      pass,
     });
     opts.onProgress?.("ready");
     return { url, sandboxId: sandbox.id, user, pass };

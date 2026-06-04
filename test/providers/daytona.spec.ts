@@ -57,7 +57,6 @@ test("DaytonaSandboxProvider creates a sandbox and maps combined exec output", a
   const provider = new DaytonaSandboxProvider(host);
 
   const sandbox = await provider.create({
-    image: "node:22",
     envs: { A: "1" },
     timeoutMs: 600000,
     ports: [7681],
@@ -75,7 +74,6 @@ test("DaytonaSandboxProvider creates a sandbox and maps combined exec output", a
   });
   expect(daytonaMocks.create).toHaveBeenCalledWith(
     {
-      image: "node:22",
       envVars: { A: "1" },
       autoStopInterval: 10,
       ephemeral: true,

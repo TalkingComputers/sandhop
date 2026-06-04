@@ -9,8 +9,6 @@ test("PublicTransport exposes the provider port", async () => {
   const result = await transport.expose({
     sandbox,
     localPort: 7681,
-    user: "keepon",
-    pass: "pass",
   });
 
   expect(transport.id).toBe("public");

@@ -55,7 +55,6 @@ export interface Agent {
   readonly bin: string;
   detectVersionArgs: string[];
   parseVersion(output: string): string;
-  sessionsRoot(home: string): string;
   matchSession(deps: AgentSessionDeps, cwd: string): SessionRef[];
   profilePaths(home: string): string[];
   mcpConfigPaths(home: string, cwd: string): string[];

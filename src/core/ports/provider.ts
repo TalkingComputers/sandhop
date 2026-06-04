@@ -5,7 +5,6 @@ export interface RunResult {
 }
 
 export interface CreateOptions {
-  image?: string;
   envs: Record<string, string>;
   timeoutMs: number;
   ports?: number[];
