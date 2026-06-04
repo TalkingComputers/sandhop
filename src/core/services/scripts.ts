@@ -1,3 +1,8 @@
+import {
+  CLAUDE_SETTINGS_PATH,
+  CLAUDE_SETTINGS_SANDBOX_PATH,
+  joinClaudeLocalPath,
+} from "../../agents/claude-paths.js";
 import { isRecord } from "../json.js";
 import { expandEnv, joinPath, normalizePath } from "../paths.js";
 import type { HostDeps } from "../ports/host.js";
@@ -160,13 +165,13 @@ const rewriteSettings = (
 
 const settingsFiles = (host: HostDeps, cwd: string): SettingsFile[] => [
   {
-    localPath: `${host.home}/.claude/settings.json`,
-    sandboxPath: "/home/user/.claude/settings.json",
+    localPath: joinClaudeLocalPath(host.home, CLAUDE_SETTINGS_PATH),
+    sandboxPath: CLAUDE_SETTINGS_SANDBOX_PATH,
     cwd,
   },
   {
-    localPath: `${cwd}/.claude/settings.json`,
-    sandboxPath: `${cwd}/.claude/settings.json`,
+    localPath: `${cwd}/${CLAUDE_SETTINGS_PATH}`,
+    sandboxPath: `${cwd}/${CLAUDE_SETTINGS_PATH}`,
     cwd,
   },
 ];

@@ -1,7 +1,9 @@
+import { CLAUDE_JSON_PATH } from "../agents/claude-paths.js";
+
 export const buildClaudePreSeedScript = (remoteProj: string): string =>
   [
     'const fs=require("fs")',
-    'const f=process.env.HOME+"/.claude.json"',
+    `const f=process.env.HOME+${JSON.stringify(`/${CLAUDE_JSON_PATH}`)}`,
     'const j=fs.existsSync(f)?JSON.parse(fs.readFileSync(f,"utf8")):{}',
     "j.hasCompletedOnboarding=true",
     'if(!Object.hasOwn(j,"projects"))j.projects={}',

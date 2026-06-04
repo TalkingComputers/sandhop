@@ -1,7 +1,15 @@
+import {
+  CLAUDE_INSTALLED_PLUGINS_PATH,
+  CLAUDE_KNOWN_MARKETPLACES_PATH,
+  CLAUDE_SETTINGS_PATH,
+  CLAUDE_SKILLS_PATH,
+  joinClaudeHomePath,
+  joinClaudeLocalPath,
+} from "../../agents/claude-paths.js";
 import type { Agent } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
 import { isRecord } from "../json.js";
-import { dirname, joinPath, normalizePath } from "../paths.js";
+import { dirname, joinPath, listSkillNames, normalizePath } from "../paths.js";
 import { quoteShellPath, shellQuote } from "../shell.js";
 
 export interface ReinstallPlan {
@@ -108,19 +116,6 @@ const readGitRef = (host: HostDeps, gitDir: string): string => {
   throw new Error(`Expected resolved git ref ${ref}`);
 };
 
-const readSkillNames = (host: HostDeps, skillsRoot: string): string[] => {
-  if (!host.exists(skillsRoot)) return [];
-  return [
-    ...new Set(
-      host
-        .walk(skillsRoot)
-        .map((path) => path.slice(skillsRoot.length + 1))
-        .filter((path) => path.length > 0)
-        .map((path) => path.split("/")[0]!),
-    ),
-  ].sort();
-};
-
 const toRemoteSkillPath = (
   localPath: string,
   gitSkills: GitSkill[],
@@ -154,7 +149,10 @@ export class ReinstallService {
   }
 
   listMarketplaceCommands(): string[] {
-    const path = `${this.host.home}/.claude/plugins/known_marketplaces.json`;
+    const path = joinClaudeLocalPath(
+      this.host.home,
+      CLAUDE_KNOWN_MARKETPLACES_PATH,
+    );
     const record = readJsonRecord(this.host, path);
     if (record === null) return [];
     return Object.keys(record).map(
@@ -164,7 +162,10 @@ export class ReinstallService {
   }
 
   listPluginCommands(): string[] {
-    const path = `${this.host.home}/.claude/plugins/installed_plugins.json`;
+    const path = joinClaudeLocalPath(
+      this.host.home,
+      CLAUDE_INSTALLED_PLUGINS_PATH,
+    );
     const record = readJsonRecord(this.host, path);
     if (record === null) return [];
     return readPluginKeys(path, record).map(
@@ -173,7 +174,7 @@ export class ReinstallService {
   }
 
   listDisableCommands(): string[] {
-    const path = `${this.host.home}/.claude/settings.json`;
+    const path = joinClaudeLocalPath(this.host.home, CLAUDE_SETTINGS_PATH);
     const record = readJsonRecord(this.host, path);
     if (record === null) return [];
     return readDisabledPlugins(path, record).map(
@@ -182,10 +183,10 @@ export class ReinstallService {
   }
 
   listGitSkillCommands(): { commands: string[]; gitSkills: GitSkill[] } {
-    const skillsRoot = `${this.host.home}/.claude/skills`;
+    const skillsRoot = joinClaudeLocalPath(this.host.home, CLAUDE_SKILLS_PATH);
     const commands: string[] = [];
     const gitSkills: GitSkill[] = [];
-    for (const name of readSkillNames(this.host, skillsRoot)) {
+    for (const name of listSkillNames(this.host, skillsRoot)) {
       const localDir = `${skillsRoot}/${name}`;
       if (this.host.isSymlink(localDir)) continue;
       const gitDir = `${localDir}/.git`;
@@ -193,7 +194,7 @@ export class ReinstallService {
       if (!this.host.exists(configPath)) continue;
       const config = this.host.readFile(configPath);
       if (config === null) throw new Error(`Expected ${configPath}`);
-      const remoteDir = `$HOME/.claude/skills/${name}`;
+      const remoteDir = joinClaudeHomePath(`${CLAUDE_SKILLS_PATH}/${name}`);
       const url = parseOriginUrl(configPath, config);
       const ref = readGitRef(this.host, gitDir);
       gitSkills.push({ name, localDir, remoteDir });
@@ -205,15 +206,17 @@ export class ReinstallService {
   }
 
   listSymlinkSkillCommands(gitSkills: GitSkill[]): string[] {
-    const skillsRoot = `${this.host.home}/.claude/skills`;
+    const skillsRoot = joinClaudeLocalPath(this.host.home, CLAUDE_SKILLS_PATH);
     const commands: string[] = [];
-    for (const name of readSkillNames(this.host, skillsRoot)) {
+    for (const name of listSkillNames(this.host, skillsRoot)) {
       const skillDir = `${skillsRoot}/${name}`;
       const localSource = readSymlinkSource(this.host, skillDir);
       if (localSource === null) continue;
       const remoteSource = toRemoteSkillPath(localSource, gitSkills);
       if (remoteSource === null) continue;
-      const remoteSkillDir = `$HOME/.claude/skills/${name}`;
+      const remoteSkillDir = joinClaudeHomePath(
+        `${CLAUDE_SKILLS_PATH}/${name}`,
+      );
       const mkdir = `mkdir -p ${quoteShellPath(remoteSkillDir)}`;
       const link = `ln -sf ${quoteShellPath(remoteSource)} ${quoteShellPath(`${remoteSkillDir}/SKILL.md`)}`;
       commands.push(`${mkdir} && ${link}`);

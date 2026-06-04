@@ -28,27 +28,29 @@ const runLogged = async (
 ): Promise<RunResult> =>
   sandbox.exec(["{", script, "} >> /tmp/keepon-enrich.log 2>&1"].join("\n"));
 
-const recordStep = async (
+const recordStep = async <T>(
   sandbox: Sandbox,
   steps: EnrichmentStepResult[],
   name: string,
-  run: () => Promise<void>,
-): Promise<void> => {
+  run: () => Promise<T>,
+): Promise<T | null> => {
   await appendLog(sandbox, `[keepon] step started: ${name}`).catch(
     () => undefined,
   );
   try {
-    await run();
+    const value = await run();
     steps.push({ name, ok: true });
     await appendLog(sandbox, `[keepon] step ok: ${name}`).catch(
       () => undefined,
     );
+    return value;
   } catch (error: unknown) {
     const text = formatErrorStack(error);
     steps.push({ name, ok: false, error: text });
     await appendLog(sandbox, `[keepon] step failed: ${name}\n${text}`).catch(
       () => undefined,
     );
+    return null;
   }
 };
 
@@ -107,12 +109,7 @@ export class EnrichmentService {
         "profile transfer + extract",
         async (): Promise<void> => {
           if (!profile) return;
-          const profileTree = await this.profile.build(makeTempPath("profile"));
-          if (profileTree !== null)
-            await this.transfer.send(profileTree, "/home/user", "profile", {
-              codec: "zstd",
-              lowPriority: true,
-            });
+          await this.sendProfile(cwd);
         },
       );
       await recordScriptStep(
@@ -121,37 +118,11 @@ export class EnrichmentService {
         "re-apply preseed (trust + root config)",
         this.agent.preSeed(cwd).join("\n"),
       );
-      let codePlan: CodePlan | null = null;
-      let scriptPlan: ScriptCapturePlan | null = null;
-      await recordStep(
+      const scriptPlan = await recordStep(
         this.sandbox,
         steps,
         "settings scripts transfer + rewrite",
-        async (): Promise<void> => {
-          if (!this.agent.supportsSettingsScripts()) return;
-          scriptPlan = this.scripts.plan(cwd);
-          if (
-            scriptPlan.mappings.length === 0 &&
-            scriptPlan.rewrites.length === 0
-          )
-            return;
-          await Promise.all(
-            scriptPlan.mappings.map((mapping, index) =>
-              this.transfer.send(
-                mapping.localPath,
-                mapping.sandboxPath,
-                `settings-scripts-${index}`,
-                {
-                  codec: "zstd",
-                  lowPriority: true,
-                  excludes: LOCAL_PATH_EXCLUDES,
-                },
-              ),
-            ),
-          );
-          for (const rewrite of scriptPlan.rewrites)
-            await this.sandbox.uploadFile(rewrite.sandboxPath, rewrite.content);
-        },
+        () => this.sendScripts(cwd),
       );
       await recordScriptStep(
         this.sandbox,
@@ -159,44 +130,11 @@ export class EnrichmentService {
         "settings script dependency installs",
         this.bootstrap.renderSettingsScriptInstalls(scriptPlan),
       );
-      await recordStep(
+      const codePlan = await recordStep(
         this.sandbox,
         steps,
         "mcp code transfer + config rewrite",
-        async (): Promise<void> => {
-          codePlan = await this.mcpCode.build(cwd);
-          if (codePlan === null) return;
-          await Promise.all(
-            codePlan.mappings.map((mapping, index) =>
-              this.transfer.send(
-                mapping.localPath,
-                mapping.sandboxPath,
-                `mcp-${index}`,
-                {
-                  codec: "zstd",
-                  lowPriority: true,
-                },
-              ),
-            ),
-          );
-          const bundle = this.secrets.collect(cwd, {
-            envRefs: codePlan.envRefs,
-            referencedFiles: codePlan.referencedFiles,
-          });
-          for (const file of bundle.files)
-            await this.sandbox.uploadFile(
-              sandboxExpandHome(file.path),
-              file.content,
-            );
-          const result = await runLogged(
-            this.sandbox,
-            this.bootstrap.renderEnrichmentConfig(cwd, {
-              codePlan,
-            }),
-          );
-          if (result.exitCode !== 0)
-            throw new Error(`MCP config rewrite failed: ${result.stderr}`);
-        },
+        () => this.sendMcpCode(cwd),
       );
       await recordScriptStep(
         this.sandbox,
@@ -225,6 +163,71 @@ export class EnrichmentService {
       );
       throw error;
     }
+  }
+
+  private async sendProfile(cwd: string): Promise<void> {
+    const profileTree = await this.profile.build(makeTempPath("profile"));
+    if (profileTree !== null)
+      await this.transfer.send(profileTree, "/home/user", "profile", {
+        codec: "zstd",
+        lowPriority: true,
+      });
+  }
+
+  private async sendScripts(cwd: string): Promise<ScriptCapturePlan> {
+    if (!this.agent.supportsSettingsScripts())
+      return { mappings: [], rewrites: [], installCmds: [] };
+    const scriptPlan = this.scripts.plan(cwd);
+    if (scriptPlan.mappings.length === 0 && scriptPlan.rewrites.length === 0)
+      return scriptPlan;
+    await Promise.all(
+      scriptPlan.mappings.map((mapping, index) =>
+        this.transfer.send(
+          mapping.localPath,
+          mapping.sandboxPath,
+          `settings-scripts-${index}`,
+          {
+            codec: "zstd",
+            lowPriority: true,
+            excludes: LOCAL_PATH_EXCLUDES,
+          },
+        ),
+      ),
+    );
+    for (const rewrite of scriptPlan.rewrites)
+      await this.sandbox.uploadFile(rewrite.sandboxPath, rewrite.content);
+    return scriptPlan;
+  }
+
+  private async sendMcpCode(cwd: string): Promise<CodePlan | null> {
+    const codePlan = await this.mcpCode.build(cwd);
+    if (codePlan === null) return null;
+    await Promise.all(
+      codePlan.mappings.map((mapping, index) =>
+        this.transfer.send(
+          mapping.localPath,
+          mapping.sandboxPath,
+          `mcp-${index}`,
+          {
+            codec: "zstd",
+            lowPriority: true,
+          },
+        ),
+      ),
+    );
+    const bundle = this.secrets.collect(cwd, {
+      envRefs: codePlan.envRefs,
+      referencedFiles: codePlan.referencedFiles,
+    });
+    for (const file of bundle.files)
+      await this.sandbox.uploadFile(sandboxExpandHome(file.path), file.content);
+    const result = await runLogged(
+      this.sandbox,
+      this.bootstrap.renderEnrichmentConfig(cwd, { codePlan }),
+    );
+    if (result.exitCode !== 0)
+      throw new Error(`MCP config rewrite failed: ${result.stderr}`);
+    return codePlan;
   }
 }
 

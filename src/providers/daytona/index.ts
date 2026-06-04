@@ -15,7 +15,7 @@ import type {
 import { shellQuote } from "../../core/shell.js";
 import { destroyOrFalse } from "../destroy.js";
 import { toBuffer } from "../encode.js";
-import { requireCredentials } from "../index.js";
+import { optionalCred, requireCred } from "../index.js";
 import { lazyImport, lazyOnce } from "../lazy-import.js";
 
 type DaytonaModule = typeof import("@daytonaio/sdk");
@@ -50,6 +50,12 @@ interface DaytonaSandboxInstance {
 type DaytonaCreateParams =
   | CreateSandboxBaseParams
   | CreateSandboxFromImageParams;
+
+interface DaytonaCredentials {
+  apiKey: string;
+  apiUrl: string | undefined;
+  target: string | undefined;
+}
 
 const COMMAND_TIMEOUT_SECONDS = 600;
 const PATH_UPLOAD_TIMEOUT_SECONDS = 3600;
@@ -184,13 +190,14 @@ export class DaytonaSandboxProvider implements SandboxProvider {
       DAYTONA_PACKAGE,
       DAYTONA_INSTALL_HINT,
     );
-    const credentials = requireCredentials(this.host, "daytona");
-    const apiKey = credentials.DAYTONA_API_KEY;
-    const config: DaytonaConfig = { apiKey };
-    const apiUrl = credentials.DAYTONA_API_URL;
-    if (apiUrl !== undefined) config.apiUrl = apiUrl;
-    const target = credentials.DAYTONA_TARGET;
-    if (target !== undefined) config.target = target;
+    const credentials: DaytonaCredentials = {
+      apiKey: requireCred(this.host, "daytona", "DAYTONA_API_KEY"),
+      apiUrl: optionalCred(this.host, "daytona", "DAYTONA_API_URL"),
+      target: optionalCred(this.host, "daytona", "DAYTONA_TARGET"),
+    };
+    const config: DaytonaConfig = { apiKey: credentials.apiKey };
+    if (credentials.apiUrl !== undefined) config.apiUrl = credentials.apiUrl;
+    if (credentials.target !== undefined) config.target = credentials.target;
     return new Daytona(config);
   }
 }

@@ -2,10 +2,12 @@ import { expect, test } from "vitest";
 import {
   dirname,
   expandHome,
+  listSkillNames,
   makeTempPath,
   normalizePath,
   sandboxExpandHome,
 } from "../../src/core/paths.js";
+import { FakeHost } from "../fakes/host.js";
 
 test("dirname handles paths without slash and absolute parents", () => {
   expect(dirname("settings.json")).toBe(".");
@@ -31,4 +33,22 @@ test("home path functions expand host and sandbox homes", () => {
 test("normalizePath collapses POSIX dot segments", () => {
   expect(normalizePath("/tmp/./a/../b")).toBe("/tmp/b");
   expect(normalizePath("tmp/./a/../b")).toBe("tmp/b");
+});
+
+test("listSkillNames returns sorted first-level skill directories", () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: {
+      "/home/local/.claude/skills/zeta/SKILL.md": "zeta",
+      "/home/local/.claude/skills/alpha/SKILL.md": "alpha",
+      "/home/local/.claude/skills/alpha/docs/readme.md": "docs",
+    },
+  });
+
+  expect(listSkillNames(host, "/home/local/.claude/skills")).toEqual([
+    "alpha",
+    "zeta",
+  ]);
+  expect(listSkillNames(host, "/home/local/.claude/missing")).toEqual([]);
 });

@@ -1,3 +1,5 @@
+import type { HostDeps } from "./ports/host.js";
+
 export const SANDBOX_HOME = "/home/user";
 
 export const dirname = (path: string): string => {
@@ -64,3 +66,17 @@ export const makeTempPath = (name: string): string =>
 
 export const uniqueSorted = (values: Iterable<string>): string[] =>
   [...new Set(values)].sort();
+
+export const listSkillNames = (
+  host: HostDeps,
+  skillsRoot: string,
+): string[] => {
+  if (!host.exists(skillsRoot)) return [];
+  return uniqueSorted(
+    host
+      .walk(skillsRoot)
+      .map((path) => path.slice(skillsRoot.length + 1))
+      .filter((path) => path.length > 0)
+      .map((path) => path.split("/")[0]!),
+  );
+};

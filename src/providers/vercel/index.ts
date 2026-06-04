@@ -11,7 +11,7 @@ import type {
 } from "../../core/ports/provider.js";
 import { destroyOrFalse } from "../destroy.js";
 import { toBuffer } from "../encode.js";
-import { requireCredentials } from "../index.js";
+import { requireCred } from "../index.js";
 import { lazyImport, lazyOnce } from "../lazy-import.js";
 
 type VercelModule = typeof import("@vercel/sandbox");
@@ -162,14 +162,10 @@ export class VercelSandboxProvider implements SandboxProvider {
   }
 
   private credentials(): VercelCredentials {
-    const credentials = requireCredentials(this.host, "vercel") as Record<
-      "VERCEL_TOKEN" | "VERCEL_TEAM_ID" | "VERCEL_PROJECT_ID",
-      string
-    >;
     return {
-      token: credentials.VERCEL_TOKEN,
-      teamId: credentials.VERCEL_TEAM_ID,
-      projectId: credentials.VERCEL_PROJECT_ID,
+      token: requireCred(this.host, "vercel", "VERCEL_TOKEN"),
+      teamId: requireCred(this.host, "vercel", "VERCEL_TEAM_ID"),
+      projectId: requireCred(this.host, "vercel", "VERCEL_PROJECT_ID"),
     };
   }
 }

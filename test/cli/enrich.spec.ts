@@ -272,6 +272,9 @@ test("runEnrichment finishes profile and marker after MCP transfer failure", asy
   expect(log).toContain(
     "[keepon] step failed: mcp code transfer + config rewrite",
   );
+  expect(log).not.toContain(
+    "$KEEPON_LOW_PRIORITY sh -lc 'cd /home/user/mcp && npm ci'",
+  );
   expect(log).toContain("[keepon] enrichment summary");
 });
 

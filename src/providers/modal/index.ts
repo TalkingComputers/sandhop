@@ -13,7 +13,7 @@ import type {
 } from "../../core/ports/provider.js";
 import { destroyOrFalse } from "../destroy.js";
 import { toBytes } from "../encode.js";
-import { requireCredentials } from "../index.js";
+import { requireCred } from "../index.js";
 import { lazyImport, lazyOnce } from "../lazy-import.js";
 
 type ModalModule = typeof import("modal");
@@ -135,10 +135,13 @@ export class ModalSandboxProvider implements SandboxProvider {
       MODAL_PACKAGE,
       MODAL_INSTALL_HINT,
     );
-    const credentials = requireCredentials(this.host, "modal");
+    const credentials = {
+      tokenId: requireCred(this.host, "modal", "MODAL_TOKEN_ID"),
+      tokenSecret: requireCred(this.host, "modal", "MODAL_TOKEN_SECRET"),
+    };
     return new ModalClient({
-      tokenId: credentials.MODAL_TOKEN_ID,
-      tokenSecret: credentials.MODAL_TOKEN_SECRET,
+      tokenId: credentials.tokenId,
+      tokenSecret: credentials.tokenSecret,
     });
   }
 }

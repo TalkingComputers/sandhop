@@ -13,6 +13,17 @@ import type {
   McpTransport,
 } from "../core/ports/agent.js";
 import { fileName, makeVersionParser, sortNewest } from "./shared.js";
+import {
+  CLAUDE_JSON_HOME_PATH,
+  CLAUDE_JSON_PATH,
+  CLAUDE_MCP_PATH,
+  CLAUDE_PROFILE_PATHS,
+  CLAUDE_PROJECTS_PATH,
+  CLAUDE_SETTINGS_LOCAL_PATH,
+  CLAUDE_SETTINGS_PATH,
+  joinClaudeHomePath,
+  joinClaudeLocalPath,
+} from "./claude-paths.js";
 
 const addJsonEnvRefs = (refs: Set<string>, value: unknown): void => {
   if (Array.isArray(value)) {
@@ -109,7 +120,9 @@ const readMcpServers = (value: unknown, servers: McpServer[]): void => {
 
 const parseMcpServers = (deps: AgentMcpDeps, cwd: string): McpServer[] => {
   const servers: McpServer[] = [];
-  const claudeJson = deps.readFile(`${deps.home}/.claude.json`);
+  const claudeJson = deps.readFile(
+    joinClaudeLocalPath(deps.home, CLAUDE_JSON_PATH),
+  );
   if (claudeJson !== null) {
     const parsed = JSON.parse(claudeJson) as unknown;
     if (isRecord(parsed)) {
@@ -136,7 +149,7 @@ const formatMcpConfig = (servers: McpServer[]): McpConfigWrite => {
     mcpServers[name] = config;
   }
   return {
-    path: "$HOME/.claude.json",
+    path: CLAUDE_JSON_HOME_PATH,
     content: `${JSON.stringify(mcpServers, null, 2)}\n`,
     mode: "merge-claude-json",
   };
@@ -148,9 +161,12 @@ export const CLAUDE_CODE: Agent = {
   bin: "claude",
   detectVersionArgs: ["--version"],
   parseVersion,
-  sessionsRoot: (home) => `${home}/.claude/projects`,
+  sessionsRoot: (home) => joinClaudeLocalPath(home, CLAUDE_PROJECTS_PATH),
   matchSession: (deps, cwd) => {
-    const root = `${deps.home}/.claude/projects/${projectDirName(cwd)}`;
+    const root = `${joinClaudeLocalPath(
+      deps.home,
+      CLAUDE_PROJECTS_PATH,
+    )}/${projectDirName(cwd)}`;
     return sortNewest(
       deps,
       deps
@@ -166,23 +182,13 @@ export const CLAUDE_CODE: Agent = {
         }),
     );
   },
-  profilePaths: () => [
-    ".claude/settings.json",
-    ".claude/settings.local.json",
-    ".claude/CLAUDE.md",
-    ".claude/commands",
-    ".claude/skills",
-    ".claude/agents",
-    ".claude/output-styles",
-    ".claude/mcp.json",
-    ".claude/plugins",
-  ],
+  profilePaths: () => [...CLAUDE_PROFILE_PATHS],
   mcpConfigPaths: (home, cwd) => [
     `${cwd}/.mcp.json`,
-    `${home}/.claude/settings.json`,
-    `${home}/.claude/settings.local.json`,
-    `${home}/.claude/mcp.json`,
-    `${home}/.claude.json`,
+    joinClaudeLocalPath(home, CLAUDE_SETTINGS_PATH),
+    joinClaudeLocalPath(home, CLAUDE_SETTINGS_LOCAL_PATH),
+    joinClaudeLocalPath(home, CLAUDE_MCP_PATH),
+    joinClaudeLocalPath(home, CLAUDE_JSON_PATH),
   ],
   mcpEnvRefs: readJsonEnvRefs,
   parseMcpServers,
@@ -195,7 +201,9 @@ export const CLAUDE_CODE: Agent = {
     `node -e ${JSON.stringify(buildClaudePreSeedScript(remoteProj))}`,
   ],
   remoteTranscriptPath: (remoteEnc, transcriptName) =>
-    `$HOME/.claude/projects/${remoteEnc}/${transcriptName}`,
+    `${joinClaudeHomePath(
+      CLAUDE_PROJECTS_PATH,
+    )}/${remoteEnc}/${transcriptName}`,
   resumeCmd: (sessionId, remoteProj) =>
     `cd "${remoteProj}" && MCP_TIMEOUT=${MCP_TIMEOUT_MS} claude --resume ${sessionId}`,
 };

@@ -120,18 +120,35 @@ export const buildProvider = (
   throw new Error(`Unknown provider ${id}`);
 };
 
-export const requireCredentials = (
+const readCredField = (id: ProviderId, env: string): CredField => {
+  const field = PROVIDER_INFO[id].credentials.find(
+    (credential) => credential.env === env,
+  );
+  if (field === undefined)
+    throw new CredentialError(`${env} is not declared for ${id}`);
+  return field;
+};
+
+export const requireCred = (
   host: Pick<HostDeps, "env">,
   id: ProviderId,
-): Record<string, string> => {
-  const values: Record<string, string> = {};
-  for (const field of PROVIDER_INFO[id].credentials) {
-    const value = host.env[field.env];
-    if (field.required && (value === undefined || value === ""))
-      throw new CredentialError(
-        `${field.env} is required — set it or run \`keepon setup\``,
-      );
-    if (value !== undefined && value !== "") values[field.env] = value;
-  }
-  return values;
+  env: string,
+): string => {
+  const field = readCredField(id, env);
+  const value = host.env[field.env];
+  if (value === undefined || value === "")
+    throw new CredentialError(
+      `${field.env} is required — set it or run \`keepon setup\``,
+    );
+  return value;
+};
+
+export const optionalCred = (
+  host: Pick<HostDeps, "env">,
+  id: ProviderId,
+  env: string,
+): string | undefined => {
+  const field = readCredField(id, env);
+  const value = host.env[field.env];
+  return value === "" ? undefined : value;
 };

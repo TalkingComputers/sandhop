@@ -5,7 +5,8 @@ import {
   PROVIDER_IDS,
   PROVIDER_INFO,
   buildProvider,
-  requireCredentials,
+  optionalCred,
+  requireCred,
 } from "../../src/providers/index.js";
 import { FakeHost } from "../fakes/host.js";
 
@@ -122,18 +123,39 @@ test("PROVIDER_INFO declares credential prompts for every provider", () => {
     );
 });
 
-test("requireCredentials throws CredentialError for missing required credentials", () => {
+test("requireCred returns declared credentials and throws CredentialError for missing required credentials", () => {
   const host = new FakeHost({ home: "/home/local", env: {} });
+  const loaded = new FakeHost({
+    home: "/home/local",
+    env: { E2B_API_KEY: "e2b-key" },
+  });
 
   let error: unknown;
   try {
-    requireCredentials(host, "daytona");
+    requireCred(host, "daytona", "DAYTONA_API_KEY");
   } catch (caught: unknown) {
     error = caught;
   }
 
+  expect(requireCred(loaded, "e2b", "E2B_API_KEY")).toBe("e2b-key");
   expect(error).toBeInstanceOf(CredentialError);
   expect(error).toMatchObject({
     message: "DAYTONA_API_KEY is required — set it or run `keepon setup`",
   });
+});
+
+test("credential accessors require declared provider fields and type optional credentials", () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: { DAYTONA_API_KEY: "key", DAYTONA_API_URL: "" },
+  });
+
+  expect(optionalCred(host, "daytona", "DAYTONA_API_URL")).toBeUndefined();
+  expect(optionalCred(host, "daytona", "DAYTONA_TARGET")).toBeUndefined();
+  expect(() => requireCred(host, "daytona", "BOGUS")).toThrow(
+    "BOGUS is not declared for daytona",
+  );
+  expect(() => optionalCred(host, "daytona", "BOGUS")).toThrow(
+    "BOGUS is not declared for daytona",
+  );
 });

@@ -9,7 +9,7 @@ import type {
   SandboxProvider,
 } from "../../core/ports/provider.js";
 import { toArrayBuffer } from "../encode.js";
-import { requireCredentials } from "../index.js";
+import { requireCred } from "../index.js";
 
 type E2bSandboxInstance = Awaited<ReturnType<typeof E2bSandbox.create>>;
 
@@ -125,10 +125,6 @@ export class E2bSandboxProvider implements SandboxProvider {
   }
 
   private credentials(): E2bCredentials {
-    const credentials = requireCredentials(this.host, "e2b") as Record<
-      "E2B_API_KEY",
-      string
-    >;
-    return { apiKey: credentials.E2B_API_KEY };
+    return { apiKey: requireCred(this.host, "e2b", "E2B_API_KEY") };
   }
 }
