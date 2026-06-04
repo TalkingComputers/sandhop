@@ -10,8 +10,9 @@ import type {
 import { collectEnvRefs } from "../core/env.js";
 import { MCP_STARTUP_TIMEOUT_SEC } from "../core/mcp-timeout.js";
 import { buildCodexPreSeedScript } from "../core/sandbox-scripts.js";
-import { parse, type TomlTable, type TomlValue } from "smol-toml";
-import { fileName, makeVersionParser, sortNewest } from "./shared.js";
+import { basename } from "../core/paths.js";
+import { parse, stringify, type TomlTable, type TomlValue } from "smol-toml";
+import { makeVersionParser, sortNewest } from "./shared.js";
 
 const codexId = (file: string): string => {
   const match = file.match(
@@ -156,29 +157,20 @@ const parseMcpServers = (deps: AgentMcpDeps, cwd: string): McpServer[] => {
   );
 };
 
-const quoteToml = (value: string): string => JSON.stringify(value);
-
 const formatMcpConfig = (servers: McpServer[]): McpConfigWrite => {
-  const lines: string[] = [];
+  const mcpServers: Record<string, TomlTable> = {};
   for (const server of servers) {
-    lines.push(`[mcp_servers.${quoteToml(server.name)}]`);
-    lines.push(`startup_timeout_sec = ${MCP_STARTUP_TIMEOUT_SEC}`);
-    if (server.command !== undefined)
-      lines.push(`command = ${quoteToml(server.command)}`);
-    if (server.args !== undefined)
-      lines.push(`args = [${server.args.map(quoteToml).join(", ")}]`);
-    if (server.cwd !== undefined) lines.push(`cwd = ${quoteToml(server.cwd)}`);
-    if (server.url !== undefined) lines.push(`url = ${quoteToml(server.url)}`);
-    if (server.env !== undefined) {
-      lines.push("", `[mcp_servers.${quoteToml(server.name)}.env]`);
-      for (const [key, value] of Object.entries(server.env))
-        lines.push(`${key} = ${quoteToml(value)}`);
-    }
-    lines.push("");
+    const table: TomlTable = { startup_timeout_sec: MCP_STARTUP_TIMEOUT_SEC };
+    if (server.command !== undefined) table.command = server.command;
+    if (server.args !== undefined) table.args = server.args;
+    if (server.cwd !== undefined) table.cwd = server.cwd;
+    if (server.url !== undefined) table.url = server.url;
+    if (server.env !== undefined) table.env = server.env;
+    mcpServers[server.name] = table;
   }
   return {
     path: "$HOME/.codex/config.toml",
-    content: lines.join("\n"),
+    content: `${stringify({ mcp_servers: mcpServers })}\n`,
     mode: "append",
   };
 };
@@ -226,7 +218,7 @@ export const CODEX: Agent = {
         .filter((path) => /rollout-.*\.jsonl$/.test(path))
         .filter((path) => readRecordedCwd(deps, path) === cwd)
         .map((path) => {
-          const name = fileName(path);
+          const name = basename(path);
           return {
             sessionId: codexId(name),
             transcriptPath: path,

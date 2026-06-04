@@ -36,7 +36,12 @@ test("Codex MCP config writes startup timeouts for every server", () => {
     },
   ]);
 
-  expect(config.content.split("startup_timeout_sec = 120").length - 1).toBe(2);
+  expect(config).toEqual({
+    path: "$HOME/.codex/config.toml",
+    content:
+      '[mcp_servers.stdio]\nstartup_timeout_sec = 120\ncommand = "npx"\nargs = [ "-y", "server" ]\n\n[mcp_servers.remote]\nstartup_timeout_sec = 120\nurl = "https://example.com/mcp"\n\n',
+    mode: "append",
+  });
 });
 
 test("Codex preSeed preserves existing config and trusts the sandbox cwd", () => {

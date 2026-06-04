@@ -35,13 +35,15 @@ test("ReinstallService plans marketplace, plugin, disable, git skill, and symlin
         },
       }),
       "/home/local/.claude/skills/gstack/SKILL.md": "gstack",
-      "/home/local/.claude/skills/gstack/.git/config":
-        '[remote "origin"]\n\turl = https://github.com/acme/gstack.git\n',
-      "/home/local/.claude/skills/gstack/.git/HEAD": "ref: refs/heads/main\n",
-      "/home/local/.claude/skills/gstack/.git/refs/heads/main":
-        "0123456789abcdef0123456789abcdef01234567\n",
+      "/home/local/.claude/skills/gstack/.git": "gitdir",
       "/home/local/.claude/skills/gstack/skills/office-hours/SKILL.md":
         "office",
+    },
+    execValues: {
+      "git -C /home/local/.claude/skills/gstack config --get remote.origin.url":
+        "https://github.com/acme/gstack.git\n",
+      "git -C /home/local/.claude/skills/gstack rev-parse HEAD":
+        "0123456789abcdef0123456789abcdef01234567\n",
     },
   });
 
@@ -56,6 +58,22 @@ test("ReinstallService plans marketplace, plugin, disable, git skill, and symlin
       'mkdir -p "$HOME/.claude/skills/office-hours" && ln -sf "$HOME/.claude/skills/gstack/skills/office-hours/SKILL.md" "$HOME/.claude/skills/office-hours/SKILL.md"',
     ],
   });
+  expect(host.execCalls).toEqual([
+    {
+      bin: "git",
+      args: [
+        "-C",
+        "/home/local/.claude/skills/gstack",
+        "config",
+        "--get",
+        "remote.origin.url",
+      ],
+    },
+    {
+      bin: "git",
+      args: ["-C", "/home/local/.claude/skills/gstack", "rev-parse", "HEAD"],
+    },
+  ]);
 });
 
 test("ReinstallService leaves Codex profiles to MCP enrichment", () => {

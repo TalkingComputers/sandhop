@@ -76,46 +76,6 @@ const readDisabledPlugins = (path: string, value: unknown): string[] => {
     .filter((name): name is string => name !== null);
 };
 
-const parseOriginUrl = (path: string, text: string): string => {
-  let inOrigin = false;
-  for (const line of text.split(/\r?\n/)) {
-    const header = line.trim().match(/^\[remote "([^"]+)"\]$/);
-    if (header) {
-      inOrigin = header[1] === "origin";
-      continue;
-    }
-    if (!inOrigin) continue;
-    const url = line.trim().match(/^url\s*=\s*(.+)$/)?.[1];
-    if (url !== undefined) return url;
-  }
-  throw new Error(`Expected origin remote url at ${path}`);
-};
-
-const readPackedRef = (packedRefs: string, ref: string): string | null => {
-  for (const line of packedRefs.split(/\r?\n/)) {
-    if (line === "" || line.startsWith("#") || line.startsWith("^")) continue;
-    const parts = line.split(" ");
-    if (parts.length === 2 && parts[1] === ref) return parts[0]!;
-  }
-  return null;
-};
-
-const readGitRef = (host: HostDeps, gitDir: string): string => {
-  const head = host.readFile(`${gitDir}/HEAD`);
-  if (head === null) throw new Error(`Expected ${gitDir}/HEAD`);
-  const trimmed = head.trim();
-  if (!trimmed.startsWith("ref: ")) return trimmed;
-  const ref = trimmed.slice("ref: ".length).trim();
-  const refText = host.readFile(`${gitDir}/${ref}`);
-  if (refText !== null) return refText.trim();
-  const packedRefs = host.readFile(`${gitDir}/packed-refs`);
-  if (packedRefs !== null) {
-    const packed = readPackedRef(packedRefs, ref);
-    if (packed !== null) return packed;
-  }
-  throw new Error(`Expected resolved git ref ${ref}`);
-};
-
 const toRemoteSkillPath = (
   localPath: string,
   gitSkills: GitSkill[],
@@ -190,13 +150,14 @@ export class ReinstallService {
       const localDir = `${skillsRoot}/${name}`;
       if (this.host.isSymlink(localDir)) continue;
       const gitDir = `${localDir}/.git`;
-      const configPath = `${gitDir}/config`;
-      if (!this.host.exists(configPath)) continue;
-      const config = this.host.readFile(configPath);
-      if (config === null) throw new Error(`Expected ${configPath}`);
+      if (!this.host.exists(gitDir)) continue;
       const remoteDir = joinClaudeHomePath(`${CLAUDE_SKILLS_PATH}/${name}`);
-      const url = parseOriginUrl(configPath, config);
-      const ref = readGitRef(this.host, gitDir);
+      const url = this.host
+        .exec("git", ["-C", localDir, "config", "--get", "remote.origin.url"])
+        .trim();
+      const ref = this.host
+        .exec("git", ["-C", localDir, "rev-parse", "HEAD"])
+        .trim();
       gitSkills.push({ name, localDir, remoteDir });
       const clone = `git clone ${shellQuote(url)} ${quoteShellPath(remoteDir)}`;
       const checkout = `git -C ${quoteShellPath(remoteDir)} checkout ${shellQuote(ref)}`;

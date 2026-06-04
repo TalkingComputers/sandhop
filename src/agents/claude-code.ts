@@ -2,6 +2,7 @@ import { projectDirName } from "../core/encode.js";
 import { collectEnvRefs } from "../core/env.js";
 import { isRecord } from "../core/json.js";
 import { MCP_TIMEOUT_MS } from "../core/mcp-timeout.js";
+import { basename } from "../core/paths.js";
 import { buildClaudePreSeedScript } from "../core/sandbox-scripts.js";
 import type {
   Agent,
@@ -12,7 +13,7 @@ import type {
   McpServer,
   McpTransport,
 } from "../core/ports/agent.js";
-import { fileName, makeVersionParser, sortNewest } from "./shared.js";
+import { makeVersionParser, sortNewest } from "./shared.js";
 import {
   CLAUDE_JSON_HOME_PATH,
   CLAUDE_JSON_PATH,
@@ -172,7 +173,7 @@ export const CLAUDE_CODE: Agent = {
         .walk(root)
         .filter((path) => path.endsWith(".jsonl"))
         .map((path) => {
-          const name = fileName(path);
+          const name = basename(path);
           return {
             sessionId: name.replace(/\.jsonl$/, ""),
             transcriptPath: path,

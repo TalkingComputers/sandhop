@@ -1,7 +1,5 @@
 import type { AgentSessionDeps, SessionRef } from "../core/ports/agent.js";
 
-export const fileName = (path: string): string => path.split("/").pop()!;
-
 export const sortNewest = (
   deps: AgentSessionDeps,
   refs: SessionRef[],

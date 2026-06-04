@@ -1,19 +1,10 @@
+import { posix } from "node:path";
 import type { HostDeps } from "./ports/host.js";
 
 export const SANDBOX_HOME = "/home/user";
 
-export const dirname = (path: string): string => {
-  if (path === "/") return "/";
-  const clean = path.replace(/\/+$/, "");
-  if (clean === "") return ".";
-  const index = clean.lastIndexOf("/");
-  if (index < 0) return ".";
-  if (index === 0) return "/";
-  return clean.slice(0, index);
-};
-
-export const basename = (path: string): string =>
-  path.replace(/\/+$/, "").split("/").pop()!;
+export const dirname = posix.dirname;
+export const basename = posix.basename;
 
 export const joinPath = (dir: string, path: string): string => {
   if (dir === ".") return path;
