@@ -1,6 +1,6 @@
 # Keepon
 
-Keepon teleports a live local Claude Code or Codex session to a cloud sandbox and lets you continue it in an auth-gated browser terminal. It sends the dirty working tree, the active transcript, and the agent auth needed to resume the same session remotely.
+Keepon teleports a live local Claude Code or Codex session to a cloud sandbox and lets you continue it in an auth-gated browser terminal. It sends the dirty working tree, the active transcript, and the agent auth needed to resume the same session remotely — no commit, no context re-injection, native `--resume`.
 
 ## Why Keepon
 
@@ -10,114 +10,110 @@ Claude on the web and Codex cloud are good for clean repo tasks. Keepon is for t
 
 ```bash
 npm install -g keepon
+keepon setup
 ```
 
-From source:
+`keepon setup` is a short wizard: pick your sandbox provider, paste its API key, choose a transport, and it installs the `/keepon` command into whichever agents you have (Claude Code and/or Codex). Credentials are stored in `~/.config/keepon/config.json` (mode 600). You are never asked for your Claude/Codex API key — that auth is captured from your existing local session at teleport time.
 
-```bash
-git clone https://github.com/TalkingComputers/keepon.git
-cd keepon
-npm ci
-npm run build
-```
+Then, from inside any Claude Code or Codex session in a project:
 
-Set sandbox and agent auth:
-
-```bash
-export E2B_API_KEY=...
-export ANTHROPIC_API_KEY=...        # Claude Code, or CLAUDE_CODE_OAUTH_TOKEN
-export OPENAI_API_KEY=...           # Codex, or CODEX_API_KEY / ~/.codex/auth.json
-```
-
-Run from a live local agent session:
-
-```bash
+```text
 /keepon
 ```
 
-Or run the engine directly:
-
-```bash
-node dist/cli/main.js push --cwd "$(pwd)"
-```
-
-Output:
+It runs `keepon push` for the current session and prints the web-terminal URL:
 
 ```text
-KEEPON_URL https://<sandbox-host>
+KEEPON_URL  https://<host>
 KEEPON_AUTH keepon:<password>
-KEEPON_ENRICHING <sandbox-id>
 ```
 
-Open `KEEPON_URL` and sign in with the `KEEPON_AUTH` user/password.
+Open `KEEPON_URL` and sign in with the `KEEPON_AUTH` user/password to continue your session in the browser.
 
-## Flags
+## Sandbox providers
+
+Keepon is provider-agnostic. `keepon setup` configures the default; override per-run with `--provider`.
+
+| Provider           | `--provider` | Credentials (collected by `keepon setup`)             |
+| ------------------ | ------------ | ----------------------------------------------------- |
+| **E2B** (default)  | `e2b`        | `E2B_API_KEY`                                         |
+| **Modal**          | `modal`      | `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET`                |
+| **Daytona**        | `daytona`    | `DAYTONA_API_KEY` (+ optional `DAYTONA_TARGET`)       |
+| **Vercel Sandbox** | `vercel`     | `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID` |
+
+Each provider SDK is an optional dependency, loaded lazily — installing Keepon does not pull all four. The CLI resolves credentials **environment first, then the `keepon setup` store**, so CI/scripts can just export the env vars and skip setup.
+
+## Usage
 
 ```bash
-node dist/cli/main.js push --tunnel cloudflared --cwd "$(pwd)"
-node dist/cli/main.js push --no-profile --cwd "$(pwd)"
+keepon push                              # teleport the latest session in $(pwd)
+keepon push --provider modal             # choose a provider for this run
+keepon push --tunnel cloudflared         # private/portable URL (see below)
+keepon push --agent codex --session <id> # pin the agent and a specific session
+keepon push --no-profile                 # core only: working tree + transcript
+keepon list                              # list running sandboxes
+keepon kill <sandbox-id>                 # destroy a sandbox
 ```
 
-- `--tunnel public`: exposes ttyd through the sandbox provider HTTPS port. This is the default.
-- `--tunnel cloudflared`: exposes ttyd through Cloudflare Tunnel.
-- `--no-profile`: skips profile, plugin, skill, and MCP enrichment. The core working tree + transcript still move.
+(`keepon` is the global bin; `node dist/cli/main.js <cmd>` is equivalent from source.)
 
-## Private access
+### Flags
 
-`--tunnel cloudflared` binds ttyd to loopback and starts cloudflared inside the sandbox.
+- `--provider e2b|modal|daytona|vercel` — sandbox provider (default: configured / `e2b`).
+- `--tunnel public|cloudflared` — URL transport (default: configured / `public`).
+- `--agent claude-code|codex` — force the agent (default: auto-detect from the cwd's sessions).
+- `--session <id>` — resume a specific session instead of the newest for the cwd.
+- `--no-profile` — skip profile/plugin/skill/MCP enrichment; the working tree + transcript still move.
+- `--cwd <path>` — operate on a directory other than the process cwd.
 
-Quick tunnel mode needs no Cloudflare setup and returns a `*.trycloudflare.com` URL protected by Keepon's per-teleport ttyd Basic Auth.
+## Transports / private access
 
-Named tunnel mode uses your configured Cloudflare Tunnel and Access policy:
+- **`--tunnel public`** (default): exposes ttyd through the provider's HTTPS preview, gated by Keepon's per-teleport ttyd Basic Auth.
+- **`--tunnel cloudflared`**: binds ttyd to loopback and runs cloudflared inside the sandbox. Works through provider egress where native expose is token-gated (e.g. Daytona).
+  - _Quick tunnel_ (default): zero-config `*.trycloudflare.com` URL + Basic Auth.
+  - _Named tunnel_ (Access-gated, private): set `CLOUDFLARE_TUNNEL_TOKEN` + `CLOUDFLARE_TUNNEL_HOSTNAME` (or via `keepon setup`); Keepon returns `https://<your-hostname>` and Cloudflare Access enforces login.
 
-```bash
-export CLOUDFLARE_TUNNEL_TOKEN=...
-export CLOUDFLARE_TUNNEL_HOSTNAME=keepon.example.com
-node dist/cli/main.js push --tunnel cloudflared --cwd "$(pwd)"
-```
+## What transfers
 
-Keepon returns `https://$CLOUDFLARE_TUNNEL_HOSTNAME`; Cloudflare must already route that hostname to the named tunnel.
+- **Working tree** — full dirty/uncommitted state, restored at its original absolute path so the resumed session's recorded cwd matches.
+- **Transcript** — the exact session file; resumed natively (`claude --resume` / `codex resume`), not re-injected.
+- **Agent auth** — Claude/Codex credentials shipped as sandbox env/credential files over TLS, never inside the project tarball.
+- **Profile** (enrichment) — settings, `CLAUDE.md`/`AGENTS.md`, commands, skills, plugins; plugins/skills are rebuilt from manifests/refs in-cloud (byte-equivalent versions) rather than bulk-uploaded.
+- **MCP servers** — config + referenced env/secrets + local-path server code, with a raised startup timeout so `npx`-based servers finish installing. Servers that cannot run in a fresh sandbox (localhost/loopback DSNs, etc.) are excluded with a logged reason.
 
 ## How it works
 
-Keepon has a fast core path and a detached enrichment path.
-
-1. Core collects the current working tree root, transcript, auth, secrets, and local CLI version in parallel.
-2. Core creates a single-tenant ephemeral sandbox, uploads the project bundle and transcript, installs the matching Claude Code or Codex CLI, restores the transcript, starts ttyd, and returns the URL. Target: under 2 minutes for ordinary projects.
-3. A detached in-cloud enrichment transfers portable profile and MCP local-code state, then rebuilds reproducible plugins, skills, and dependencies from manifests and refs. Reproducible bulk is rebuilt instead of blindly uploaded, preserving byte-equivalent versions while keeping the URL fast.
+1. **Fast core**: collect the working-tree root, transcript, auth, secrets, and local CLI version in parallel; create a single-tenant ephemeral sandbox; upload the bundle + transcript; install the matching agent CLI; restore the transcript; start ttyd; return the URL. Target: under ~2 minutes for ordinary projects.
+2. **Detached enrichment**: transfer portable profile + MCP local code, then rebuild reproducible plugins/skills/deps from manifests so the URL stays fast.
 
 ## Security model
 
-- Agent auth and captured MCP secrets travel as sandbox env/credential files over TLS, not inside the project tarball.
-- Default access is HTTPS plus per-teleport ttyd Basic Auth.
-- `--tunnel cloudflared` binds ttyd to loopback in the sandbox and returns either a quick tunnel URL or your Access-gated named tunnel hostname.
-- Each push creates a single-tenant ephemeral sandbox. Kill it with `node dist/cli/main.js kill <sandbox-id>`.
-- Keepon does not log secret values.
+- Single-tenant ephemeral sandbox per push; auth/secrets travel as env/credential files over TLS, not in the tarball.
+- Default access is HTTPS + per-teleport ttyd Basic Auth; `--tunnel cloudflared` adds quick-tunnel or Access-gated named-tunnel options.
+- Keepon never logs secret values.
+- Destroy a sandbox with `keepon kill <sandbox-id>`.
 
 ## Architecture
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Keepon is a TypeScript modular monolith with a hexagonal core, service layer, provider adapters, and agent adapters:
+TypeScript modular monolith with a hexagonal core. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-- `src/core`: ports, pure data types, and orchestration services.
+- `src/core`: ports, pure data types, orchestration services (teleport, enrichment, snapshot, profile, secrets, MCP).
 - `src/host`: local Node filesystem/process/keychain/tar adapter.
-- `src/providers`: sandbox provider adapters, currently E2B.
-- `src/agents`: Claude Code and Codex adapters.
-- `src/transports`: public provider and cloudflared URL adapters.
-- `src/cli`: composition root and direct CLI entrypoints.
-- `plugin/`: `/keepon` command/prompt wrappers.
-
-Design notes live in [`docs/design/`](docs/design/): [production fixes](docs/design/production-fixes.md), [profile sync](docs/design/profile-sync.md), [fast core](docs/design/fast-core.md), [transfer](docs/design/transfer.md), [fast reinstall](docs/design/fast-reinstall.md), and [review fixes](docs/design/review-fixes.md).
+- `src/providers`: sandbox provider adapters — E2B, Modal, Daytona, Vercel — behind one `SandboxProvider` port + registry.
+- `src/agents`: Claude Code and Codex adapters behind one `Agent` port.
+- `src/transports`: `public` (provider URL) and `cloudflared` URL adapters.
+- `src/cli`: composition root, `keepon setup` wizard, and CLI entrypoints.
+- `plugin/`: the `/keepon` command (`commands/`) and prompt (`prompts/`) wrappers installed by `keepon setup`.
 
 ## Limitations
 
 - You need an existing local Claude Code or Codex session for the target cwd.
-- Large dirty trees still take time to archive and upload.
-- Detached enrichment can finish after the terminal is already usable; check `/tmp/keepon-enrich.log` inside the sandbox.
-- Local-only services, databases, localhost URLs, and private files outside captured config are not reachable unless you provision them or tunnel them.
-- Codex resume replays the session's encrypted reasoning to the API, which is org-bound: the shipped credential must belong to the same org that created the rollout. The default `~/.codex/auth.json` is shipped as-is, so this holds for ordinary OpenAI logins. Sessions created under a custom provider profile (e.g. an Azure profile) resume only if that provider's credential is the active one; ChatGPT-OAuth `auth.json` (no `OPENAI_API_KEY`) is unverified for cross-machine resume.
-- The working tree is restored at its original absolute path inside the sandbox so the resumed session's recorded cwd matches (no directory picker) and absolute path references stay valid.
-- The agent CLI is installed at the exact local version, so Codex may show its standard "update available" notice if your local version is behind the latest (sometimes a one-keypress prompt, sometimes a banner). It carries no data loss; choose "skip" to continue in the resumed session.
-- Cloud rebuilds need network access to git/npm/bun/uv sources referenced by your manifests.
+- Large dirty trees take time to archive and upload.
+- Enrichment can finish after the terminal is usable; check `/tmp/keepon-enrich.log` inside the sandbox.
+- MCP servers that depend on local-only resources (localhost databases, local data files, a browser) or that require interactive OAuth (e.g. Notion, Ramp) won't function in a fresh sandbox — log in inside the sandbox, or expect them absent/unauthenticated.
+- **Codex resume is org-bound**: it replays the session's encrypted reasoning to the API, so the shipped credential must belong to the org that created the rollout. The default `~/.codex/auth.json` ships as-is (fine for ordinary OpenAI logins). Sessions created under a custom provider profile (e.g. Azure) resume only with that provider's credential; ChatGPT-OAuth `auth.json` (no `OPENAI_API_KEY`) is unverified for cross-machine resume.
+- The agent CLI installs at your exact local version, so Codex may show its standard "update available" notice — informational; choose "skip" to continue.
+- Cloud rebuilds need network access to the git/npm/bun/uv sources referenced by your manifests.
 
 ## Development
 
