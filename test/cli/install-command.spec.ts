@@ -11,26 +11,26 @@ import { afterEach, expect, test } from "vitest";
 import { installCommands } from "../../src/cli/install-command.js";
 
 const EXPECTED_CLAUDE_COMMAND = `---
-description: Teleport this Claude Code session to a cloud sandbox (keepon)
+description: Teleport this Claude Code session to a cloud sandbox (sandhop)
 allowed-tools: Bash
 ---
 
-Run \`keepon push\` in the current working directory. Surface the KEEPON_URL and
-KEEPON_AUTH from its output prominently so the user can open the web terminal.
+Run \`sandhop push\` in the current working directory. Surface the SANDHOP_URL and
+SANDHOP_AUTH from its output prominently so the user can open the web terminal.
 `;
 
 const EXPECTED_CODEX_PROMPT = `---
-description: Teleport this Codex session to a cloud sandbox (keepon)
+description: Teleport this Codex session to a cloud sandbox (sandhop)
 ---
 
-Run the shell command \`keepon push\` in the current working directory and show me the
-resulting KEEPON_URL and KEEPON_AUTH so I can open the web terminal.
+Run the shell command \`sandhop push\` in the current working directory and show me the
+resulting SANDHOP_URL and SANDHOP_AUTH so I can open the web terminal.
 `;
 
 const tempRoots: string[] = [];
 
 const makeHome = (): string => {
-  const root = mkdtempSync(join(tmpdir(), "keepon-install-"));
+  const root = mkdtempSync(join(tmpdir(), "sandhop-install-"));
   tempRoots.push(root);
   return root;
 };
@@ -46,10 +46,10 @@ test("installCommands writes Claude Code and Codex slash commands when agent hom
 
   expect(installCommands(home)).toEqual(["Claude Code", "Codex"]);
   expect(
-    readFileSync(join(home, ".claude", "commands", "keepon.md"), "utf8"),
+    readFileSync(join(home, ".claude", "commands", "sandhop.md"), "utf8"),
   ).toBe(EXPECTED_CLAUDE_COMMAND);
   expect(
-    readFileSync(join(home, ".codex", "prompts", "keepon.md"), "utf8"),
+    readFileSync(join(home, ".codex", "prompts", "sandhop.md"), "utf8"),
   ).toBe(EXPECTED_CODEX_PROMPT);
 });
 
@@ -58,7 +58,9 @@ test("installCommands writes only detected agents and never creates missing agen
   mkdirSync(join(home, ".claude"));
 
   expect(installCommands(home)).toEqual(["Claude Code"]);
-  expect(existsSync(join(home, ".claude", "commands", "keepon.md"))).toBe(true);
+  expect(existsSync(join(home, ".claude", "commands", "sandhop.md"))).toBe(
+    true,
+  );
   expect(existsSync(join(home, ".codex"))).toBe(false);
 });
 

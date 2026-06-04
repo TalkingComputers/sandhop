@@ -6,13 +6,13 @@ import {
   applyConfigToEnv,
   loadConfig,
   saveConfig,
-  type KeeponConfig,
+  type SandhopConfig,
 } from "../../src/cli/config.js";
 
 const tempRoots: string[] = [];
 
 const makeHome = (): string => {
-  const root = mkdtempSync(join(tmpdir(), "keepon-config-"));
+  const root = mkdtempSync(join(tmpdir(), "sandhop-config-"));
   tempRoots.push(root);
   return root;
 };
@@ -26,7 +26,7 @@ test("saveConfig writes private dir and file permissions and loadConfig round-tr
   const home = makeHome();
   const xdg = join(home, "xdg");
   process.env["XDG_CONFIG_HOME"] = xdg;
-  const config: KeeponConfig = {
+  const config: SandhopConfig = {
     defaultProvider: "modal",
     transport: "cloudflared",
     cloudflare: { token: "cf-token", hostname: "term.example.com" },
@@ -38,8 +38,10 @@ test("saveConfig writes private dir and file permissions and loadConfig round-tr
 
   saveConfig(home, config);
 
-  expect(statSync(join(xdg, "keepon")).mode & 0o777).toBe(0o700);
-  expect(statSync(join(xdg, "keepon", "config.json")).mode & 0o777).toBe(0o600);
+  expect(statSync(join(xdg, "sandhop")).mode & 0o777).toBe(0o700);
+  expect(statSync(join(xdg, "sandhop", "config.json")).mode & 0o777).toBe(
+    0o600,
+  );
   expect(loadConfig(home)).toEqual(config);
 });
 
@@ -50,8 +52,8 @@ test("loadConfig returns null when the config file is missing", () => {
 test("applyConfigToEnv sets missing values, preserves existing values, and applies defaults", () => {
   const env: Record<string, string | undefined> = {
     E2B_API_KEY: "env-key",
-    KEEPON_PROVIDER: "vercel",
-    KEEPON_TRANSPORT: "public",
+    SANDHOP_PROVIDER: "vercel",
+    SANDHOP_TRANSPORT: "public",
     CLOUDFLARE_TUNNEL_TOKEN: "env-token",
   };
 
@@ -70,8 +72,8 @@ test("applyConfigToEnv sets missing values, preserves existing values, and appli
 
   expect(env).toEqual({
     E2B_API_KEY: "env-key",
-    KEEPON_PROVIDER: "vercel",
-    KEEPON_TRANSPORT: "public",
+    SANDHOP_PROVIDER: "vercel",
+    SANDHOP_TRANSPORT: "public",
     CLOUDFLARE_TUNNEL_TOKEN: "env-token",
     CLOUDFLARE_TUNNEL_HOSTNAME: "term.example.com",
     MODAL_TOKEN_ID: "token-id",

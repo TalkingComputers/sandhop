@@ -83,7 +83,7 @@ test("TeleportService fast core fans out collection, uploads one gzip bundle, st
   });
   expect(host.spawnPipeCalls).toEqual([
     expect.stringMatching(
-      /tar \$KEEPON_TAR_MAC_FLAGS -czf '\/tmp\/keepon-.+-bundle\.tgz' -C '\/workspace\/project' \./,
+      /tar \$SANDHOP_TAR_MAC_FLAGS -czf '\/tmp\/sandhop-.+-bundle\.tgz' -C '\/workspace\/project' \./,
     ),
   ]);
   expect(host.spawnPipeCalls[0]).toContain("COPYFILE_DISABLE=1");
@@ -98,7 +98,7 @@ test("TeleportService fast core fans out collection, uploads one gzip bundle, st
   expect(provider.sandbox.execs[0]).toContain(
     'tar -xzf /tmp/bundle.tgz -C "/workspace/project"',
   );
-  expect(provider.sandbox.spawns[0]).toContain("ttyd -p 7681 -W -c keepon:");
+  expect(provider.sandbox.spawns[0]).toContain("ttyd -p 7681 -W -c sandhop:");
   expect(provider.sandbox.spawns[0]).not.toContain("-i 127.0.0.1");
   expect(provider.sandbox.spawns[0]).toContain(
     "bash -lc 'cd \"/workspace/project\" && MCP_TIMEOUT=120000 claude --resume session-id'",
@@ -109,7 +109,7 @@ test("TeleportService fast core fans out collection, uploads one gzip bundle, st
   expect(provider.sandbox.execs[0]).not.toContain("mcp");
   expect(provider.sandbox.exposedPorts).toEqual([7681]);
   expect(result.url).toBe("https://sandbox-sbx-1-7681.example");
-  expect(result.user).toBe("keepon");
+  expect(result.user).toBe("sandhop");
   expect(result.pass).toMatch(/^[A-Za-z0-9_-]{24}$/);
 });
 
@@ -159,7 +159,7 @@ test("TeleportService injects transport bootstrap steps and loopback ttyd bind",
   });
   expect(provider.sandbox.execs[0]).toContain("install cloudflared");
   expect(provider.sandbox.spawns[0]).toContain(
-    "ttyd -i 127.0.0.1 -p 7681 -W -c keepon:",
+    "ttyd -i 127.0.0.1 -p 7681 -W -c sandhop:",
   );
   expect(provider.sandbox.exposedPorts).toEqual([]);
   expect(result.url).toBe("https://cloudflared-sbx-1");

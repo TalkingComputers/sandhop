@@ -7,7 +7,7 @@ import { FakeProvider, FakeSandbox } from "../fakes/provider.js";
 
 class FailingMcpSandbox extends FakeSandbox {
   async exec(cmd: string): Promise<RunResult> {
-    if (cmd.includes("/tmp/keepon-mcp-0-") && cmd.includes("zstd -d")) {
+    if (cmd.includes("/tmp/sandhop-mcp-0-") && cmd.includes("zstd -d")) {
       this.execs.push(cmd);
       return {
         exitCode: 1,
@@ -19,18 +19,18 @@ class FailingMcpSandbox extends FakeSandbox {
   }
 }
 
-const originalKeeponStrict = process.env["KEEPON_STRICT"];
+const originalSandhopStrict = process.env["SANDHOP_STRICT"];
 
 afterEach(() => {
   vi.restoreAllMocks();
   vi.doUnmock("../../src/providers/index.js");
   vi.doUnmock("../../src/core/services/enrichment.js");
   vi.resetModules();
-  if (originalKeeponStrict === undefined) {
-    delete process.env["KEEPON_STRICT"];
+  if (originalSandhopStrict === undefined) {
+    delete process.env["SANDHOP_STRICT"];
     return;
   }
-  process.env["KEEPON_STRICT"] = originalKeeponStrict;
+  process.env["SANDHOP_STRICT"] = originalSandhopStrict;
 });
 
 const loadRunEnrichCli = async (steps: EnrichmentStepResult[]) => {
@@ -90,8 +90,8 @@ test("runEnrichCli returns zero outside strict mode when an enrichment step fail
   await expect(runCli(enrichArgv())).resolves.toBe(0);
 });
 
-test("runEnrichCli returns one when KEEPON_STRICT is set and an enrichment step fails", async () => {
-  process.env["KEEPON_STRICT"] = "1";
+test("runEnrichCli returns one when SANDHOP_STRICT is set and an enrichment step fails", async () => {
+  process.env["SANDHOP_STRICT"] = "1";
   const { runEnrichCli: runCli } = await loadRunEnrichCli([
     { name: "mcp", ok: false, error: "failed" },
   ]);
@@ -138,24 +138,24 @@ cwd = "/home/local/mcp"
     expect.arrayContaining([
       {
         remotePath: expect.stringMatching(
-          /\/tmp\/keepon-profile-.+\.part\.000000$/,
+          /\/tmp\/sandhop-profile-.+\.part\.000000$/,
         ),
         localPath: expect.stringMatching(
-          /\/tmp\/keepon-profile-.+\.part\.000000$/,
+          /\/tmp\/sandhop-profile-.+\.part\.000000$/,
         ),
       },
       {
         remotePath: expect.stringMatching(
-          /\/tmp\/keepon-mcp-0-.+\.part\.000000$/,
+          /\/tmp\/sandhop-mcp-0-.+\.part\.000000$/,
         ),
         localPath: expect.stringMatching(
-          /\/tmp\/keepon-mcp-0-.+\.part\.000000$/,
+          /\/tmp\/sandhop-mcp-0-.+\.part\.000000$/,
         ),
       },
     ]),
   );
   const enrichmentExec = provider.sandbox.execs.find((cmd) =>
-    cmd.includes("/tmp/keepon-enriched"),
+    cmd.includes("/tmp/sandhop-enriched"),
   );
   const execLog = provider.sandbox.execs.join("\n");
   expect(provider.sandbox.uploads).toContainEqual({
@@ -168,17 +168,17 @@ cwd = "/home/local/mcp"
     ]),
   );
   expect(execLog).toContain("command -v dnf >/dev/null && dnf install -y zstd");
-  expect(execLog).toContain('KEEPON_LOW_PRIORITY="nice -n 19"');
+  expect(execLog).toContain('SANDHOP_LOW_PRIORITY="nice -n 19"');
   expect(execLog).toContain("nice -n 19 ionice -c3");
   expect(execLog).toContain(
-    "$KEEPON_LOW_PRIORITY sh -lc 'cd /home/user/mcp && npm ci'",
+    "$SANDHOP_LOW_PRIORITY sh -lc 'cd /home/user/mcp && npm ci'",
   );
   expect(execLog).toContain(
-    "$KEEPON_LOW_PRIORITY sh -lc 'zstd -d --long=27 -c",
+    "$SANDHOP_LOW_PRIORITY sh -lc 'zstd -d --long=27 -c",
   );
   expect(execLog).toContain('cat >> "$HOME/.codex/config.toml"');
   expect(execLog).toContain("/home/user/mcp/server.js");
-  expect(enrichmentExec).toContain("[keepon] enrichment summary");
+  expect(enrichmentExec).toContain("[sandhop] enrichment summary");
 });
 
 test("runEnrichment re-applies Codex preseed after profile transfer", async () => {
@@ -203,7 +203,7 @@ test("runEnrichment re-applies Codex preseed after profile transfer", async () =
   );
 
   const profileIndex = sandbox.execs.findIndex(
-    (cmd) => cmd.includes("/tmp/keepon-profile-") && cmd.includes("zstd -d"),
+    (cmd) => cmd.includes("/tmp/sandhop-profile-") && cmd.includes("zstd -d"),
   );
   const preseedIndex = sandbox.execs.findIndex(
     (cmd, index) =>
@@ -256,13 +256,13 @@ test("runEnrichment finishes profile and marker after MCP transfer failure", asy
     ".claude/skills/ship",
   ]);
   const profileIndex = sandbox.execs.findIndex(
-    (cmd) => cmd.includes("/tmp/keepon-profile-") && cmd.includes("zstd -d"),
+    (cmd) => cmd.includes("/tmp/sandhop-profile-") && cmd.includes("zstd -d"),
   );
   const mcpIndex = sandbox.execs.findIndex(
-    (cmd) => cmd.includes("/tmp/keepon-mcp-0-") && cmd.includes("zstd -d"),
+    (cmd) => cmd.includes("/tmp/sandhop-mcp-0-") && cmd.includes("zstd -d"),
   );
   const markerIndex = sandbox.execs.findIndex((cmd) =>
-    cmd.includes("touch /tmp/keepon-enriched"),
+    cmd.includes("touch /tmp/sandhop-enriched"),
   );
   const log = sandbox.execs.join("\n");
 
@@ -270,12 +270,12 @@ test("runEnrichment finishes profile and marker after MCP transfer failure", asy
   expect(mcpIndex).toBeGreaterThan(profileIndex);
   expect(markerIndex).toBeGreaterThan(mcpIndex);
   expect(log).toContain(
-    "[keepon] step failed: mcp code transfer + config rewrite",
+    "[sandhop] step failed: mcp code transfer + config rewrite",
   );
   expect(log).not.toContain(
-    "$KEEPON_LOW_PRIORITY sh -lc 'cd /home/user/mcp && npm ci'",
+    "$SANDHOP_LOW_PRIORITY sh -lc 'cd /home/user/mcp && npm ci'",
   );
-  expect(log).toContain("[keepon] enrichment summary");
+  expect(log).toContain("[sandhop] enrichment summary");
 });
 
 test("runEnrichment runs reinstall commands nice, HTTPS-preferred, fault-isolated, and logged", async () => {
@@ -314,16 +314,16 @@ test("runEnrichment runs reinstall commands nice, HTTPS-preferred, fault-isolate
 
   expect(log).toContain("CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1");
   expect(log).toContain(
-    "$KEEPON_LOW_PRIORITY sh -lc 'claude plugin marketplace add anthropics/claude-plugins'",
+    "$SANDHOP_LOW_PRIORITY sh -lc 'claude plugin marketplace add anthropics/claude-plugins'",
   );
   expect(log).toContain(
-    "$KEEPON_LOW_PRIORITY sh -lc 'claude plugin install serena@official --scope user'",
+    "$SANDHOP_LOW_PRIORITY sh -lc 'claude plugin install serena@official --scope user'",
   );
   expect(log).toContain(
-    "$KEEPON_LOW_PRIORITY sh -lc 'claude plugin disable serena@official'",
+    "$SANDHOP_LOW_PRIORITY sh -lc 'claude plugin disable serena@official'",
   );
-  expect(log).toContain("[keepon] reinstall step failed:");
-  expect(log).toContain("touch /tmp/keepon-enriched");
+  expect(log).toContain("[sandhop] reinstall step failed:");
+  expect(log).toContain("touch /tmp/sandhop-enriched");
 });
 
 test("runEnrichment ships Claude settings scripts and uploads rewritten settings", async () => {
@@ -419,7 +419,7 @@ test("runEnrichment ships Claude settings scripts and uploads rewritten settings
       expect.stringContaining("--exclude '.git'"),
     ]),
   );
-  expect(log).toContain('KEEPON_LOW_PRIORITY="nice -n 19"');
+  expect(log).toContain('SANDHOP_LOW_PRIORITY="nice -n 19"');
   expect(log).toContain("nice -n 19 ionice -c3");
   expect(log).toContain("step ok: settings scripts transfer + rewrite");
   expect(userSettings.hooks.PreToolUse[0]!.hooks[0]!.command).toBe(

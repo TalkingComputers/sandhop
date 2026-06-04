@@ -95,7 +95,9 @@ export class ModalSandboxProvider implements SandboxProvider {
 
   async create(opts: CreateOptions): Promise<Sandbox> {
     const client = await this.client();
-    const app = await client.apps.fromName("keepon", { createIfMissing: true });
+    const app = await client.apps.fromName("sandhop", {
+      createIfMissing: true,
+    });
     const image = client.images.fromRegistry("node:22");
     const sandbox = await client.sandboxes.create(app, image, {
       command: ["sleep", "infinity"],

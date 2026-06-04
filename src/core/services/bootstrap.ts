@@ -48,16 +48,16 @@ const renderMcpConfig = (agent: Agent, codePlan: CodePlan): string[] => {
     ...(config.mode === "append"
       ? [`node -e ${JSON.stringify(buildPruneMcpTablesScript(config.path))}`]
       : []),
-    `cat ${redirect} ${quoteHomePath(config.path)} <<'KEEPON_MCP_CONFIG'`,
+    `cat ${redirect} ${quoteHomePath(config.path)} <<'SANDHOP_MCP_CONFIG'`,
     config.content.trimEnd(),
-    "KEEPON_MCP_CONFIG",
+    "SANDHOP_MCP_CONFIG",
   ];
 };
 
 const renderMcpExcluded = (codePlan: CodePlan): string[] =>
   codePlan.excluded.map(
     (server) =>
-      `echo "[keepon] mcp skipped: ${shellLog(server.name)} (${shellLog(server.reason)})"`,
+      `echo "[sandhop] mcp skipped: ${shellLog(server.name)} (${shellLog(server.reason)})"`,
   );
 
 const renderMcpCode = (codePlan: CodePlan | null | undefined): string[] => {
@@ -80,11 +80,11 @@ const renderMcpCode = (codePlan: CodePlan | null | undefined): string[] => {
 };
 
 const renderSummary = (steps: EnrichmentStepResult[]): string[] => [
-  'echo "[keepon] enrichment summary"',
+  'echo "[sandhop] enrichment summary"',
   ...steps.map((step) =>
     step.ok
-      ? `echo "[keepon] ok: ${shellLog(step.name)}"`
-      : `echo "[keepon] failed: ${shellLog(step.name)}: ${shellLog(step.error)}"`,
+      ? `echo "[sandhop] ok: ${shellLog(step.name)}"`
+      : `echo "[sandhop] failed: ${shellLog(step.name)}: ${shellLog(step.error)}"`,
   ),
 ];
 
@@ -117,7 +117,7 @@ export class BootstrapService {
       `dest="${dest}"`,
       'mkdir -p "$(dirname "$dest")"',
       'cp /tmp/transcript.jsonl "$dest"',
-      "echo KEEPON_RESTORE_OK",
+      "echo SANDHOP_RESTORE_OK",
     ].join("\n");
   }
 
@@ -130,11 +130,11 @@ export class BootstrapService {
     opts: EnrichmentBootstrapOptions,
   ): string {
     if (opts.codePlan === null || opts.codePlan === undefined)
-      return 'echo "[keepon] mcp config skipped"';
+      return 'echo "[sandhop] mcp config skipped"';
     const excluded = renderMcpExcluded(opts.codePlan);
     const config = renderMcpConfig(this.agent, opts.codePlan);
     if (config.length === 0)
-      return [...excluded, 'echo "[keepon] mcp config skipped"'].join("\n");
+      return [...excluded, 'echo "[sandhop] mcp config skipped"'].join("\n");
     return [...excluded, ...config].join("\n");
   }
 
@@ -149,7 +149,7 @@ export class BootstrapService {
 
   renderSettingsScriptInstalls(plan: ScriptCapturePlan | null): string {
     if (plan === null || plan.installCmds.length === 0)
-      return 'echo "[keepon] settings script installs skipped"';
+      return 'echo "[sandhop] settings script installs skipped"';
     return [
       SUDO_SETUP,
       LOW_PRIORITY_SETUP,
@@ -158,18 +158,18 @@ export class BootstrapService {
   }
 
   renderReinstall(commands: string[]): string {
-    if (commands.length === 0) return 'echo "[keepon] reinstall skipped"';
+    if (commands.length === 0) return 'echo "[sandhop] reinstall skipped"';
     return [
       LOW_PRIORITY_SETUP,
       "export CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1",
       ...commands.map(
         (command) =>
-          `${runLowPriority(command)} || { echo "[keepon] reinstall step failed: ${shellLog(command)}" >&2; true; }`,
+          `${runLowPriority(command)} || { echo "[sandhop] reinstall step failed: ${shellLog(command)}" >&2; true; }`,
       ),
     ].join("\n");
   }
 
   renderEnrichmentCompletion(steps: EnrichmentStepResult[]): string {
-    return [...renderSummary(steps), "touch /tmp/keepon-enriched"].join("\n");
+    return [...renderSummary(steps), "touch /tmp/sandhop-enriched"].join("\n");
   }
 }

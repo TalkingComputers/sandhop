@@ -1,14 +1,14 @@
 {
-  "name": "keepon",
+  "name": "sandhop",
   "version": "0.1.0",
   "description": "Teleport live local Claude Code and Codex sessions to auth-gated cloud sandbox terminals.",
   "type": "module",
   "bin": {
-    "keepon": "dist/cli/main.js"
+    "sandhop": "dist/cli/main.js"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/TalkingComputers/keepon.git"
+    "url": "git+https://github.com/TalkingComputers/sandhop.git"
   },
   "license": "MIT",
   "author": "Talking Computers",
@@ -29,7 +29,6 @@
     "dist",
     "plugin",
     "docs/ARCHITECTURE.md",
-    "docs/design",
     "README.md",
     "LICENSE"
   ],

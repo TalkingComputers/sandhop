@@ -24,14 +24,14 @@ import {
 import {
   applyConfigToEnv,
   loadConfig,
-  type KeeponTransport,
+  type SandhopTransport,
 } from "./config.js";
 import { buildHost } from "./host.js";
 import { runSetup } from "./setup.js";
 
 type RuntimeArgs = Omit<ParsedArgs, "provider" | "transport"> & {
   provider: ProviderId;
-  transport: KeeponTransport;
+  transport: SandhopTransport;
 };
 
 const withRuntimeDefaults = (args: ParsedArgs, host: NodeHost): RuntimeArgs => {
@@ -39,8 +39,8 @@ const withRuntimeDefaults = (args: ParsedArgs, host: NodeHost): RuntimeArgs => {
   if (config !== null) applyConfigToEnv(config, host.env);
   return {
     ...args,
-    provider: args.provider ?? readProvider(host.env["KEEPON_PROVIDER"]),
-    transport: args.transport ?? readTransport(host.env["KEEPON_TRANSPORT"]),
+    provider: args.provider ?? readProvider(host.env["SANDHOP_PROVIDER"]),
+    transport: args.transport ?? readTransport(host.env["SANDHOP_TRANSPORT"]),
   };
 };
 
@@ -82,9 +82,9 @@ const runPush = async (
     timeoutMs: 3_600_000,
     onProgress,
   });
-  console.log(`KEEPON_URL ${result.url}`);
-  console.log(`KEEPON_AUTH ${result.user}:${result.pass}`);
-  console.log(`KEEPON_ENRICHING ${result.sandboxId}`);
+  console.log(`SANDHOP_URL ${result.url}`);
+  console.log(`SANDHOP_AUTH ${result.user}:${result.pass}`);
+  console.log(`SANDHOP_ENRICHING ${result.sandboxId}`);
   console.log(
     "enrichment running in background (profile, skills, MCP servers)",
   );
@@ -135,7 +135,7 @@ export const main = async (argv: string[]): Promise<void> => {
 const formatCliError = (error: unknown): string => {
   const message = error instanceof Error ? error.message : String(error);
   if (error instanceof CredentialError)
-    return `${message}\nRun \`keepon setup\` to configure a provider.`;
+    return `${message}\nRun \`sandhop setup\` to configure a provider.`;
   return message;
 };
 

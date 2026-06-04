@@ -41,7 +41,7 @@ export const sandboxPath = (host: HostDeps, localPath: string): string => {
   if (localPath === host.home) return SANDBOX_HOME;
   if (localPath.startsWith(`${host.home}/`))
     return `${SANDBOX_HOME}${localPath.slice(host.home.length)}`;
-  return `${SANDBOX_HOME}/.keepon/mcp-roots/${projectDirName(localPath)}`;
+  return `${SANDBOX_HOME}/.sandhop/mcp-roots/${projectDirName(localPath)}`;
 };
 
 const replaceAll = (value: string, from: string, to: string): string =>

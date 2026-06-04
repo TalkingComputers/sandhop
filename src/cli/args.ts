@@ -1,6 +1,6 @@
 import type { AgentId } from "../core/ports/agent.js";
 import type { Transport } from "../core/ports/transport.js";
-import type { KeeponTransport } from "./config.js";
+import type { SandhopTransport } from "./config.js";
 import { PROVIDER_IDS, type ProviderId } from "../providers/index.js";
 import { CloudflaredTransport } from "../transports/cloudflared.js";
 import { PublicTransport } from "../transports/public.js";
@@ -12,7 +12,7 @@ export interface ParsedArgs {
   killId?: string;
   cwd: string;
   provider?: ProviderId;
-  transport?: KeeponTransport;
+  transport?: SandhopTransport;
   profile: boolean;
 }
 
@@ -54,7 +54,7 @@ const readRequiredAgent = (value: string): AgentId => {
   return agent;
 };
 
-export const readTransport = (value: string | undefined): KeeponTransport => {
+export const readTransport = (value: string | undefined): SandhopTransport => {
   if (value === undefined) return "public";
   if (value === "public" || value === "cloudflared") return value;
   throw new Error("--tunnel must be 'public' or 'cloudflared'");
@@ -62,7 +62,7 @@ export const readTransport = (value: string | undefined): KeeponTransport => {
 
 const readOptionalTransport = (
   value: string | undefined,
-): KeeponTransport | undefined =>
+): SandhopTransport | undefined =>
   value === undefined ? undefined : readTransport(value);
 
 const isProviderId = (value: string): value is ProviderId =>

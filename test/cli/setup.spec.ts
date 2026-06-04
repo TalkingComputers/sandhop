@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
   configPath,
   saveConfig,
-  type KeeponConfig,
+  type SandhopConfig,
 } from "../../src/cli/config.js";
 import { runSetup } from "../../src/cli/setup.js";
 
@@ -39,7 +39,7 @@ vi.mock("@clack/prompts", () => ({
 
 let previousXdgConfigHome: string | undefined;
 
-const storedConfig = (): KeeponConfig => ({
+const storedConfig = (): SandhopConfig => ({
   defaultProvider: "e2b",
   transport: "cloudflared",
   cloudflare: {
@@ -51,13 +51,13 @@ const storedConfig = (): KeeponConfig => ({
   },
 });
 
-const readSavedConfig = (home: string): KeeponConfig =>
-  JSON.parse(readFileSync(configPath(home), "utf8")) as KeeponConfig;
+const readSavedConfig = (home: string): SandhopConfig =>
+  JSON.parse(readFileSync(configPath(home), "utf8")) as SandhopConfig;
 
 beforeEach(() => {
   previousXdgConfigHome = process.env["XDG_CONFIG_HOME"];
   process.env["XDG_CONFIG_HOME"] = mkdtempSync(
-    join(tmpdir(), "keepon-config-"),
+    join(tmpdir(), "sandhop-config-"),
   );
   promptMocks.confirm.mockReset();
   promptMocks.intro.mockReset();
@@ -80,7 +80,7 @@ afterEach(() => {
 });
 
 test("runSetup keeps stored credentials when clack returns undefined for a blank credential prompt", async () => {
-  const home = mkdtempSync(join(tmpdir(), "keepon-home-"));
+  const home = mkdtempSync(join(tmpdir(), "sandhop-home-"));
   saveConfig(home, storedConfig());
   promptMocks.multiselect.mockResolvedValue(["e2b"]);
   promptMocks.password.mockResolvedValue(undefined);
@@ -94,7 +94,7 @@ test("runSetup keeps stored credentials when clack returns undefined for a blank
 });
 
 test("runSetup keeps stored Cloudflare values when clack returns undefined for blank prompts", async () => {
-  const home = mkdtempSync(join(tmpdir(), "keepon-home-"));
+  const home = mkdtempSync(join(tmpdir(), "sandhop-home-"));
   saveConfig(home, storedConfig());
   promptMocks.multiselect.mockResolvedValue(["e2b"]);
   promptMocks.password

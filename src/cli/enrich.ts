@@ -30,7 +30,7 @@ const hasFailedStep = (steps: EnrichmentStepResult[]): boolean =>
   steps.some((step) => !step.ok);
 
 const isStrict = (strict: boolean): boolean =>
-  strict || process.env["KEEPON_STRICT"] === "1";
+  strict || process.env["SANDHOP_STRICT"] === "1";
 
 const buildEnrichmentServices = (
   host: HostDeps,

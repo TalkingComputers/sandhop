@@ -16,9 +16,9 @@ import {
 import type { TransferService } from "./transfer.js";
 
 const appendLog = async (sandbox: Sandbox, text: string): Promise<void> => {
-  const marker = `KEEPON_ENRICH_LOG_${Date.now()}`;
+  const marker = `SANDHOP_ENRICH_LOG_${Date.now()}`;
   await sandbox.exec(
-    `cat >> /tmp/keepon-enrich.log <<'${marker}'\n${text}\n${marker}`,
+    `cat >> /tmp/sandhop-enrich.log <<'${marker}'\n${text}\n${marker}`,
   );
 };
 
@@ -26,7 +26,7 @@ const runLogged = async (
   sandbox: Sandbox,
   script: string,
 ): Promise<RunResult> =>
-  sandbox.exec(["{", script, "} >> /tmp/keepon-enrich.log 2>&1"].join("\n"));
+  sandbox.exec(["{", script, "} >> /tmp/sandhop-enrich.log 2>&1"].join("\n"));
 
 const recordStep = async <T>(
   sandbox: Sandbox,
@@ -34,20 +34,20 @@ const recordStep = async <T>(
   name: string,
   run: () => Promise<T>,
 ): Promise<T | null> => {
-  await appendLog(sandbox, `[keepon] step started: ${name}`).catch(
+  await appendLog(sandbox, `[sandhop] step started: ${name}`).catch(
     () => undefined,
   );
   try {
     const value = await run();
     steps.push({ name, ok: true });
-    await appendLog(sandbox, `[keepon] step ok: ${name}`).catch(
+    await appendLog(sandbox, `[sandhop] step ok: ${name}`).catch(
       () => undefined,
     );
     return value;
   } catch (error: unknown) {
     const text = formatErrorStack(error);
     steps.push({ name, ok: false, error: text });
-    await appendLog(sandbox, `[keepon] step failed: ${name}\n${text}`).catch(
+    await appendLog(sandbox, `[sandhop] step failed: ${name}\n${text}`).catch(
       () => undefined,
     );
     return null;
@@ -95,7 +95,7 @@ export class EnrichmentService {
     try {
       await appendLog(
         this.sandbox,
-        `keepon enrichment started ${new Date().toISOString()}`,
+        `sandhop enrichment started ${new Date().toISOString()}`,
       ).catch(() => undefined);
       await recordScriptStep(
         this.sandbox,

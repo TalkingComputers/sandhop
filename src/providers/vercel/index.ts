@@ -33,7 +33,7 @@ const VERCEL_INSTALL_HINT =
 const VERCEL_PACKAGE = "@vercel/sandbox";
 const LIST_LIMIT = 100;
 
-const sandboxName = (): string => `keepon-${randomUUID()}`;
+const sandboxName = (): string => `sandhop-${randomUUID()}`;
 
 const isNotFoundError = (error: unknown): boolean => {
   if (!(error instanceof Error)) return false;

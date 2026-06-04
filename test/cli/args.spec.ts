@@ -101,7 +101,7 @@ test("buildTransport creates the selected transport", () => {
       parseArgs(["push", "--tunnel", "cloudflared"], "/workspace/project"),
       {
         CLOUDFLARE_TUNNEL_TOKEN: "token",
-        CLOUDFLARE_TUNNEL_HOSTNAME: "keepon.example.com",
+        CLOUDFLARE_TUNNEL_HOSTNAME: "sandhop.example.com",
       },
     ).id,
   ).toBe("cloudflared");

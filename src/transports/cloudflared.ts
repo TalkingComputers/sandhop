@@ -10,7 +10,7 @@ export interface CloudflaredOptions {
   hostname?: string;
 }
 
-const LOG_PATH = "/tmp/keepon-cloudflared.log";
+const LOG_PATH = "/tmp/sandhop-cloudflared.log";
 
 export class CloudflaredTransport implements Transport {
   readonly id = "cloudflared" as const;

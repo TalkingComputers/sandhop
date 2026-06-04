@@ -52,7 +52,7 @@ export class TeleportService {
   }
 
   async run(cwd: string, opts: TeleportOptions): Promise<TeleportResult> {
-    const user = "keepon";
+    const user = "sandhop";
     const pass = randomToken(24);
     opts.onProgress?.("snapshotting");
     const [bundle, session, baseSecrets, auth, cliVersion] = await Promise.all([
@@ -102,7 +102,10 @@ export class TeleportService {
         transportSteps: opts.transport.bootstrapSteps(),
       }),
     );
-    if (restore.exitCode !== 0 || !restore.stdout.includes("KEEPON_RESTORE_OK"))
+    if (
+      restore.exitCode !== 0 ||
+      !restore.stdout.includes("SANDHOP_RESTORE_OK")
+    )
       throw new Error(`Restore failed: ${restore.stderr || restore.stdout}`);
     opts.onProgress?.("restoring session");
     const resume = this.agent.resumeCmd(session.sessionId, manifest.remoteProj);

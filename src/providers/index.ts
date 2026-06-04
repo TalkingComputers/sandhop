@@ -138,7 +138,7 @@ export const requireCred = (
   const value = host.env[field.env];
   if (value === undefined || value === "")
     throw new CredentialError(
-      `${field.env} is required — set it or run \`keepon setup\``,
+      `${field.env} is required — set it or run \`sandhop setup\``,
     );
   return value;
 };

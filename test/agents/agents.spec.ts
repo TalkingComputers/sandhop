@@ -40,7 +40,7 @@ test("Codex MCP config writes startup timeouts for every server", () => {
 });
 
 test("Codex preSeed preserves existing config and trusts the sandbox cwd", () => {
-  const home = join(tmpdir(), `keepon-codex-${Date.now()}`);
+  const home = join(tmpdir(), `sandhop-codex-${Date.now()}`);
   mkdirSync(join(home, ".codex"), { recursive: true });
   writeFileSync(join(home, ".codex", "config.toml"), 'model = "gpt-5.4"\n');
 

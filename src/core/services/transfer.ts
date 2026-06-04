@@ -34,12 +34,12 @@ const makeArchivePath = (
   id: string,
   codec: TransferCodec,
 ): string =>
-  `/tmp/keepon-${safe}-${id}.${codec === "gzip" ? "tar.gz" : "tar.zst"}`;
+  `/tmp/sandhop-${safe}-${id}.${codec === "gzip" ? "tar.gz" : "tar.zst"}`;
 
 const TAR_CREATE_SETUP = [
   "export COPYFILE_DISABLE=1",
-  'KEEPON_TAR_MAC_FLAGS=""',
-  'case "$(tar --help 2>/dev/null)" in *--no-mac-metadata*) KEEPON_TAR_MAC_FLAGS="--no-mac-metadata";; esac',
+  'SANDHOP_TAR_MAC_FLAGS=""',
+  'case "$(tar --help 2>/dev/null)" in *--no-mac-metadata*) SANDHOP_TAR_MAC_FLAGS="--no-mac-metadata";; esac',
 ].join("; ");
 
 export interface TarCreateOptions {
@@ -70,7 +70,7 @@ export const makeTarGzipCommand = (
 ): string => {
   const source = tarSource(cwd, opts?.isDirectory !== false);
   return [
-    `${TAR_CREATE_SETUP}; tar $KEEPON_TAR_MAC_FLAGS${tarExcludeArgs(opts?.excludes)}`,
+    `${TAR_CREATE_SETUP}; tar $SANDHOP_TAR_MAC_FLAGS${tarExcludeArgs(opts?.excludes)}`,
     `-czf ${shellQuote(archive)}`,
     `-C ${shellQuote(source.cwd)}`,
     tarEntryArg(source.entry),
@@ -84,7 +84,7 @@ const makeTarStreamCommand = (
 ): string => {
   const source = tarSource(path, isDirectory);
   return [
-    `${TAR_CREATE_SETUP}; tar $KEEPON_TAR_MAC_FLAGS${tarExcludeArgs(excludes)}`,
+    `${TAR_CREATE_SETUP}; tar $SANDHOP_TAR_MAC_FLAGS${tarExcludeArgs(excludes)}`,
     "-cf -",
     `-C ${shellQuote(source.cwd)}`,
     tarEntryArg(source.entry),
@@ -113,7 +113,7 @@ const makeExtractionCommands = (
   lowPriority: boolean,
 ): string[] => {
   const runExtract = (cmd: string): string =>
-    lowPriority ? `$KEEPON_LOW_PRIORITY sh -lc ${shellQuote(cmd)}` : cmd;
+    lowPriority ? `$SANDHOP_LOW_PRIORITY sh -lc ${shellQuote(cmd)}` : cmd;
   if (codec === "gzip")
     return [
       `gzip -t ${shellQuote(remoteArchive)}`,
@@ -155,7 +155,7 @@ export class TransferService {
       ? sandboxDestPath
       : dirname(sandboxDestPath);
     const archive = makeArchivePath(safe, id, codec);
-    const prefix = `/tmp/keepon-${safe}-${id}.part.`;
+    const prefix = `/tmp/sandhop-${safe}-${id}.part.`;
     await this.host.spawnPipe(
       makeCompressionCommand(
         codec,
@@ -168,7 +168,7 @@ export class TransferService {
     const chunks = await this.host.splitFile(archive, CHUNK_BYTES, prefix);
     const chunkSizes = chunks.map((chunk) => this.host.fileSize(chunk));
     const remoteChunks = chunks.map(
-      (chunk) => `/tmp/keepon-${safe}-${id}.${basename(chunk)}`,
+      (chunk) => `/tmp/sandhop-${safe}-${id}.${basename(chunk)}`,
     );
     const limit = pLimit(UPLOAD_CONCURRENCY);
     await Promise.all(

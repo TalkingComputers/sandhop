@@ -40,7 +40,7 @@ export class FakeSandbox implements Sandbox {
     this.execs.push(cmd);
     const result = this.execResults.shift();
     if (result !== undefined) return result;
-    return { exitCode: 0, stdout: "KEEPON_RESTORE_OK\n", stderr: "" };
+    return { exitCode: 0, stdout: "SANDHOP_RESTORE_OK\n", stderr: "" };
   }
 
   async spawn(cmd: string): Promise<void> {

@@ -12,7 +12,7 @@ import type { CodePlan } from "../../../src/core/services/mcp-code.js";
 const manifest = buildManifest({
   agent: "claude-code",
   cliVersion: "2.1.160",
-  cwd: "/private/tmp/keepon-codex2",
+  cwd: "/private/tmp/sandhop-codex2",
   sessionId: "session-id",
   transcriptName: "session-id.jsonl",
   ts: 1,
@@ -37,44 +37,44 @@ test("BootstrapService core installs exact CLI version, places transcript, and s
   expect(script).toContain(
     "curl -fsSL https://github.com/tsl0922/ttyd/releases/latest/download/ttyd.${TTYD_ARCH} -o /usr/local/bin/ttyd",
   );
-  expect(script).toContain('$SUDO mkdir -p "/private/tmp/keepon-codex2"');
+  expect(script).toContain('$SUDO mkdir -p "/private/tmp/sandhop-codex2"');
   expect(script).toContain(
-    '$SUDO chown -R "$(id -u):$(id -g)" "/private/tmp/keepon-codex2"',
-  );
-  expect(script).toContain(
-    'git config --global --add safe.directory "/private/tmp/keepon-codex2"',
+    '$SUDO chown -R "$(id -u):$(id -g)" "/private/tmp/sandhop-codex2"',
   );
   expect(script).toContain(
-    'tar -xzf /tmp/bundle.tgz -C "/private/tmp/keepon-codex2"',
+    'git config --global --add safe.directory "/private/tmp/sandhop-codex2"',
+  );
+  expect(script).toContain(
+    'tar -xzf /tmp/bundle.tgz -C "/private/tmp/sandhop-codex2"',
   );
   expect(
-    script.indexOf('$SUDO mkdir -p "/private/tmp/keepon-codex2"'),
+    script.indexOf('$SUDO mkdir -p "/private/tmp/sandhop-codex2"'),
   ).toBeLessThan(
     script.indexOf(
-      '$SUDO chown -R "$(id -u):$(id -g)" "/private/tmp/keepon-codex2"',
+      '$SUDO chown -R "$(id -u):$(id -g)" "/private/tmp/sandhop-codex2"',
     ),
   );
   expect(
     script.indexOf(
-      '$SUDO chown -R "$(id -u):$(id -g)" "/private/tmp/keepon-codex2"',
+      '$SUDO chown -R "$(id -u):$(id -g)" "/private/tmp/sandhop-codex2"',
     ),
   ).toBeLessThan(
     script.indexOf(
-      'git config --global --add safe.directory "/private/tmp/keepon-codex2"',
+      'git config --global --add safe.directory "/private/tmp/sandhop-codex2"',
     ),
   );
   expect(
     script.indexOf(
-      'git config --global --add safe.directory "/private/tmp/keepon-codex2"',
+      'git config --global --add safe.directory "/private/tmp/sandhop-codex2"',
     ),
   ).toBeLessThan(
-    script.indexOf('tar -xzf /tmp/bundle.tgz -C "/private/tmp/keepon-codex2"'),
+    script.indexOf('tar -xzf /tmp/bundle.tgz -C "/private/tmp/sandhop-codex2"'),
   );
   expect(
-    script.indexOf('tar -xzf /tmp/bundle.tgz -C "/private/tmp/keepon-codex2"'),
+    script.indexOf('tar -xzf /tmp/bundle.tgz -C "/private/tmp/sandhop-codex2"'),
   ).toBeLessThan(script.indexOf('cp /tmp/transcript.jsonl "$dest"'));
   expect(script).toContain('cp /tmp/transcript.jsonl "$dest"');
-  expect(script).toContain("KEEPON_RESTORE_OK");
+  expect(script).toContain("SANDHOP_RESTORE_OK");
   expect(script).not.toContain("profile.tgz");
   expect(script).not.toContain("for f in");
 });
@@ -146,46 +146,46 @@ test("BootstrapService enrichment installs runtimes and deps, writes rewritten M
   expect(script).toContain("command -v dnf >/dev/null && dnf install -y zstd");
   expect(script).toContain("command -v apk >/dev/null && apk add zstd");
   expect(script).toContain("command -v yum >/dev/null && yum install -y zstd");
-  expect(script).toContain('KEEPON_LOW_PRIORITY="nice -n 19"');
+  expect(script).toContain('SANDHOP_LOW_PRIORITY="nice -n 19"');
   expect(script).toContain("nice -n 19 ionice -c3");
   expect(script).toContain(
-    "$KEEPON_LOW_PRIORITY sh -lc 'curl -fsSL https://bun.sh/install | bash'",
+    "$SANDHOP_LOW_PRIORITY sh -lc 'curl -fsSL https://bun.sh/install | bash'",
   );
   expect(script).toContain(
-    "$KEEPON_LOW_PRIORITY sh -lc 'curl -LsSf https://astral.sh/uv/install.sh | sh'",
+    "$SANDHOP_LOW_PRIORITY sh -lc 'curl -LsSf https://astral.sh/uv/install.sh | sh'",
   );
   expect(script).toContain(
-    "$KEEPON_LOW_PRIORITY sh -lc 'cd /home/user/mcp && npm ci'",
+    "$SANDHOP_LOW_PRIORITY sh -lc 'cd /home/user/mcp && npm ci'",
   );
   expect(script).not.toContain("set -e");
   expect(script).toContain(
-    "|| { echo \"[keepon] step failed: \\$KEEPON_LOW_PRIORITY sh -lc 'curl -fsSL https://bun.sh/install | bash'\" >&2; true; }",
+    "|| { echo \"[sandhop] step failed: \\$SANDHOP_LOW_PRIORITY sh -lc 'curl -fsSL https://bun.sh/install | bash'\" >&2; true; }",
   );
   expect(script).toContain(
-    "|| { echo \"[keepon] step failed: \\$KEEPON_LOW_PRIORITY sh -lc 'curl -LsSf https://astral.sh/uv/install.sh | sh'\" >&2; true; }",
+    "|| { echo \"[sandhop] step failed: \\$SANDHOP_LOW_PRIORITY sh -lc 'curl -LsSf https://astral.sh/uv/install.sh | sh'\" >&2; true; }",
   );
   expect(script).toContain(
-    "|| { echo \"[keepon] step failed: \\$KEEPON_LOW_PRIORITY sh -lc 'cd /home/user/mcp && npm ci'\" >&2; true; }",
+    "|| { echo \"[sandhop] step failed: \\$SANDHOP_LOW_PRIORITY sh -lc 'cd /home/user/mcp && npm ci'\" >&2; true; }",
   );
   expect(script).toContain("node -e");
   expect(script).toContain("$HOME/.claude.json");
   expect(script).toContain("/home/user/mcp/server.js");
-  expect(script).toContain("touch /tmp/keepon-enriched");
+  expect(script).toContain("touch /tmp/sandhop-enriched");
   expect(script).toContain(
-    'echo "[keepon] mcp skipped: postgres (binds to localhost / loopback (unreachable from sandbox))"',
+    'echo "[sandhop] mcp skipped: postgres (binds to localhost / loopback (unreachable from sandbox))"',
   );
-  expect(script).toContain('echo "[keepon] enrichment summary"');
+  expect(script).toContain('echo "[sandhop] enrichment summary"');
   expect(script.indexOf("cd /home/user/mcp && npm ci")).toBeLessThan(
     script.indexOf("$HOME/.claude.json"),
   );
   expect(script.indexOf("$HOME/.claude.json")).toBeLessThan(
-    script.indexOf("touch /tmp/keepon-enriched"),
+    script.indexOf("touch /tmp/sandhop-enriched"),
   );
   expect(script).not.toContain("mcp-code.tgz");
 });
 
 test("BootstrapService merges Claude MCP servers into existing claude.json without clobbering preseed keys", () => {
-  const home = mkdtempSync(join(tmpdir(), "keepon-claude-"));
+  const home = mkdtempSync(join(tmpdir(), "sandhop-claude-"));
   const remoteProj = join(home, "project");
   const codePlan: CodePlan = {
     mappings: [],

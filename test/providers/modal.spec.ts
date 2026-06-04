@@ -66,7 +66,7 @@ const loadProvider = async () => {
   return import("../../src/providers/modal/index.js");
 };
 
-test("ModalSandboxProvider creates a keepon sandbox and maps exec results", async () => {
+test("ModalSandboxProvider creates a sandhop sandbox and maps exec results", async () => {
   const { ModalSandboxProvider } = await loadProvider();
   const host = new FakeHost({
     home: "/home/local",
@@ -89,7 +89,7 @@ test("ModalSandboxProvider creates a keepon sandbox and maps exec results", asyn
     tokenId: "id",
     tokenSecret: "secret",
   });
-  expect(modalMocks.fromName).toHaveBeenCalledWith("keepon", {
+  expect(modalMocks.fromName).toHaveBeenCalledWith("sandhop", {
     createIfMissing: true,
   });
   expect(modalMocks.fromRegistry).toHaveBeenCalledWith("node:22");

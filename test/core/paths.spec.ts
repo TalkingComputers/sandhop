@@ -27,7 +27,7 @@ test("home path functions expand host and sandbox homes", () => {
   expect(sandboxExpandHome("$HOME/.codex/auth.json")).toBe(
     "/home/user/.codex/auth.json",
   );
-  expect(makeTempPath("profile")).toMatch(/^\/tmp\/keepon-\d+-profile$/);
+  expect(makeTempPath("profile")).toMatch(/^\/tmp\/sandhop-\d+-profile$/);
 });
 
 test("normalizePath collapses POSIX dot segments", () => {

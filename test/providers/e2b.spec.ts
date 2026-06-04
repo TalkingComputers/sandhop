@@ -46,7 +46,7 @@ test("E2bSandboxProvider creates sandboxes, uploads octet-stream bytes and paths
     stdout: "ok",
     stderr: "",
   });
-  const localPath = "/tmp/keepon-e2b.txt";
+  const localPath = "/tmp/sandhop-e2b.txt";
   const host = new FakeHost({
     home: "/home/local",
     env,

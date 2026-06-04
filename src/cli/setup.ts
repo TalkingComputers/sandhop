@@ -20,8 +20,8 @@ import {
 import {
   loadConfig,
   saveConfig,
-  type KeeponConfig,
-  type KeeponTransport,
+  type SandhopConfig,
+  type SandhopTransport,
 } from "./config.js";
 import { installCommands } from "./install-command.js";
 
@@ -37,7 +37,7 @@ const readPrompt = <Value>(value: Value | symbol): Value | null =>
 
 const existingCredential = (
   host: SetupHost,
-  stored: KeeponConfig | null,
+  stored: SandhopConfig | null,
   env: string,
 ): string | undefined => {
   const envValue = host.env[env];
@@ -48,7 +48,7 @@ const existingCredential = (
 
 const selectedInitialProviders = (
   host: SetupHost,
-  stored: KeeponConfig | null,
+  stored: SandhopConfig | null,
 ): ProviderId[] => {
   const selected = PROVIDER_IDS.filter((id) =>
     PROVIDER_INFO[id].credentials.some(
@@ -80,7 +80,7 @@ const validateRequired =
 
 const askCredential = async (
   host: SetupHost,
-  stored: KeeponConfig | null,
+  stored: SandhopConfig | null,
   info: ProviderInfo,
   field: CredField,
 ): Promise<string | null | undefined> => {
@@ -136,7 +136,7 @@ const askCloudflareValue = async (
 
 export const runSetup = async (host: SetupHost): Promise<void> => {
   const stored = loadConfig(host.home);
-  intro("keepon setup");
+  intro("sandhop setup");
   const providers = readPrompt(
     await multiselect<ProviderId>({
       message: "Configure sandbox provider credentials",
@@ -182,7 +182,7 @@ export const runSetup = async (host: SetupHost): Promise<void> => {
   if (defaultProvider === null) return;
 
   const transport = readPrompt(
-    await select<KeeponTransport>({
+    await select<SandhopTransport>({
       message: "Transport",
       options: [
         { value: "public", label: "public (provider URL + basic auth)" },
@@ -193,7 +193,7 @@ export const runSetup = async (host: SetupHost): Promise<void> => {
   );
   if (transport === null) return;
 
-  let cloudflare: KeeponConfig["cloudflare"];
+  let cloudflare: SandhopConfig["cloudflare"];
   if (transport === "cloudflared") {
     const namedTunnel = readPrompt(
       await confirm({
@@ -232,10 +232,12 @@ export const runSetup = async (host: SetupHost): Promise<void> => {
       `Default provider: ${PROVIDER_INFO[defaultProvider].label}`,
       `Transport: ${transport}`,
       installed.length === 0
-        ? "No Claude Code or Codex home detected; install /keepon after opening an agent."
-        : `Installed /keepon to: ${installed.join(", ")}`,
+        ? "No Claude Code or Codex home detected; install /sandhop after opening an agent."
+        : `Installed /sandhop to: ${installed.join(", ")}`,
     ].join("\n"),
     "Summary",
   );
-  outro("Open Claude Code or Codex in a project and type /keepon to teleport.");
+  outro(
+    "Open Claude Code or Codex in a project and type /sandhop to teleport.",
+  );
 };

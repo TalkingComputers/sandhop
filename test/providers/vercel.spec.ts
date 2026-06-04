@@ -76,7 +76,7 @@ test("VercelSandboxProvider creates a named sandbox with creds and maps exec res
     token: "token",
     teamId: "team",
     projectId: "project",
-    name: expect.stringMatching(/^keepon-/),
+    name: expect.stringMatching(/^sandhop-/),
     timeout: 3_600_000,
     ports: [3000, 7681],
     runtime: "node22",
@@ -140,11 +140,11 @@ test("VercelSandboxProvider connects and destroys by SDK lookup", async () => {
   const created = await provider.create({ envs: {}, timeoutMs: 600000 });
   const connectedCreated = await provider.connect(created.id);
 
-  const connected = await provider.connect("keepon-existing");
+  const connected = await provider.connect("sandhop-existing");
   await expect(provider.destroy(created.id)).resolves.toBe(true);
 
   expect(connectedCreated).not.toBe(created);
-  expect(connected.id).toBe("keepon-existing");
+  expect(connected.id).toBe("sandhop-existing");
   expect(vercelMocks.get).toHaveBeenNthCalledWith(1, {
     token: "token",
     teamId: "team",
@@ -156,7 +156,7 @@ test("VercelSandboxProvider connects and destroys by SDK lookup", async () => {
     token: "token",
     teamId: "team",
     projectId: "project",
-    name: "keepon-existing",
+    name: "sandhop-existing",
     resume: true,
   });
   expect(vercelMocks.get).toHaveBeenNthCalledWith(3, {
@@ -177,7 +177,7 @@ test("VercelSandboxProvider lists and destroys sandboxes by name", async () => {
   await expect(provider.list()).resolves.toEqual([
     { id: "sdk-name", startedAt: new Date("2026-06-01T00:00:00Z") },
   ]);
-  await expect(provider.destroy("keepon-existing")).resolves.toBe(true);
+  await expect(provider.destroy("sandhop-existing")).resolves.toBe(true);
 
   expect(vercelMocks.list).toHaveBeenCalledWith({
     token: "token",
@@ -189,7 +189,7 @@ test("VercelSandboxProvider lists and destroys sandboxes by name", async () => {
     token: "token",
     teamId: "team",
     projectId: "project",
-    name: "keepon-existing",
+    name: "sandhop-existing",
   });
   expect(vercelMocks.stop).toHaveBeenCalled();
 });
@@ -245,6 +245,6 @@ test("VercelSandboxProvider requires env credentials", async () => {
 
     await expect(
       provider.create({ envs: {}, timeoutMs: 600000 }),
-    ).rejects.toThrow(`${key} is required — set it or run \`keepon setup\``);
+    ).rejects.toThrow(`${key} is required — set it or run \`sandhop setup\``);
   }
 });

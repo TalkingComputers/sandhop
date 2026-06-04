@@ -8,11 +8,11 @@ import {
 import { joinPath } from "../core/paths.js";
 import type { ProviderId } from "../providers/index.js";
 
-export type KeeponTransport = "public" | "cloudflared";
+export type SandhopTransport = "public" | "cloudflared";
 
-export interface KeeponConfig {
+export interface SandhopConfig {
   defaultProvider: ProviderId;
-  transport: KeeponTransport;
+  transport: SandhopTransport;
   cloudflare?: { token?: string; hostname?: string };
   credentials: Record<string, string>;
 }
@@ -23,19 +23,19 @@ const FILE_MODE = 0o600;
 export const configDir = (home: string): string =>
   joinPath(
     process.env["XDG_CONFIG_HOME"] ?? joinPath(home, ".config"),
-    "keepon",
+    "sandhop",
   );
 
 export const configPath = (home: string): string =>
   joinPath(configDir(home), "config.json");
 
-export const loadConfig = (home: string): KeeponConfig | null => {
+export const loadConfig = (home: string): SandhopConfig | null => {
   const path = configPath(home);
   if (!existsSync(path)) return null;
-  return JSON.parse(readFileSync(path, "utf8")) as KeeponConfig;
+  return JSON.parse(readFileSync(path, "utf8")) as SandhopConfig;
 };
 
-export const saveConfig = (home: string, cfg: KeeponConfig): void => {
+export const saveConfig = (home: string, cfg: SandhopConfig): void => {
   const dir = configDir(home);
   mkdirSync(dir, { recursive: true, mode: DIR_MODE });
   chmodSync(dir, DIR_MODE);
@@ -53,13 +53,13 @@ const setMissing = (
 };
 
 export const applyConfigToEnv = (
-  cfg: KeeponConfig,
+  cfg: SandhopConfig,
   env: Record<string, string | undefined>,
 ): void => {
   for (const [key, value] of Object.entries(cfg.credentials))
     setMissing(env, key, value);
-  setMissing(env, "KEEPON_PROVIDER", cfg.defaultProvider);
-  setMissing(env, "KEEPON_TRANSPORT", cfg.transport);
+  setMissing(env, "SANDHOP_PROVIDER", cfg.defaultProvider);
+  setMissing(env, "SANDHOP_TRANSPORT", cfg.transport);
   if (cfg.cloudflare?.token !== undefined)
     setMissing(env, "CLOUDFLARE_TUNNEL_TOKEN", cfg.cloudflare.token);
   if (cfg.cloudflare?.hostname !== undefined)

@@ -140,7 +140,7 @@ test("requireCred returns declared credentials and throws CredentialError for mi
   expect(requireCred(loaded, "e2b", "E2B_API_KEY")).toBe("e2b-key");
   expect(error).toBeInstanceOf(CredentialError);
   expect(error).toMatchObject({
-    message: "DAYTONA_API_KEY is required — set it or run `keepon setup`",
+    message: "DAYTONA_API_KEY is required — set it or run `sandhop setup`",
   });
 });
 

@@ -35,7 +35,7 @@ const runNodeScript = (script: string, env: Record<string, string>): void => {
 };
 
 test("buildClaudePreSeedScript merges onboarding, trust, API approval, and keeps MCP servers", () => {
-  const home = mkdtempSync(join(tmpdir(), "keepon-claude-preseed-"));
+  const home = mkdtempSync(join(tmpdir(), "sandhop-claude-preseed-"));
   const apiKey = "sk-ant-api03-1234567890abcdef1234567890";
   writeFileSync(
     join(home, ".claude.json"),
@@ -63,7 +63,7 @@ test("buildClaudePreSeedScript merges onboarding, trust, API approval, and keeps
 });
 
 test("buildCodexPreSeedScript writes root policy and trusts the sandbox cwd", () => {
-  const home = mkdtempSync(join(tmpdir(), "keepon-codex-preseed-"));
+  const home = mkdtempSync(join(tmpdir(), "sandhop-codex-preseed-"));
   mkdirSync(join(home, ".codex"), { recursive: true });
   writeFileSync(
     join(home, ".codex", "config.toml"),
@@ -92,7 +92,7 @@ test("buildCodexPreSeedScript writes root policy and trusts the sandbox cwd", ()
 });
 
 test("buildPruneMcpTablesScript removes stale Codex MCP tables", () => {
-  const home = mkdtempSync(join(tmpdir(), "keepon-prune-mcp-"));
+  const home = mkdtempSync(join(tmpdir(), "sandhop-prune-mcp-"));
   mkdirSync(join(home, ".codex"), { recursive: true });
   const config = join(home, ".codex", "config.toml");
   writeFileSync(
@@ -128,7 +128,7 @@ test("buildPruneMcpTablesScript removes stale Codex MCP tables", () => {
 });
 
 test("buildMergeClaudeMcpScript sets mcpServers and preserves existing fields", () => {
-  const home = mkdtempSync(join(tmpdir(), "keepon-merge-claude-mcp-"));
+  const home = mkdtempSync(join(tmpdir(), "sandhop-merge-claude-mcp-"));
   const config = join(home, ".claude.json");
   writeFileSync(config, JSON.stringify({ hasCompletedOnboarding: true }));
 

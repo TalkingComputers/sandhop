@@ -11,7 +11,7 @@ test("provider conformance: fake sandbox supports path uploads, command results,
   await sandbox.uploadPath("/tmp/archive.tgz", "/local/archive.tgz");
   await expect(sandbox.exec("echo ok")).resolves.toMatchObject({
     exitCode: 0,
-    stdout: expect.stringContaining("KEEPON_RESTORE_OK"),
+    stdout: expect.stringContaining("SANDHOP_RESTORE_OK"),
   });
   await sandbox.spawn("ttyd");
   await expect(sandbox.exposePort(7681)).resolves.toMatchObject({

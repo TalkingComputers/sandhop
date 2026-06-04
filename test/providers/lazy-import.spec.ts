@@ -12,8 +12,8 @@ test("lazyImport returns loaded modules", async () => {
 
 test("lazyImport rewrites missing package errors to the install hint", async () => {
   await expect(
-    lazyImport("missing-keepon-sdk", "install missing-keepon-sdk"),
-  ).rejects.toThrow("install missing-keepon-sdk");
+    lazyImport("missing-sandhop-sdk", "install missing-sandhop-sdk"),
+  ).rejects.toThrow("install missing-sandhop-sdk");
 });
 
 test("lazyOnce memoizes the factory promise", async () => {

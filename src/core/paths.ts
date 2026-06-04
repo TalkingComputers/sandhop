@@ -62,7 +62,7 @@ export const expandEnv = (
   );
 
 export const makeTempPath = (name: string): string =>
-  `/tmp/keepon-${Date.now()}-${name}`;
+  `/tmp/sandhop-${Date.now()}-${name}`;
 
 export const uniqueSorted = (values: Iterable<string>): string[] =>
   [...new Set(values)].sort();
