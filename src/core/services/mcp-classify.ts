@@ -1,12 +1,8 @@
+import { collectEnvRefs } from "../env.js";
 import { basename, expandEnv, joinPath, uniqueSorted } from "../paths.js";
 import type { McpServer } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
-import {
-  type PathMapping,
-  hasRootMarker,
-  maybeRealpath,
-  remapValue,
-} from "./mcp-paths.js";
+import { type PathMapping, maybeRealpath, remapValue } from "./mcp-paths.js";
 
 export type McpServerClassification =
   | "remote-installable"
@@ -49,12 +45,7 @@ const isPathLike = (value: string): boolean =>
   isHomePath(value);
 
 const addEnvRefs = (refs: Set<string>, value: string): void => {
-  for (const match of value.matchAll(
-    /(?:\$\{([A-Z][A-Z0-9_]*)\}|\$([A-Z][A-Z0-9_]*))/g,
-  )) {
-    const name = match[1] ?? match[2];
-    if (name !== undefined && name !== "HOME") refs.add(name);
-  }
+  for (const name of collectEnvRefs(value)) if (name !== "HOME") refs.add(name);
 };
 
 const toCandidatePath = (

@@ -2,10 +2,8 @@ import type {
   ModalClient as ModalClientType,
   Sandbox as ModalSandboxInstance,
 } from "modal";
-import { NotSupportedError } from "../../core/errors.js";
 import type { HostDeps } from "../../core/ports/host.js";
 import type {
-  Capability,
   CreateOptions,
   ExposedPort,
   RunResult,
@@ -13,7 +11,8 @@ import type {
   SandboxInfo,
   SandboxProvider,
 } from "../../core/ports/provider.js";
-import { lazyImport } from "../lazy-import.js";
+import { toBytes } from "../encode.js";
+import { lazyImport, lazyOnce } from "../lazy-import.js";
 
 type ModalModule = typeof import("modal");
 
@@ -23,11 +22,6 @@ const TUNNEL_TIMEOUT_MS = 60000;
 const MODAL_INSTALL_HINT =
   "The 'modal' provider needs the 'modal' package. Run: npm i modal";
 const MODAL_PACKAGE = "modal";
-
-const encoder = new TextEncoder();
-
-const bytesFromData = (data: Uint8Array | string): Uint8Array =>
-  typeof data === "string" ? encoder.encode(data) : data;
 
 class ModalSandboxAdapter implements Sandbox {
   readonly id: string;
@@ -43,7 +37,7 @@ class ModalSandboxAdapter implements Sandbox {
   async uploadFile(path: string, data: Uint8Array | string): Promise<void> {
     const file = await this.sandbox.open(path, "w");
     try {
-      await file.write(bytesFromData(data));
+      await file.write(toBytes(data));
     } finally {
       await file.close();
     }
@@ -82,10 +76,6 @@ class ModalSandboxAdapter implements Sandbox {
     return { url: `https://${tunnel.host}`, authGatedByProvider: false };
   }
 
-  async setTimeout(timeoutMs: number): Promise<void> {
-    throw new NotSupportedError("extend-timeout not supported on modal");
-  }
-
   async destroy(): Promise<void> {
     await this.sandbox.terminate();
   }
@@ -93,15 +83,12 @@ class ModalSandboxAdapter implements Sandbox {
 
 export class ModalSandboxProvider implements SandboxProvider {
   readonly name = "modal";
-  readonly capabilities: ReadonlySet<Capability> = new Set([
-    "background-exec",
-    "live-file-upload",
-  ]);
   readonly host: Pick<HostDeps, "env" | "openBlob">;
-  private clientPromise: Promise<ModalClientType> | undefined;
+  private readonly client: () => Promise<ModalClientType>;
 
   constructor(host: Pick<HostDeps, "env" | "openBlob">) {
     this.host = host;
+    this.client = lazyOnce(() => this.createClient());
   }
 
   async create(opts: CreateOptions): Promise<Sandbox> {
@@ -141,12 +128,6 @@ export class ModalSandboxProvider implements SandboxProvider {
         return false;
       throw error;
     }
-  }
-
-  private client(): Promise<ModalClientType> {
-    if (this.clientPromise === undefined)
-      this.clientPromise = this.createClient();
-    return this.clientPromise;
   }
 
   private async createClient(): Promise<ModalClientType> {

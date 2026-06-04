@@ -1,9 +1,7 @@
-import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
 import { dirname } from "../../core/paths.js";
 import type { HostDeps } from "../../core/ports/host.js";
 import type {
-  Capability,
   CreateOptions,
   ExposedPort,
   RunResult,
@@ -11,13 +9,11 @@ import type {
   SandboxInfo,
   SandboxProvider,
 } from "../../core/ports/provider.js";
-import { lazyImport } from "../lazy-import.js";
+import { toBuffer } from "../encode.js";
+import { lazyImport, lazyOnce } from "../lazy-import.js";
 
 type VercelModule = typeof import("@vercel/sandbox");
-type VercelSdkSandbox = InstanceType<VercelModule["Sandbox"]>;
-type VercelSandboxInstance = Omit<VercelSdkSandbox, "extendTimeout"> & {
-  extendTimeout?: (duration: number) => Promise<void>;
-};
+type VercelSandboxInstance = InstanceType<VercelModule["Sandbox"]>;
 
 interface VercelCredentials {
   token: string;
@@ -64,8 +60,7 @@ class VercelSandboxAdapter implements Sandbox {
     await this.sandbox.writeFiles([
       {
         path,
-        content:
-          typeof data === "string" ? Buffer.from(data) : Buffer.from(data),
+        content: toBuffer(data),
       },
     ]);
   }
@@ -74,7 +69,7 @@ class VercelSandboxAdapter implements Sandbox {
     await this.sandbox.writeFiles([
       {
         path: remotePath,
-        content: Buffer.from(this.host.readBytes(localPath)),
+        content: toBuffer(this.host.readBytes(localPath)),
       },
     ]);
   }
@@ -100,14 +95,6 @@ class VercelSandboxAdapter implements Sandbox {
     return { url: this.sandbox.domain(port), authGatedByProvider: false };
   }
 
-  async setTimeout(timeoutMs: number): Promise<void> {
-    if (this.sandbox.extendTimeout !== undefined) {
-      await this.sandbox.extendTimeout(timeoutMs);
-      return;
-    }
-    await this.sandbox.update({ timeout: timeoutMs });
-  }
-
   async destroy(): Promise<void> {
     await this.sandbox.stop();
   }
@@ -115,16 +102,14 @@ class VercelSandboxAdapter implements Sandbox {
 
 export class VercelSandboxProvider implements SandboxProvider {
   readonly name = "vercel";
-  readonly capabilities: ReadonlySet<Capability> = new Set([
-    "background-exec",
-    "live-file-upload",
-    "extend-timeout",
-  ]);
   readonly host: Pick<HostDeps, "env" | "readBytes">;
-  private sdkModule: Promise<VercelModule> | undefined;
+  private readonly sdk: () => Promise<VercelModule>;
 
   constructor(host: Pick<HostDeps, "env" | "readBytes">) {
     this.host = host;
+    this.sdk = lazyOnce(() =>
+      lazyImport<VercelModule>(VERCEL_PACKAGE, VERCEL_INSTALL_HINT),
+    );
   }
 
   async create(opts: CreateOptions): Promise<Sandbox> {
@@ -189,14 +174,5 @@ export class VercelSandboxProvider implements SandboxProvider {
     if (projectId === undefined)
       throw new Error("VERCEL_PROJECT_ID is required for vercel provider");
     return { token, teamId, projectId };
-  }
-
-  private sdk(): Promise<VercelModule> {
-    if (this.sdkModule === undefined)
-      this.sdkModule = lazyImport<VercelModule>(
-        VERCEL_PACKAGE,
-        VERCEL_INSTALL_HINT,
-      );
-    return this.sdkModule;
   }
 }

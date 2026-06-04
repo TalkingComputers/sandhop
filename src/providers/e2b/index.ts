@@ -1,7 +1,6 @@
 import { CommandExitError, Sandbox as E2bSandbox } from "e2b";
 import type { HostDeps } from "../../core/ports/host.js";
 import type {
-  Capability,
   CreateOptions,
   ExposedPort,
   RunResult,
@@ -9,17 +8,12 @@ import type {
   SandboxInfo,
   SandboxProvider,
 } from "../../core/ports/provider.js";
+import { toArrayBuffer } from "../encode.js";
 
 type E2bSandboxInstance = Awaited<ReturnType<typeof E2bSandbox.create>>;
 
 const UPLOAD_TIMEOUT_MS = 600000;
 const PATH_UPLOAD_TIMEOUT_MS = 3_600_000;
-
-const toArrayBuffer = (data: Uint8Array): ArrayBuffer => {
-  const buffer = new ArrayBuffer(data.byteLength);
-  new Uint8Array(buffer).set(data);
-  return buffer;
-};
 
 class E2bSandboxAdapter implements Sandbox {
   readonly id: string;
@@ -33,11 +27,10 @@ class E2bSandboxAdapter implements Sandbox {
   }
 
   async uploadFile(path: string, data: Uint8Array | string): Promise<void> {
-    await this.sandbox.files.write(
-      path,
-      typeof data === "string" ? data : toArrayBuffer(data),
-      { requestTimeoutMs: UPLOAD_TIMEOUT_MS, useOctetStream: true },
-    );
+    await this.sandbox.files.write(path, toArrayBuffer(data), {
+      requestTimeoutMs: UPLOAD_TIMEOUT_MS,
+      useOctetStream: true,
+    });
   }
 
   async uploadPath(remotePath: string, localPath: string): Promise<void> {
@@ -84,10 +77,6 @@ class E2bSandboxAdapter implements Sandbox {
     };
   }
 
-  async setTimeout(timeoutMs: number): Promise<void> {
-    await this.sandbox.setTimeout(timeoutMs);
-  }
-
   async destroy(): Promise<void> {
     await E2bSandbox.kill(this.id);
   }
@@ -95,11 +84,6 @@ class E2bSandboxAdapter implements Sandbox {
 
 export class E2bSandboxProvider implements SandboxProvider {
   readonly name = "e2b";
-  readonly capabilities: ReadonlySet<Capability> = new Set([
-    "background-exec",
-    "live-file-upload",
-    "extend-timeout",
-  ]);
   readonly host: Pick<HostDeps, "openBlob">;
 
   constructor(host: Pick<HostDeps, "openBlob">) {

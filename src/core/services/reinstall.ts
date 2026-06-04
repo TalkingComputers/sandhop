@@ -1,8 +1,8 @@
 import type { Agent } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
 import { isRecord } from "../json.js";
-import { dirname, joinPath } from "../paths.js";
-import { shellQuote } from "../shell.js";
+import { dirname, joinPath, normalizePath } from "../paths.js";
+import { quoteShellPath, shellQuote } from "../shell.js";
 
 export interface ReinstallPlan {
   commands: string[];
@@ -13,27 +13,6 @@ interface GitSkill {
   localDir: string;
   remoteDir: string;
 }
-
-const shellPath = (value: string): string =>
-  `"${value
-    .replaceAll("\\", "\\\\")
-    .replaceAll('"', '\\"')
-    .replaceAll("`", "\\`")}"`;
-
-const normalizePath = (path: string): string =>
-  path
-    .split("/")
-    .reduce<string[]>((parts, part) => {
-      if (part === "" && parts.length === 0) return [""];
-      if (part === "" || part === ".") return parts;
-      if (part === "..") {
-        parts.pop();
-        return parts;
-      }
-      parts.push(part);
-      return parts;
-    }, [])
-    .join("/");
 
 const readLinkedPath = (path: string, target: string): string =>
   normalizePath(
@@ -218,8 +197,8 @@ export class ReinstallService {
       const url = parseOriginUrl(configPath, config);
       const ref = readGitRef(this.host, gitDir);
       gitSkills.push({ name, localDir, remoteDir });
-      const clone = `git clone ${shellQuote(url)} ${shellPath(remoteDir)}`;
-      const checkout = `git -C ${shellPath(remoteDir)} checkout ${shellQuote(ref)}`;
+      const clone = `git clone ${shellQuote(url)} ${quoteShellPath(remoteDir)}`;
+      const checkout = `git -C ${quoteShellPath(remoteDir)} checkout ${shellQuote(ref)}`;
       commands.push(`${clone} && ${checkout}`);
     }
     return { commands, gitSkills };
@@ -235,8 +214,8 @@ export class ReinstallService {
       const remoteSource = toRemoteSkillPath(localSource, gitSkills);
       if (remoteSource === null) continue;
       const remoteSkillDir = `$HOME/.claude/skills/${name}`;
-      const mkdir = `mkdir -p ${shellPath(remoteSkillDir)}`;
-      const link = `ln -sf ${shellPath(remoteSource)} ${shellPath(`${remoteSkillDir}/SKILL.md`)}`;
+      const mkdir = `mkdir -p ${quoteShellPath(remoteSkillDir)}`;
+      const link = `ln -sf ${quoteShellPath(remoteSource)} ${quoteShellPath(`${remoteSkillDir}/SKILL.md`)}`;
       commands.push(`${mkdir} && ${link}`);
     }
     return commands;

@@ -6,18 +6,11 @@ import type {
   AuthBundle,
   McpConfigWrite,
   McpServer,
-  SessionRef,
 } from "../core/ports/agent.js";
+import { collectEnvRefs } from "../core/env.js";
 import { MCP_STARTUP_TIMEOUT_SEC } from "../core/mcp-timeout.js";
 import { parse, type TomlTable, type TomlValue } from "smol-toml";
-
-const fileName = (path: string): string => path.split("/").pop()!;
-
-const sortNewest = (deps: AgentSessionDeps, refs: SessionRef[]): SessionRef[] =>
-  [...refs].sort(
-    (a, b) =>
-      deps.statMtimeMs(b.transcriptPath) - deps.statMtimeMs(a.transcriptPath),
-  );
+import { fileName, makeVersionParser, sortNewest } from "./shared.js";
 
 const codexId = (file: string): string => {
   const match = file.match(
@@ -27,11 +20,7 @@ const codexId = (file: string): string => {
   return match[1]!;
 };
 
-const parseVersion = (output: string): string => {
-  const match = output.match(/(\d+\.\d+\.\d+)/);
-  if (!match) throw new Error(`Could not parse codex version from "${output}"`);
-  return match[1]!;
-};
+const parseVersion = makeVersionParser("codex");
 
 const readRecordedCwd = (
   deps: AgentSessionDeps,
@@ -101,17 +90,9 @@ const toTomlStringRecord = (
   );
 };
 
-const collectEnvRefsFromString = (refs: Set<string>, value: string): void => {
-  for (const match of value.matchAll(
-    /(?:\$\{([A-Z][A-Z0-9_]*)\}|\$([A-Z][A-Z0-9_]*)|process\.env\.([A-Z][A-Z0-9_]*))/g,
-  )) {
-    const name = match[1] ?? match[2] ?? match[3];
-    if (name !== undefined) refs.add(name);
-  }
-};
-
 const collectEnvRefsFromValue = (refs: Set<string>, value: TomlValue): void => {
-  if (typeof value === "string") collectEnvRefsFromString(refs, value);
+  if (typeof value === "string")
+    for (const name of collectEnvRefs(value)) refs.add(name);
   else if (Array.isArray(value))
     for (const item of value) collectEnvRefsFromValue(refs, item);
   else if (isTomlTable(value))

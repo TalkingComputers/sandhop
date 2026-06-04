@@ -5,6 +5,7 @@ import {
   LOW_PRIORITY_SETUP,
   SUDO_SETUP,
   nonFatal,
+  quoteHomePath,
   runLowPriority,
   shellLog,
 } from "../shell.js";
@@ -28,9 +29,6 @@ const ARCH_SETUP =
 const ZSTD_INSTALL =
   "command -v zstd || $SUDO sh -lc 'command -v apt-get >/dev/null && (apt-get update && apt-get install -y zstd) || (command -v dnf >/dev/null && dnf install -y zstd) || (command -v apk >/dev/null && apk add zstd) || (command -v yum >/dev/null && yum install -y zstd)'";
 
-const shellPath = (path: string): string =>
-  path.startsWith("$HOME") ? `"${path}"` : path;
-
 const pruneMcpTablesScript = (path: string): string =>
   [
     'const fs=require("fs")',
@@ -52,26 +50,22 @@ const mergeClaudeMcpScript = (path: string, content: string): string =>
     'fs.writeFileSync(f,JSON.stringify(j,null,2)+"\\n")',
   ].join(";");
 
-const renderMcpConfig = (
-  agent: Agent,
-  codePlan: CodePlan,
-  remoteProj: string,
-): string[] => {
+const renderMcpConfig = (agent: Agent, codePlan: CodePlan): string[] => {
   if (codePlan.rewrites.length === 0) return [];
-  const config = agent.formatMcpConfig(codePlan.rewrites, remoteProj);
+  const config = agent.formatMcpConfig(codePlan.rewrites);
   const dir = dirname(config.path);
   if (config.mode === "merge-claude-json")
     return [
-      `mkdir -p ${shellPath(dir)}`,
+      `mkdir -p ${quoteHomePath(dir)}`,
       `node -e ${JSON.stringify(mergeClaudeMcpScript(config.path, config.content))}`,
     ];
   const redirect = config.mode === "append" ? ">>" : ">";
   return [
-    `mkdir -p ${shellPath(dir)}`,
+    `mkdir -p ${quoteHomePath(dir)}`,
     ...(config.mode === "append"
       ? [`node -e ${JSON.stringify(pruneMcpTablesScript(config.path))}`]
       : []),
-    `cat ${redirect} ${shellPath(config.path)} <<'KEEPON_MCP_CONFIG'`,
+    `cat ${redirect} ${quoteHomePath(config.path)} <<'KEEPON_MCP_CONFIG'`,
     config.content.trimEnd(),
     "KEEPON_MCP_CONFIG",
   ];
@@ -155,7 +149,7 @@ export class BootstrapService {
     if (opts.codePlan === null || opts.codePlan === undefined)
       return 'echo "[keepon] mcp config skipped"';
     const excluded = renderMcpExcluded(opts.codePlan);
-    const config = renderMcpConfig(this.agent, opts.codePlan, remoteProj);
+    const config = renderMcpConfig(this.agent, opts.codePlan);
     if (config.length === 0)
       return [...excluded, 'echo "[keepon] mcp config skipped"'].join("\n");
     return [...excluded, ...config].join("\n");
@@ -194,16 +188,5 @@ export class BootstrapService {
 
   renderEnrichmentCompletion(steps: EnrichmentStepResult[]): string {
     return [...renderSummary(steps), "touch /tmp/keepon-enriched"].join("\n");
-  }
-
-  renderEnrichment(
-    remoteProj: string,
-    opts: EnrichmentBootstrapOptions,
-  ): string {
-    return [
-      this.renderEnrichmentInstalls(opts),
-      this.renderEnrichmentConfig(remoteProj, opts),
-      this.renderEnrichmentCompletion([]),
-    ].join("\n");
   }
 }

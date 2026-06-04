@@ -61,7 +61,7 @@ export interface Agent {
   mcpConfigPaths(home: string, cwd: string): string[];
   mcpEnvRefs(configText: string): string[];
   parseMcpServers(deps: AgentMcpDeps, cwd: string): McpServer[];
-  formatMcpConfig(servers: McpServer[], remoteProj: string): McpConfigWrite;
+  formatMcpConfig(servers: McpServer[]): McpConfigWrite;
   authEnv(deps: AgentHostDeps): AuthBundle;
   installCmd(version: string): string;
   supportsSettingsScripts(): boolean;

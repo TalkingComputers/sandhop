@@ -19,6 +19,22 @@ export const joinPath = (dir: string, path: string): string => {
   return `${dir}/${path}`;
 };
 
+export const normalizePath = (path: string): string => {
+  const absolute = path.startsWith("/");
+  const parts: string[] = [];
+  for (const part of path.split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") {
+      parts.pop();
+      continue;
+    }
+    parts.push(part);
+  }
+  const normalized = parts.join("/");
+  if (absolute) return `/${normalized}`;
+  return normalized;
+};
+
 export const expandHome = (path: string, home: string): string =>
   path
     .replace(/^~/, home)

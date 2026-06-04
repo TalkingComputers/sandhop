@@ -18,3 +18,11 @@ export const lazyImport = async <T>(pkg: string, hint: string): Promise<T> => {
     throw error;
   }
 };
+
+export const lazyOnce = <T>(factory: () => Promise<T>): (() => Promise<T>) => {
+  let value: Promise<T> | undefined;
+  return () => {
+    value ??= factory();
+    return value;
+  };
+};

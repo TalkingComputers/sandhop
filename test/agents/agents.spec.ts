@@ -22,22 +22,19 @@ test("declarative agents install exact versions and compose native resume comman
 });
 
 test("Codex MCP config writes startup timeouts for every server", () => {
-  const config = CODEX.formatMcpConfig(
-    [
-      {
-        name: "stdio",
-        transport: "stdio",
-        command: "npx",
-        args: ["-y", "server"],
-      },
-      {
-        name: "remote",
-        transport: "http",
-        url: "https://example.com/mcp",
-      },
-    ],
-    "/workspace/project",
-  );
+  const config = CODEX.formatMcpConfig([
+    {
+      name: "stdio",
+      transport: "stdio",
+      command: "npx",
+      args: ["-y", "server"],
+    },
+    {
+      name: "remote",
+      transport: "http",
+      url: "https://example.com/mcp",
+    },
+  ]);
 
   expect(config.content.split("startup_timeout_sec = 120").length - 1).toBe(2);
 });

@@ -3,6 +3,7 @@ import {
   dirname,
   expandHome,
   makeTempPath,
+  normalizePath,
   sandboxExpandHome,
 } from "../../src/core/paths.js";
 
@@ -25,4 +26,9 @@ test("home path functions expand host and sandbox homes", () => {
     "/home/user/.codex/auth.json",
   );
   expect(makeTempPath("profile")).toMatch(/^\/tmp\/keepon-\d+-profile$/);
+});
+
+test("normalizePath collapses POSIX dot segments", () => {
+  expect(normalizePath("/tmp/./a/../b")).toBe("/tmp/b");
+  expect(normalizePath("tmp/./a/../b")).toBe("tmp/b");
 });

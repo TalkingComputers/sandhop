@@ -1,6 +1,6 @@
 import { safeRemoteProj } from "../encode.js";
 import { isRecord } from "../json.js";
-import { expandEnv, joinPath } from "../paths.js";
+import { expandEnv, joinPath, normalizePath } from "../paths.js";
 import type { HostDeps } from "../ports/host.js";
 import { installCmd } from "./mcp-classify.js";
 import {
@@ -47,22 +47,6 @@ export { LOCAL_PATH_EXCLUDES };
 
 const PATH_TOKEN =
   /(?:^|[\s"'(=;&|])((?:~\/|\$HOME\/|\$\{HOME\}\/|\/|\.\/|\.\.\/)[^"'`\s;&|)<>]*)/g;
-
-const normalizePath = (path: string): string => {
-  const absolute = path.startsWith("/");
-  const parts: string[] = [];
-  for (const part of path.split("/")) {
-    if (part === "" || part === ".") continue;
-    if (part === "..") {
-      parts.pop();
-      continue;
-    }
-    parts.push(part);
-  }
-  const normalized = parts.join("/");
-  if (absolute) return `/${normalized}`;
-  return normalized;
-};
 
 const expandTokenPath = (
   host: HostDeps,

@@ -1,13 +1,10 @@
-import { Buffer } from "node:buffer";
 import type {
   CreateSandboxBaseParams,
   CreateSandboxFromImageParams,
   DaytonaConfig,
 } from "@daytonaio/sdk";
-import { NotSupportedError } from "../../core/errors.js";
 import type { HostDeps } from "../../core/ports/host.js";
 import type {
-  Capability,
   CreateOptions,
   ExposedPort,
   RunResult,
@@ -16,7 +13,8 @@ import type {
   SandboxProvider,
 } from "../../core/ports/provider.js";
 import { shellQuote } from "../../core/shell.js";
-import { lazyImport } from "../lazy-import.js";
+import { toBuffer } from "../encode.js";
+import { lazyImport, lazyOnce } from "../lazy-import.js";
 
 type DaytonaModule = typeof import("@daytonaio/sdk");
 type DaytonaClient = InstanceType<DaytonaModule["Daytona"]>;
@@ -86,11 +84,7 @@ class DaytonaSandboxAdapter implements Sandbox {
   }
 
   async uploadFile(path: string, data: Uint8Array | string): Promise<void> {
-    await this.sandbox.fs.uploadFile(
-      typeof data === "string" ? Buffer.from(data) : Buffer.from(data),
-      path,
-      this.timeoutSeconds,
-    );
+    await this.sandbox.fs.uploadFile(toBuffer(data), path, this.timeoutSeconds);
   }
 
   async uploadPath(remotePath: string, localPath: string): Promise<void> {
@@ -129,10 +123,6 @@ class DaytonaSandboxAdapter implements Sandbox {
     };
   }
 
-  async setTimeout(timeoutMs: number): Promise<void> {
-    throw new NotSupportedError("extend-timeout not supported on daytona");
-  }
-
   async destroy(): Promise<void> {
     await this.sandbox.delete(this.timeoutSeconds);
   }
@@ -140,15 +130,12 @@ class DaytonaSandboxAdapter implements Sandbox {
 
 export class DaytonaSandboxProvider implements SandboxProvider {
   readonly name = "daytona";
-  readonly capabilities: ReadonlySet<Capability> = new Set([
-    "background-exec",
-    "live-file-upload",
-  ]);
   readonly host: Pick<HostDeps, "env">;
-  private clientPromise: Promise<DaytonaClient> | undefined;
+  private readonly client: () => Promise<DaytonaClient>;
 
   constructor(host: Pick<HostDeps, "env">) {
     this.host = host;
+    this.client = lazyOnce(() => this.createClient());
   }
 
   async create(opts: CreateOptions): Promise<Sandbox> {
@@ -193,12 +180,6 @@ export class DaytonaSandboxProvider implements SandboxProvider {
         return false;
       throw error;
     }
-  }
-
-  private client(): Promise<DaytonaClient> {
-    if (this.clientPromise === undefined)
-      this.clientPromise = this.createClient();
-    return this.clientPromise;
   }
 
   private async createClient(): Promise<DaytonaClient> {

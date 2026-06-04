@@ -8,6 +8,14 @@ export const shellLog = (value: string): string =>
     .replaceAll("$", "\\$")
     .replaceAll("`", "\\`");
 
+export const quoteHomePath = (path: string): string =>
+  path.startsWith("$HOME") ? `"${path}"` : path;
+
+export const quoteShellPath = (value: string): string =>
+  `"${shellLog(value)
+    .replaceAll("\\$HOME", "$HOME")
+    .replaceAll("\\${HOME}", "${HOME}")}"`;
+
 export const LOW_PRIORITY_SETUP =
   'KEEPON_LOW_PRIORITY="nice -n 19"; if command -v ionice >/dev/null 2>&1; then KEEPON_LOW_PRIORITY="nice -n 19 ionice -c3"; fi';
 

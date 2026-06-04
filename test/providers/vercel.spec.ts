@@ -9,8 +9,6 @@ const vercelMocks = vi.hoisted(() => {
   const mkDir = vi.fn(async () => undefined);
   const writeFiles = vi.fn(async () => undefined);
   const domain = vi.fn((port: number) => `https://vercel-${port}.example`);
-  const extendTimeout = vi.fn(async () => undefined);
-  const update = vi.fn(async () => undefined);
   const stop = vi.fn(async () => undefined);
   const sandbox = {
     name: "sdk-name",
@@ -19,8 +17,6 @@ const vercelMocks = vi.hoisted(() => {
     mkDir,
     writeFiles,
     domain,
-    extendTimeout,
-    update,
     stop,
   };
   const create = vi.fn(async () => sandbox);
@@ -35,7 +31,6 @@ const vercelMocks = vi.hoisted(() => {
     Sandbox,
     create,
     domain,
-    extendTimeout,
     get,
     list,
     mkDir,
@@ -43,7 +38,6 @@ const vercelMocks = vi.hoisted(() => {
     stderr,
     stop,
     stdout,
-    update,
     writeFiles,
   };
 });
@@ -118,7 +112,6 @@ test("VercelSandboxProvider spawn uses detached bash and upload uses mkdir plus 
     url: "https://vercel-7681.example",
     authGatedByProvider: false,
   });
-  await sandbox.setTimeout(120000);
   await sandbox.destroy();
 
   expect(vercelMocks.runCommand).toHaveBeenCalledWith({
@@ -137,8 +130,6 @@ test("VercelSandboxProvider spawn uses detached bash and upload uses mkdir plus 
     { path: "/tmp/profile.tgz", content: Buffer.from(new Uint8Array([9, 8])) },
   ]);
   expect(vercelMocks.domain).toHaveBeenCalledWith(7681);
-  expect(vercelMocks.extendTimeout).toHaveBeenCalledWith(120000);
-  expect(vercelMocks.update).not.toHaveBeenCalled();
   expect(vercelMocks.stop).toHaveBeenCalled();
 });
 

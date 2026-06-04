@@ -1,9 +1,3 @@
-export type Capability =
-  | "background-exec"
-  | "live-file-upload"
-  | "extend-timeout"
-  | "provider-auth-url";
-
 export interface RunResult {
   exitCode: number;
   stdout: string;
@@ -30,7 +24,6 @@ export interface Sandbox {
   exec(cmd: string): Promise<RunResult>;
   spawn(cmd: string): Promise<void>;
   exposePort(port: number): Promise<ExposedPort>;
-  setTimeout(timeoutMs: number): Promise<void>;
   destroy(): Promise<void>;
 }
 
@@ -39,13 +32,10 @@ export interface SandboxInfo {
   startedAt: Date;
 }
 
-export type StatelessSandboxAdapter = Sandbox;
-
 export interface SandboxProvider {
   readonly name: string;
-  readonly capabilities: ReadonlySet<Capability>;
-  create(opts: CreateOptions): Promise<StatelessSandboxAdapter>;
-  connect(id: string): Promise<StatelessSandboxAdapter>;
+  create(opts: CreateOptions): Promise<Sandbox>;
+  connect(id: string): Promise<Sandbox>;
   list(): Promise<SandboxInfo[]>;
   destroy(id: string): Promise<boolean>;
 }

@@ -132,12 +132,12 @@ test("BootstrapService enrichment installs runtimes and deps, writes rewritten M
     classifications: [{ name: "local", kind: "local-path" }],
   };
 
-  const script = new BootstrapService(CLAUDE_CODE).renderEnrichment(
-    manifest.remoteProj,
-    {
-      codePlan,
-    },
-  );
+  const bootstrap = new BootstrapService(CLAUDE_CODE);
+  const script = [
+    bootstrap.renderEnrichmentInstalls({ codePlan }),
+    bootstrap.renderEnrichmentConfig(manifest.remoteProj, { codePlan }),
+    bootstrap.renderEnrichmentCompletion([]),
+  ].join("\n");
 
   expect(script).toContain(
     'SUDO=""; if [ "$(id -u)" != 0 ] && command -v sudo >/dev/null 2>&1; then SUDO="sudo"; fi',
@@ -280,10 +280,12 @@ test("BootstrapService prunes stale Codex MCP tables before appending rewritten 
     classifications: [{ name: "local", kind: "local-path" }],
   };
 
-  const script = new BootstrapService(CODEX).renderEnrichment(
-    manifest.remoteProj,
-    { codePlan },
-  );
+  const bootstrap = new BootstrapService(CODEX);
+  const script = [
+    bootstrap.renderEnrichmentInstalls({ codePlan }),
+    bootstrap.renderEnrichmentConfig(manifest.remoteProj, { codePlan }),
+    bootstrap.renderEnrichmentCompletion([]),
+  ].join("\n");
 
   expect(script).toContain("node -e");
   expect(script).toContain("[mcp_servers");

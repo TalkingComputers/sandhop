@@ -158,20 +158,6 @@ test("DaytonaSandboxProvider uploads files, exposes ports, and destroys", async 
   expect(daytonaMocks.deleteSandbox).toHaveBeenCalledWith(600);
 });
 
-test("DaytonaSandboxProvider setTimeout rejects with NotSupportedError", async () => {
-  const { DaytonaSandboxProvider } = await loadProvider();
-  const { NotSupportedError } = await import("../../src/core/errors.js");
-  const provider = new DaytonaSandboxProvider(
-    new FakeHost({
-      home: "/home/local",
-      env: { DAYTONA_API_KEY: "api-key" },
-    }),
-  );
-  const sandbox = await provider.create({ envs: {}, timeoutMs: 600000 });
-
-  await expect(sandbox.setTimeout(120000)).rejects.toThrow(NotSupportedError);
-});
-
 test("DaytonaSandboxProvider connect and destroy use SDK lookups", async () => {
   const { DaytonaSandboxProvider } = await loadProvider();
   const provider = new DaytonaSandboxProvider(

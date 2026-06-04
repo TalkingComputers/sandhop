@@ -1,34 +1,17 @@
 import { projectDirName } from "../core/encode.js";
+import { collectEnvRefs } from "../core/env.js";
 import { isRecord } from "../core/json.js";
 import { MCP_TIMEOUT_MS } from "../core/mcp-timeout.js";
 import type {
   Agent,
   AgentHostDeps,
   AgentMcpDeps,
-  AgentSessionDeps,
   AuthBundle,
   McpConfigWrite,
   McpServer,
   McpTransport,
-  SessionRef,
 } from "../core/ports/agent.js";
-
-const fileName = (path: string): string => path.split("/").pop()!;
-
-const sortNewest = (deps: AgentSessionDeps, refs: SessionRef[]): SessionRef[] =>
-  [...refs].sort(
-    (a, b) =>
-      deps.statMtimeMs(b.transcriptPath) - deps.statMtimeMs(a.transcriptPath),
-  );
-
-const addPlaceholderRefs = (refs: Set<string>, text: string): void => {
-  for (const match of text.matchAll(
-    /(?:\$\{([A-Z][A-Z0-9_]*)\}|\$([A-Z][A-Z0-9_]*)|process\.env\.([A-Z][A-Z0-9_]*))/g,
-  )) {
-    const name = match[1] ?? match[2] ?? match[3];
-    if (name !== undefined) refs.add(name);
-  }
-};
+import { fileName, makeVersionParser, sortNewest } from "./shared.js";
 
 const addJsonEnvRefs = (refs: Set<string>, value: unknown): void => {
   if (Array.isArray(value)) {
@@ -46,7 +29,7 @@ const addJsonEnvRefs = (refs: Set<string>, value: unknown): void => {
 
 const readJsonEnvRefs = (text: string): string[] => {
   const refs = new Set<string>();
-  addPlaceholderRefs(refs, text);
+  for (const name of collectEnvRefs(text)) refs.add(name);
   try {
     addJsonEnvRefs(refs, JSON.parse(text) as unknown);
   } catch {
@@ -55,12 +38,7 @@ const readJsonEnvRefs = (text: string): string[] => {
   return [...refs].sort();
 };
 
-const parseVersion = (output: string): string => {
-  const match = output.match(/(\d+\.\d+\.\d+)/);
-  if (!match)
-    throw new Error(`Could not parse claude-code version from "${output}"`);
-  return match[1]!;
-};
+const parseVersion = makeVersionParser("claude-code");
 
 const authEnv = (deps: AgentHostDeps): AuthBundle => {
   const envKey = deps.env.ANTHROPIC_API_KEY;
@@ -150,10 +128,7 @@ const parseMcpServers = (deps: AgentMcpDeps, cwd: string): McpServer[] => {
   return servers;
 };
 
-const formatMcpConfig = (
-  servers: McpServer[],
-  remoteProj: string,
-): McpConfigWrite => {
+const formatMcpConfig = (servers: McpServer[]): McpConfigWrite => {
   const mcpServers: Record<string, Omit<McpServer, "name">> = {};
   for (const server of servers) {
     const { name, ...config } = server;

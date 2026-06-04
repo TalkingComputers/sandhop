@@ -55,10 +55,6 @@ export class FakeSandbox implements Sandbox {
     };
   }
 
-  async setTimeout(timeoutMs: number): Promise<void> {
-    this.execs.push(`timeout:${timeoutMs}`);
-  }
-
   async destroy(): Promise<void> {
     this.destroyed = true;
   }
@@ -66,10 +62,6 @@ export class FakeSandbox implements Sandbox {
 
 export class FakeProvider implements SandboxProvider {
   readonly name = "fake";
-  readonly capabilities = new Set([
-    "background-exec",
-    "live-file-upload",
-  ] as const);
   readonly sandbox: FakeSandbox;
   creates: CreateOptions[];
   connectedIds: string[];
