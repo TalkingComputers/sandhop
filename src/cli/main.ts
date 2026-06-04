@@ -4,6 +4,7 @@ import {
   pickAgent,
   selectDefaultAgent,
 } from "../agents/index.js";
+import type { Agent } from "../core/ports/agent.js";
 import { AuthService } from "../core/services/auth.js";
 import { BootstrapService } from "../core/services/bootstrap.js";
 import { SecretsService } from "../core/services/secrets.js";
@@ -49,9 +50,15 @@ const runPush = async (
   onProgress: (msg: string) => void,
 ): Promise<void> => {
   const provider = buildProvider(args.provider, host);
-  const agent = args.agent
-    ? pickAgent(args.agent)
-    : selectDefaultAgent(detectAgents(host, args.cwd));
+  const detected =
+    args.agent === undefined ? detectAgents(host, args.cwd) : undefined;
+  let agent: Agent;
+  if (args.agent === undefined) {
+    if (detected === undefined) throw new Error("Agent detection failed");
+    agent = selectDefaultAgent(detected);
+  } else {
+    agent = pickAgent(args.agent);
+  }
   const sessions = agent.matchSession(host, args.cwd);
   if (sessions.length === 0)
     throw new Error(
@@ -59,7 +66,7 @@ const runPush = async (
         ? `No Claude Code or Codex session found for ${args.cwd}`
         : `No ${agent.id} session found for ${args.cwd}`,
     );
-  if (args.agent === undefined && detectAgents(host, args.cwd).length > 1)
+  if (detected !== undefined && detected.length > 1)
     console.error(`Multiple agents found; using ${agent.id}`);
   const service = new TeleportService(provider, agent, {
     host,

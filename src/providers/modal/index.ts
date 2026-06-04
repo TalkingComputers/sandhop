@@ -98,6 +98,7 @@ export class ModalSandboxProvider implements SandboxProvider {
     "live-file-upload",
   ]);
   readonly host: Pick<HostDeps, "env" | "openBlob">;
+  private clientPromise: Promise<ModalClientType> | undefined;
 
   constructor(host: Pick<HostDeps, "env" | "openBlob">) {
     this.host = host;
@@ -142,7 +143,13 @@ export class ModalSandboxProvider implements SandboxProvider {
     }
   }
 
-  private async client(): Promise<ModalClientType> {
+  private client(): Promise<ModalClientType> {
+    if (this.clientPromise === undefined)
+      this.clientPromise = this.createClient();
+    return this.clientPromise;
+  }
+
+  private async createClient(): Promise<ModalClientType> {
     const { ModalClient } = await lazyImport<ModalModule>(
       MODAL_PACKAGE,
       MODAL_INSTALL_HINT,

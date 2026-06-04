@@ -156,6 +156,7 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     "live-file-upload",
   ]);
   readonly host: Pick<HostDeps, "env">;
+  private clientPromise: Promise<DaytonaClient> | undefined;
 
   constructor(host: Pick<HostDeps, "env">) {
     this.host = host;
@@ -205,7 +206,13 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     }
   }
 
-  private async client(): Promise<DaytonaClient> {
+  private client(): Promise<DaytonaClient> {
+    if (this.clientPromise === undefined)
+      this.clientPromise = this.createClient();
+    return this.clientPromise;
+  }
+
+  private async createClient(): Promise<DaytonaClient> {
     const { Daytona } = await lazyImport<DaytonaModule>(
       DAYTONA_PACKAGE,
       DAYTONA_INSTALL_HINT,

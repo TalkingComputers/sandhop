@@ -1,6 +1,5 @@
 import type { Agent, AgentId } from "../core/ports/agent.js";
 import type { HostDeps } from "../core/ports/host.js";
-import { SessionService } from "../core/services/session.js";
 import { CLAUDE_CODE } from "./claude-code.js";
 import { CODEX } from "./codex.js";
 
@@ -21,6 +20,3 @@ export const selectDefaultAgent = (agents: Agent[]): Agent => {
   if (!first) throw new Error("No Claude Code or Codex session found");
   return first;
 };
-
-export const findLatestSession = (host: HostDeps, cwd: string, agent: Agent) =>
-  new SessionService(host, agent).latest(cwd);
