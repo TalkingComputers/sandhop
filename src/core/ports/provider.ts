@@ -39,11 +39,13 @@ export interface SandboxInfo {
   startedAt: Date;
 }
 
+export type StatelessSandboxAdapter = Sandbox;
+
 export interface SandboxProvider {
   readonly name: string;
   readonly capabilities: ReadonlySet<Capability>;
-  create(opts: CreateOptions): Promise<Sandbox>;
-  connect(id: string): Promise<Sandbox>;
+  create(opts: CreateOptions): Promise<StatelessSandboxAdapter>;
+  connect(id: string): Promise<StatelessSandboxAdapter>;
   list(): Promise<SandboxInfo[]>;
   destroy(id: string): Promise<boolean>;
 }

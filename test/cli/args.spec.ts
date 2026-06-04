@@ -1,5 +1,9 @@
 import { expect, test } from "vitest";
-import { buildTransport, parseArgs } from "../../src/cli/args.js";
+import {
+  buildTransport,
+  parseArgs,
+  parseEnrichArgs,
+} from "../../src/cli/args.js";
 
 test("parseArgs keeps push defaults and flags", () => {
   expect(parseArgs([], "/workspace/project")).toMatchObject({
@@ -61,6 +65,31 @@ test("parseArgs validates tunnel values", () => {
   expect(() =>
     parseArgs(["push", "--tunnel", "wireguard"], "/workspace/project"),
   ).toThrow("--tunnel must be 'public' or 'cloudflared'");
+});
+
+test("parseEnrichArgs reads required enrich flags", () => {
+  expect(
+    parseEnrichArgs([
+      "--sandbox-id",
+      "sbx-1",
+      "--agent",
+      "codex",
+      "--cwd",
+      "/workspace/project",
+      "--provider",
+      "modal",
+      "--no-profile",
+      "--strict",
+    ]),
+  ).toEqual({
+    sandboxId: "sbx-1",
+    agent: "codex",
+    cwd: "/workspace/project",
+    provider: "modal",
+    profile: false,
+    strict: true,
+  });
+  expect(() => parseEnrichArgs([])).toThrow("--sandbox-id is required");
 });
 
 test("buildTransport creates the selected transport", () => {

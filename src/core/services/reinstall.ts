@@ -1,5 +1,6 @@
 import type { Agent } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
+import { isRecord } from "../json.js";
 import { dirname, joinPath } from "../paths.js";
 import { shellQuote } from "../shell.js";
 
@@ -12,9 +13,6 @@ interface GitSkill {
   localDir: string;
   remoteDir: string;
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
 
 const shellPath = (value: string): string =>
   `"${value

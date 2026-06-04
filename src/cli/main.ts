@@ -77,7 +77,6 @@ const runPush = async (
   });
   const result = await service.run(args.cwd, {
     sessionId: args.session,
-    profile: args.profile,
     transport: buildTransport(args, process.env),
     timeoutMs: 3_600_000,
     onProgress,

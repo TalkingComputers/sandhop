@@ -94,13 +94,13 @@ export class EnrichmentService {
     this.bootstrap = new BootstrapService(agent);
   }
 
-  async run(cwd: string, profile: boolean): Promise<void> {
+  async run(cwd: string, profile: boolean): Promise<EnrichmentStepResult[]> {
+    const steps: EnrichmentStepResult[] = [];
     try {
       await appendLog(
         this.sandbox,
         `keepon enrichment started ${new Date().toISOString()}`,
       ).catch(() => undefined);
-      const steps: EnrichmentStepResult[] = [];
       await recordScriptStep(
         this.sandbox,
         steps,
@@ -222,6 +222,7 @@ export class EnrichmentService {
       ).catch(async (error: unknown): Promise<void> => {
         await appendLog(this.sandbox, errorText(error)).catch(() => undefined);
       });
+      return steps;
     } catch (error: unknown) {
       await appendLog(this.sandbox, errorText(error)).catch(() => undefined);
       throw error;

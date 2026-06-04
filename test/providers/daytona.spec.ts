@@ -159,7 +159,7 @@ test("DaytonaSandboxProvider uploads files, exposes ports, and destroys", async 
   expect(daytonaMocks.deleteSandbox).toHaveBeenCalledWith(600);
 });
 
-test("DaytonaSandboxProvider reconnects after adapter destroy", async () => {
+test("DaytonaSandboxProvider connect and destroy use SDK lookups", async () => {
   const { DaytonaSandboxProvider } = await loadProvider();
   const provider = new DaytonaSandboxProvider(
     new FakeHost({
@@ -167,12 +167,16 @@ test("DaytonaSandboxProvider reconnects after adapter destroy", async () => {
       env: { DAYTONA_API_KEY: "api-key" },
     }),
   );
-  const sandbox = await provider.create({ envs: {}, timeoutMs: 600000 });
+  const created = await provider.create({ envs: {}, timeoutMs: 600000 });
 
-  await sandbox.destroy();
-  await provider.connect("daytona-sbx");
+  const connected = await provider.connect("daytona-sbx");
+  await expect(provider.destroy("daytona-sbx")).resolves.toBe(true);
 
-  expect(daytonaMocks.get).toHaveBeenCalledWith("daytona-sbx");
+  expect(connected).not.toBe(created);
+  expect(daytonaMocks.get).toHaveBeenCalledTimes(2);
+  expect(daytonaMocks.get).toHaveBeenNthCalledWith(1, "daytona-sbx");
+  expect(daytonaMocks.get).toHaveBeenNthCalledWith(2, "daytona-sbx");
+  expect(daytonaMocks.deleteSandbox).toHaveBeenCalledWith(600);
 });
 
 test("DaytonaSandboxProvider missing package throws install hint", async () => {

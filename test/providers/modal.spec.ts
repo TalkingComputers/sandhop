@@ -157,7 +157,7 @@ test("ModalSandboxProvider uploads files, exposes ports, and destroys", async ()
   expect(modalMocks.terminate).toHaveBeenCalled();
 });
 
-test("ModalSandboxProvider reconnects after adapter destroy", async () => {
+test("ModalSandboxProvider connect and destroy use SDK lookups", async () => {
   const { ModalSandboxProvider } = await loadProvider();
   const provider = new ModalSandboxProvider(
     new FakeHost({
@@ -165,12 +165,16 @@ test("ModalSandboxProvider reconnects after adapter destroy", async () => {
       env: { MODAL_TOKEN_ID: "id", MODAL_TOKEN_SECRET: "secret" },
     }),
   );
-  const sandbox = await provider.create({ envs: {}, timeoutMs: 600000 });
+  const created = await provider.create({ envs: {}, timeoutMs: 600000 });
 
-  await sandbox.destroy();
-  await provider.connect("modal-sbx");
+  const connected = await provider.connect("modal-sbx");
+  await expect(provider.destroy("modal-sbx")).resolves.toBe(true);
 
-  expect(modalMocks.fromId).toHaveBeenCalledWith("modal-sbx");
+  expect(connected).not.toBe(created);
+  expect(modalMocks.fromId).toHaveBeenCalledTimes(2);
+  expect(modalMocks.fromId).toHaveBeenNthCalledWith(1, "modal-sbx");
+  expect(modalMocks.fromId).toHaveBeenNthCalledWith(2, "modal-sbx");
+  expect(modalMocks.terminate).toHaveBeenCalledTimes(1);
 });
 
 test("ModalSandboxProvider missing package throws install hint", async () => {

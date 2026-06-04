@@ -22,7 +22,6 @@ export interface TeleportResult {
 
 export interface TeleportOptions {
   sessionId?: string;
-  profile: boolean;
   transport: Transport;
   timeoutMs: number;
   onProgress?: (msg: string) => void;

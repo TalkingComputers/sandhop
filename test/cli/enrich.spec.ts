@@ -1,5 +1,6 @@
-import { expect, test, vi } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import type { RunResult } from "../../src/core/ports/provider.js";
+import type { EnrichmentStepResult } from "../../src/core/services/bootstrap.js";
 import { enrichSandbox, runEnrichCli } from "../../src/cli/enrich.js";
 import { FakeHost } from "../fakes/host.js";
 import { FakeProvider, FakeSandbox } from "../fakes/provider.js";
@@ -18,6 +19,50 @@ class FailingMcpSandbox extends FakeSandbox {
   }
 }
 
+const originalKeeponStrict = process.env["KEEPON_STRICT"];
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.doUnmock("../../src/providers/index.js");
+  vi.doUnmock("../../src/core/services/enrichment.js");
+  vi.resetModules();
+  if (originalKeeponStrict === undefined) {
+    delete process.env["KEEPON_STRICT"];
+    return;
+  }
+  process.env["KEEPON_STRICT"] = originalKeeponStrict;
+});
+
+const loadRunEnrichCli = async (steps: EnrichmentStepResult[]) => {
+  vi.resetModules();
+  vi.doMock("../../src/providers/index.js", () => ({
+    PROVIDER_IDS: ["e2b", "modal", "daytona", "vercel"],
+    buildProvider: () => ({
+      connect: async () => new FakeSandbox("sbx-1"),
+    }),
+  }));
+  vi.doMock("../../src/core/services/enrichment.js", () => ({
+    EnrichmentService: class {
+      async run(): Promise<EnrichmentStepResult[]> {
+        return steps;
+      }
+    },
+  }));
+  return import("../../src/cli/enrich.js");
+};
+
+const enrichArgv = (extra: string[] = []): string[] => [
+  "--sandbox-id",
+  "sbx-1",
+  "--agent",
+  "codex",
+  "--cwd",
+  "/workspace/project",
+  "--provider",
+  "e2b",
+  ...extra,
+];
+
 test("runEnrichCli returns non-zero on top-level failure", async () => {
   const error = vi
     .spyOn(console, "error")
@@ -27,6 +72,31 @@ test("runEnrichCli returns non-zero on top-level failure", async () => {
 
   expect(error).toHaveBeenCalledWith("--sandbox-id is required");
   error.mockRestore();
+});
+
+test("runEnrichCli returns one in strict mode when an enrichment step fails", async () => {
+  const { runEnrichCli: runCli } = await loadRunEnrichCli([
+    { name: "mcp", ok: false, error: "failed" },
+  ]);
+
+  await expect(runCli(enrichArgv(["--strict"]))).resolves.toBe(1);
+});
+
+test("runEnrichCli returns zero outside strict mode when an enrichment step fails", async () => {
+  const { runEnrichCli: runCli } = await loadRunEnrichCli([
+    { name: "mcp", ok: false, error: "failed" },
+  ]);
+
+  await expect(runCli(enrichArgv())).resolves.toBe(0);
+});
+
+test("runEnrichCli returns one when KEEPON_STRICT is set and an enrichment step fails", async () => {
+  process.env["KEEPON_STRICT"] = "1";
+  const { runEnrichCli: runCli } = await loadRunEnrichCli([
+    { name: "mcp", ok: false, error: "failed" },
+  ]);
+
+  await expect(runCli(enrichArgv())).resolves.toBe(1);
 });
 
 test("enrichSandbox sends profile and MCP roots with TransferService, uploads sourced files, writes config, and marks completion", async () => {

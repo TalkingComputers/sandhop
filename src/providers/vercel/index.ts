@@ -1,6 +1,5 @@
 import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
-import { formatErrorText } from "../../core/errors.js";
 import { dirname } from "../../core/paths.js";
 import type { HostDeps } from "../../core/ports/host.js";
 import type {
@@ -12,6 +11,7 @@ import type {
   SandboxInfo,
   SandboxProvider,
 } from "../../core/ports/provider.js";
+import { lazyImport } from "../lazy-import.js";
 
 type VercelModule = typeof import("@vercel/sandbox");
 type VercelSdkSandbox = InstanceType<VercelModule["Sandbox"]>;
@@ -27,18 +27,8 @@ interface VercelCredentials {
 
 const VERCEL_INSTALL_HINT =
   "The 'vercel' provider needs @vercel/sandbox. Run: npm i @vercel/sandbox";
+const VERCEL_PACKAGE = "@vercel/sandbox";
 const LIST_LIMIT = 100;
-
-const loadVercel = async (): Promise<VercelModule> => {
-  try {
-    return await import("@vercel/sandbox");
-  } catch (error: unknown) {
-    const text = formatErrorText(error);
-    if (text.includes("Cannot find") && text.includes("@vercel/sandbox"))
-      throw new Error(VERCEL_INSTALL_HINT);
-    throw error;
-  }
-};
 
 const sandboxName = (): string => `keepon-${randomUUID()}`;
 
@@ -46,18 +36,15 @@ class VercelSandboxAdapter implements Sandbox {
   readonly id: string;
   readonly sandbox: VercelSandboxInstance;
   readonly host: Pick<HostDeps, "readBytes">;
-  readonly onDestroy: (id: string) => void;
 
   constructor(
     id: string,
     sandbox: VercelSandboxInstance,
     host: Pick<HostDeps, "readBytes">,
-    onDestroy: (id: string) => void,
   ) {
     this.id = id;
     this.sandbox = sandbox;
     this.host = host;
-    this.onDestroy = onDestroy;
   }
 
   async uploadFile(path: string, data: Uint8Array | string): Promise<void> {
@@ -112,7 +99,6 @@ class VercelSandboxAdapter implements Sandbox {
 
   async destroy(): Promise<void> {
     await this.sandbox.stop();
-    this.onDestroy(this.id);
   }
 }
 
@@ -123,7 +109,6 @@ export class VercelSandboxProvider implements SandboxProvider {
     "live-file-upload",
     "extend-timeout",
   ]);
-  readonly instances: Record<string, VercelSandboxAdapter> = {};
   readonly host: Pick<HostDeps, "env" | "readBytes">;
 
   constructor(host: Pick<HostDeps, "env" | "readBytes">) {
@@ -132,7 +117,10 @@ export class VercelSandboxProvider implements SandboxProvider {
 
   async create(opts: CreateOptions): Promise<Sandbox> {
     const credentials = this.credentials();
-    const { Sandbox } = await loadVercel();
+    const { Sandbox } = await lazyImport<VercelModule>(
+      VERCEL_PACKAGE,
+      VERCEL_INSTALL_HINT,
+    );
     const name = sandboxName();
     const sandbox = await Sandbox.create({
       ...credentials,
@@ -141,22 +129,28 @@ export class VercelSandboxProvider implements SandboxProvider {
       ports: opts.ports ?? [7681],
       runtime: "node22",
     });
-    return this.track(name, sandbox);
+    return new VercelSandboxAdapter(name, sandbox, this.host);
   }
 
   async connect(id: string): Promise<Sandbox> {
-    if (this.instances[id] !== undefined) return this.instances[id];
     const credentials = this.credentials();
-    const { Sandbox } = await loadVercel();
-    return this.track(
+    const { Sandbox } = await lazyImport<VercelModule>(
+      VERCEL_PACKAGE,
+      VERCEL_INSTALL_HINT,
+    );
+    return new VercelSandboxAdapter(
       id,
       await Sandbox.get({ ...credentials, name: id, resume: true }),
+      this.host,
     );
   }
 
   async list(): Promise<SandboxInfo[]> {
     const credentials = this.credentials();
-    const { Sandbox } = await loadVercel();
+    const { Sandbox } = await lazyImport<VercelModule>(
+      VERCEL_PACKAGE,
+      VERCEL_INSTALL_HINT,
+    );
     const sandboxes: SandboxInfo[] = [];
     for await (const sandbox of await Sandbox.list({
       ...credentials,
@@ -170,13 +164,11 @@ export class VercelSandboxProvider implements SandboxProvider {
   }
 
   async destroy(id: string): Promise<boolean> {
-    if (this.instances[id] !== undefined) {
-      await this.instances[id].destroy();
-      delete this.instances[id];
-      return true;
-    }
     const credentials = this.credentials();
-    const { Sandbox } = await loadVercel();
+    const { Sandbox } = await lazyImport<VercelModule>(
+      VERCEL_PACKAGE,
+      VERCEL_INSTALL_HINT,
+    );
     await (await Sandbox.get({ ...credentials, name: id })).stop();
     return true;
   }
@@ -192,18 +184,5 @@ export class VercelSandboxProvider implements SandboxProvider {
     if (projectId === undefined)
       throw new Error("VERCEL_PROJECT_ID is required for vercel provider");
     return { token, teamId, projectId };
-  }
-
-  private track(id: string, sandbox: VercelSandboxInstance): Sandbox {
-    const adapter = new VercelSandboxAdapter(
-      id,
-      sandbox,
-      this.host,
-      (sandboxId) => {
-        delete this.instances[sandboxId];
-      },
-    );
-    this.instances[id] = adapter;
-    return adapter;
   }
 }

@@ -12,6 +12,7 @@ import type {
   SandboxInfo,
   SandboxProvider,
 } from "../../core/ports/provider.js";
+import { lazyImport } from "../lazy-import.js";
 
 type ModalModule = typeof import("modal");
 
@@ -20,38 +21,9 @@ const TUNNEL_TIMEOUT_MS = 60000;
 
 const MODAL_INSTALL_HINT =
   "The 'modal' provider needs the 'modal' package. Run: npm i modal";
-
-interface ErrorWithCause {
-  cause?: unknown;
-}
-
-const errorText = (error: unknown): string => {
-  if (!(error instanceof Error)) return String(error);
-  const cause = (error as ErrorWithCause).cause;
-  if (cause === undefined) return error.message;
-  return `${error.message}\n${errorText(cause)}`;
-};
+const MODAL_PACKAGE = "modal";
 
 const encoder = new TextEncoder();
-
-const isMissingModalPackage = (error: unknown): boolean => {
-  const text = errorText(error);
-  return (
-    text.includes("Cannot find package 'modal'") ||
-    text.includes('Cannot find package "modal"') ||
-    text.includes("Cannot find module 'modal'") ||
-    text.includes('Cannot find module "modal"')
-  );
-};
-
-const loadModal = async (): Promise<ModalModule> => {
-  try {
-    return await import("modal");
-  } catch (error: unknown) {
-    if (isMissingModalPackage(error)) throw new Error(MODAL_INSTALL_HINT);
-    throw error;
-  }
-};
 
 const bytesFromData = (data: Uint8Array | string): Uint8Array =>
   typeof data === "string" ? encoder.encode(data) : data;
@@ -60,16 +32,10 @@ class ModalSandboxAdapter implements Sandbox {
   readonly id: string;
   readonly sandbox: ModalSandboxInstance;
   readonly host: Pick<HostDeps, "openBlob">;
-  readonly onDestroy: (id: string) => void;
 
-  constructor(
-    sandbox: ModalSandboxInstance,
-    host: Pick<HostDeps, "openBlob">,
-    onDestroy: (id: string) => void,
-  ) {
+  constructor(sandbox: ModalSandboxInstance, host: Pick<HostDeps, "openBlob">) {
     this.sandbox = sandbox;
     this.host = host;
-    this.onDestroy = onDestroy;
     this.id = sandbox.sandboxId;
   }
 
@@ -121,7 +87,6 @@ class ModalSandboxAdapter implements Sandbox {
 
   async destroy(): Promise<void> {
     await this.sandbox.terminate();
-    this.onDestroy(this.id);
   }
 }
 
@@ -131,7 +96,6 @@ export class ModalSandboxProvider implements SandboxProvider {
     "background-exec",
     "live-file-upload",
   ]);
-  readonly instances: Record<string, ModalSandboxAdapter> = {};
   readonly host: Pick<HostDeps, "env" | "openBlob">;
 
   constructor(host: Pick<HostDeps, "env" | "openBlob">) {
@@ -148,12 +112,14 @@ export class ModalSandboxProvider implements SandboxProvider {
       env: opts.envs,
       timeoutMs: opts.timeoutMs,
     });
-    return this.track(sandbox);
+    return new ModalSandboxAdapter(sandbox, this.host);
   }
 
   async connect(id: string): Promise<Sandbox> {
-    if (this.instances[id] !== undefined) return this.instances[id];
-    return this.track(await (await this.client()).sandboxes.fromId(id));
+    return new ModalSandboxAdapter(
+      await (await this.client()).sandboxes.fromId(id),
+      this.host,
+    );
   }
 
   async list(): Promise<SandboxInfo[]> {
@@ -164,11 +130,6 @@ export class ModalSandboxProvider implements SandboxProvider {
   }
 
   async destroy(id: string): Promise<boolean> {
-    if (this.instances[id] !== undefined) {
-      await this.instances[id].destroy();
-      delete this.instances[id];
-      return true;
-    }
     try {
       const sandbox = await (await this.client()).sandboxes.fromId(id);
       await sandbox.terminate();
@@ -181,7 +142,10 @@ export class ModalSandboxProvider implements SandboxProvider {
   }
 
   private async client(): Promise<ModalClientType> {
-    const { ModalClient } = await loadModal();
+    const { ModalClient } = await lazyImport<ModalModule>(
+      MODAL_PACKAGE,
+      MODAL_INSTALL_HINT,
+    );
     const tokenId = this.host.env.MODAL_TOKEN_ID;
     const tokenSecret = this.host.env.MODAL_TOKEN_SECRET;
     if (tokenId === undefined)
@@ -189,13 +153,5 @@ export class ModalSandboxProvider implements SandboxProvider {
     if (tokenSecret === undefined)
       throw new Error("MODAL_TOKEN_SECRET is required for modal provider");
     return new ModalClient({ tokenId, tokenSecret });
-  }
-
-  private track(sandbox: ModalSandboxInstance): Sandbox {
-    const adapter = new ModalSandboxAdapter(sandbox, this.host, (id) => {
-      delete this.instances[id];
-    });
-    this.instances[adapter.id] = adapter;
-    return adapter;
   }
 }

@@ -15,6 +15,7 @@ import type {
   SandboxProvider,
 } from "../../core/ports/provider.js";
 import { shellQuote } from "../../core/shell.js";
+import { lazyImport } from "../lazy-import.js";
 
 type DaytonaModule = typeof import("@daytonaio/sdk");
 type DaytonaClient = InstanceType<DaytonaModule["Daytona"]>;
@@ -61,36 +62,7 @@ const SESSION_ID = "keepon";
 
 const DAYTONA_INSTALL_HINT =
   "The 'daytona' provider needs @daytonaio/sdk. Run: npm i @daytonaio/sdk";
-
-interface ErrorWithCause {
-  cause?: unknown;
-}
-
-const errorText = (error: unknown): string => {
-  if (!(error instanceof Error)) return String(error);
-  const cause = (error as ErrorWithCause).cause;
-  if (cause === undefined) return error.message;
-  return `${error.message}\n${errorText(cause)}`;
-};
-
-const isMissingDaytonaPackage = (error: unknown): boolean => {
-  const text = errorText(error);
-  return (
-    text.includes("Cannot find package '@daytonaio/sdk'") ||
-    text.includes('Cannot find package "@daytonaio/sdk"') ||
-    text.includes("Cannot find module '@daytonaio/sdk'") ||
-    text.includes('Cannot find module "@daytonaio/sdk"')
-  );
-};
-
-const loadDaytona = async (): Promise<DaytonaModule> => {
-  try {
-    return await import("@daytonaio/sdk");
-  } catch (error: unknown) {
-    if (isMissingDaytonaPackage(error)) throw new Error(DAYTONA_INSTALL_HINT);
-    throw error;
-  }
-};
+const DAYTONA_PACKAGE = "@daytonaio/sdk";
 
 const timeoutSeconds = (timeoutMs: number): number =>
   Math.ceil(timeoutMs / 1000);
@@ -112,17 +84,11 @@ class DaytonaSandboxAdapter implements Sandbox {
   readonly id: string;
   readonly sandbox: DaytonaSandboxInstance;
   readonly timeoutSeconds: number;
-  readonly onDestroy: (id: string) => void;
   hasSession: boolean;
 
-  constructor(
-    sandbox: DaytonaSandboxInstance,
-    timeoutSecondsValue: number,
-    onDestroy: (id: string) => void,
-  ) {
+  constructor(sandbox: DaytonaSandboxInstance, timeoutSecondsValue: number) {
     this.sandbox = sandbox;
     this.timeoutSeconds = timeoutSecondsValue;
-    this.onDestroy = onDestroy;
     this.id = sandbox.id;
     this.hasSession = false;
   }
@@ -179,7 +145,6 @@ class DaytonaSandboxAdapter implements Sandbox {
 
   async destroy(): Promise<void> {
     await this.sandbox.delete(this.timeoutSeconds);
-    this.onDestroy(this.id);
   }
 }
 
@@ -189,7 +154,6 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     "background-exec",
     "live-file-upload",
   ]);
-  readonly instances: Record<string, DaytonaSandboxAdapter> = {};
   readonly host: Pick<HostDeps, "env">;
 
   constructor(host: Pick<HostDeps, "env">) {
@@ -201,15 +165,14 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     const sandbox = (await (
       await this.client()
     ).create(buildCreateParams(opts), { timeout })) as DaytonaSandboxInstance;
-    return this.track(sandbox, timeout);
+    return new DaytonaSandboxAdapter(sandbox, timeout);
   }
 
   async connect(id: string): Promise<Sandbox> {
-    if (this.instances[id] !== undefined) return this.instances[id];
     const sandbox = (await (
       await this.client()
     ).get(id)) as DaytonaSandboxInstance;
-    return this.track(sandbox, COMMAND_TIMEOUT_SECONDS);
+    return new DaytonaSandboxAdapter(sandbox, COMMAND_TIMEOUT_SECONDS);
   }
 
   async list(): Promise<SandboxInfo[]> {
@@ -228,11 +191,6 @@ export class DaytonaSandboxProvider implements SandboxProvider {
   }
 
   async destroy(id: string): Promise<boolean> {
-    if (this.instances[id] !== undefined) {
-      await this.instances[id].destroy();
-      delete this.instances[id];
-      return true;
-    }
     try {
       const sandbox = (await (
         await this.client()
@@ -247,7 +205,10 @@ export class DaytonaSandboxProvider implements SandboxProvider {
   }
 
   private async client(): Promise<DaytonaClient> {
-    const { Daytona } = await loadDaytona();
+    const { Daytona } = await lazyImport<DaytonaModule>(
+      DAYTONA_PACKAGE,
+      DAYTONA_INSTALL_HINT,
+    );
     const apiKey = this.host.env.DAYTONA_API_KEY;
     if (apiKey === undefined)
       throw new Error("DAYTONA_API_KEY is required for daytona provider");
@@ -257,20 +218,5 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     const target = this.host.env.DAYTONA_TARGET;
     if (target !== undefined) config.target = target;
     return new Daytona(config);
-  }
-
-  private track(
-    sandbox: DaytonaSandboxInstance,
-    timeoutSecondsValue: number,
-  ): Sandbox {
-    const adapter = new DaytonaSandboxAdapter(
-      sandbox,
-      timeoutSecondsValue,
-      (id) => {
-        delete this.instances[id];
-      },
-    );
-    this.instances[adapter.id] = adapter;
-    return adapter;
   }
 }

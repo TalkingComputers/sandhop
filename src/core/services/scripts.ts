@@ -1,4 +1,5 @@
 import { safeRemoteProj } from "../encode.js";
+import { isRecord } from "../json.js";
 import { expandEnv, joinPath } from "../paths.js";
 import type { HostDeps } from "../ports/host.js";
 import { installCmd } from "./mcp-classify.js";
@@ -46,9 +47,6 @@ export { LOCAL_PATH_EXCLUDES };
 
 const PATH_TOKEN =
   /(?:^|[\s"'(=;&|])((?:~\/|\$HOME\/|\$\{HOME\}\/|\/|\.\/|\.\.\/)[^"'`\s;&|)<>]*)/g;
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
 
 const normalizePath = (path: string): string => {
   const absolute = path.startsWith("/");

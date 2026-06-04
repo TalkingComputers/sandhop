@@ -1,4 +1,5 @@
 import { projectDirName } from "../core/encode.js";
+import { isRecord } from "../core/json.js";
 import { MCP_TIMEOUT_MS } from "../core/mcp-timeout.js";
 import type {
   Agent,
@@ -11,9 +12,6 @@ import type {
   McpTransport,
   SessionRef,
 } from "../core/ports/agent.js";
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
 
 const fileName = (path: string): string => path.split("/").pop()!;
 

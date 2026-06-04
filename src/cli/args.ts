@@ -16,7 +16,19 @@ export interface ParsedArgs {
   profile: boolean;
 }
 
-const readFlag = (argv: string[], name: string): string | undefined => {
+export interface EnrichArgs {
+  agent: AgentId;
+  cwd: string;
+  profile: boolean;
+}
+
+export interface ParsedEnrichArgs extends EnrichArgs {
+  sandboxId: string;
+  provider: ProviderId;
+  strict: boolean;
+}
+
+export const readFlag = (argv: string[], name: string): string | undefined => {
   const index = argv.indexOf(name);
   if (index < 0) return undefined;
   const value = argv[index + 1];
@@ -24,10 +36,22 @@ const readFlag = (argv: string[], name: string): string | undefined => {
   return value;
 };
 
-const readAgent = (value: string | undefined): AgentId | undefined => {
+const readRequiredFlag = (argv: string[], name: string): string => {
+  const value = readFlag(argv, name);
+  if (value === undefined) throw new Error(`${name} is required`);
+  return value;
+};
+
+export const readAgent = (value: string | undefined): AgentId | undefined => {
   if (value === undefined) return undefined;
   if (value === "claude-code" || value === "codex") return value;
   throw new Error(`Unknown agent ${value}`);
+};
+
+const readRequiredAgent = (value: string): AgentId => {
+  const agent = readAgent(value);
+  if (agent === undefined) throw new Error("--agent is required");
+  return agent;
 };
 
 export const readTransport = (value: string | undefined): KeeponTransport => {
@@ -75,6 +99,15 @@ export const parseArgs = (argv: string[], cwd: string): ParsedArgs => {
     profile: !argv.includes("--no-profile"),
   };
 };
+
+export const parseEnrichArgs = (argv: string[]): ParsedEnrichArgs => ({
+  sandboxId: readRequiredFlag(argv, "--sandbox-id"),
+  agent: readRequiredAgent(readRequiredFlag(argv, "--agent")),
+  cwd: readRequiredFlag(argv, "--cwd"),
+  provider: readProvider(readRequiredFlag(argv, "--provider")),
+  profile: !argv.includes("--no-profile"),
+  strict: argv.includes("--strict"),
+});
 
 export const buildTransport = (
   args: ParsedArgs,

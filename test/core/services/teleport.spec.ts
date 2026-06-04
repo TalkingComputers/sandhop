@@ -57,7 +57,6 @@ test("TeleportService fast core fans out collection, uploads one gzip bundle, st
   });
 
   const result = await service.run("/workspace/project", {
-    profile: true,
     transport: new PublicTransport(),
     timeoutMs: 3_600_000,
   });
@@ -145,7 +144,6 @@ test("TeleportService injects transport bootstrap steps and loopback ttyd bind",
   });
 
   const result = await service.run("/workspace/project", {
-    profile: false,
     transport: cloudflaredTransport,
     timeoutMs: 3_600_000,
   });
@@ -198,7 +196,6 @@ test("TeleportService uploads core secret and auth files but leaves MCP code to 
   });
 
   await service.run("/workspace/project", {
-    profile: false,
     transport: new PublicTransport(),
     timeoutMs: 3_600_000,
   });

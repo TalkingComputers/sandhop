@@ -142,26 +142,41 @@ test("VercelSandboxProvider spawn uses detached bash and upload uses mkdir plus 
   expect(vercelMocks.stop).toHaveBeenCalled();
 });
 
-test("VercelSandboxProvider reconnects by name and reuses live instances", async () => {
+test("VercelSandboxProvider connects and destroys by SDK lookup", async () => {
   const { VercelSandboxProvider } = await loadProvider();
   const provider = new VercelSandboxProvider(
     new FakeHost({ home: "/home/local", env }),
   );
 
   const created = await provider.create({ envs: {}, timeoutMs: 600000 });
-  await expect(provider.connect(created.id)).resolves.toBe(created);
-  expect(vercelMocks.get).not.toHaveBeenCalled();
+  const connectedCreated = await provider.connect(created.id);
 
   const connected = await provider.connect("keepon-existing");
+  await expect(provider.destroy(created.id)).resolves.toBe(true);
 
+  expect(connectedCreated).not.toBe(created);
   expect(connected.id).toBe("keepon-existing");
-  expect(vercelMocks.get).toHaveBeenCalledWith({
+  expect(vercelMocks.get).toHaveBeenNthCalledWith(1, {
+    token: "token",
+    teamId: "team",
+    projectId: "project",
+    name: created.id,
+    resume: true,
+  });
+  expect(vercelMocks.get).toHaveBeenNthCalledWith(2, {
     token: "token",
     teamId: "team",
     projectId: "project",
     name: "keepon-existing",
     resume: true,
   });
+  expect(vercelMocks.get).toHaveBeenNthCalledWith(3, {
+    token: "token",
+    teamId: "team",
+    projectId: "project",
+    name: created.id,
+  });
+  expect(vercelMocks.stop).toHaveBeenCalledTimes(1);
 });
 
 test("VercelSandboxProvider lists and destroys sandboxes by name", async () => {
