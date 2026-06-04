@@ -92,7 +92,7 @@ class VercelSandboxAdapter implements Sandbox {
   }
 
   async exposePort(port: number): Promise<ExposedPort> {
-    return { url: this.sandbox.domain(port), authGatedByProvider: false };
+    return { url: this.sandbox.domain(port) };
   }
 
   async destroy(): Promise<void> {

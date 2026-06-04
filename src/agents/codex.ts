@@ -9,6 +9,7 @@ import type {
 } from "../core/ports/agent.js";
 import { collectEnvRefs } from "../core/env.js";
 import { MCP_STARTUP_TIMEOUT_SEC } from "../core/mcp-timeout.js";
+import { buildCodexPreSeedScript } from "../core/sandbox-scripts.js";
 import { parse, type TomlTable, type TomlValue } from "smol-toml";
 import { fileName, makeVersionParser, sortNewest } from "./shared.js";
 
@@ -181,34 +182,6 @@ const formatMcpConfig = (servers: McpServer[]): McpConfigWrite => {
     mode: "append",
   };
 };
-
-const buildCodexPreSeedScript = (remoteProj: string): string =>
-  [
-    'const fs=require("fs")',
-    'const f=process.env.HOME+"/.codex/config.toml"',
-    `const project=${JSON.stringify(remoteProj)}`,
-    'const projectHeader="[projects."+JSON.stringify(project)+"]"',
-    'const root=["approval_policy = \\"never\\"","sandbox_mode = \\"danger-full-access\\"","cli_auth_credentials_store = \\"file\\""]',
-    "const rootKey=/^(approval_policy|sandbox_mode|cli_auth_credentials_store)\\s*=/",
-    'let lines=fs.existsSync(f)?fs.readFileSync(f,"utf8").split(/\\r?\\n/):[]',
-    'if(lines.length===1&&lines[0]==="")lines=[]',
-    "let table=false",
-    "const kept=[]",
-    "for(const line of lines){if(/^\\s*\\[/.test(line))table=true;if(!table&&rootKey.test(line.trim()))continue;kept.push(line)}",
-    "const withoutProject=[]",
-    "for(let i=0;i<kept.length;i++){if(kept[i].trim()===projectHeader){i++;while(i<kept.length&&!/^\\s*\\[/.test(kept[i]))i++;i--}else withoutProject.push(kept[i])}",
-    'while(withoutProject[withoutProject.length-1]==="")withoutProject.pop()',
-    "const firstTable=withoutProject.findIndex(line=>/^\\s*\\[/.test(line))",
-    "const beforeRoot=firstTable===-1?withoutProject:withoutProject.slice(0,firstTable)",
-    "const afterRoot=firstTable===-1?[]:withoutProject.slice(firstTable)",
-    "const out=[...beforeRoot]",
-    'if(out.length>0&&out[out.length-1]!=="")out.push("")',
-    "out.push(...root)",
-    'if(afterRoot.length>0)out.push("",...afterRoot)',
-    'out.push("",projectHeader,"trust_level = \\\"trusted\\\"")',
-    'fs.mkdirSync(process.env.HOME+"/.codex",{recursive:true})',
-    'fs.writeFileSync(f,out.join("\\n")+"\\n")',
-  ].join(";");
 
 const authEnv = (deps: AgentHostDeps): AuthBundle => {
   const authJson = deps.readFile(`${deps.home}/.codex/auth.json`);

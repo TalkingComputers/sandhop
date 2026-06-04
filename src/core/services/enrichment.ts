@@ -1,21 +1,19 @@
-import { safeRemoteProj } from "../encode.js";
 import { formatErrorStack } from "../errors.js";
 import { makeTempPath, sandboxExpandHome } from "../paths.js";
 import type { Agent } from "../ports/agent.js";
-import type { HostDeps } from "../ports/host.js";
 import type { RunResult, Sandbox } from "../ports/provider.js";
-import { BootstrapService, type EnrichmentStepResult } from "./bootstrap.js";
+import type { BootstrapService, EnrichmentStepResult } from "./bootstrap.js";
 import type { CodePlan } from "./mcp-code.js";
-import { McpCodeService } from "./mcp-code.js";
-import { ProfileService } from "./profile.js";
-import { ReinstallService } from "./reinstall.js";
-import { SecretsService } from "./secrets.js";
+import type { McpCodeService } from "./mcp-code.js";
+import type { ProfileService } from "./profile.js";
+import type { ReinstallService } from "./reinstall.js";
+import type { SecretsService } from "./secrets.js";
 import {
   LOCAL_PATH_EXCLUDES,
-  ScriptCaptureService,
+  type ScriptCaptureService,
   type ScriptCapturePlan,
 } from "./scripts.js";
-import { TransferService } from "./transfer.js";
+import type { TransferService } from "./transfer.js";
 
 const appendLog = async (sandbox: Sandbox, text: string): Promise<void> => {
   const marker = `KEEPON_ENRICH_LOG_${Date.now()}`;
@@ -68,7 +66,6 @@ const recordScriptStep = async (
 };
 
 export class EnrichmentService {
-  readonly host: HostDeps;
   readonly agent: Agent;
   readonly sandbox: Sandbox;
   readonly transfer: TransferService;
@@ -79,17 +76,16 @@ export class EnrichmentService {
   readonly scripts: ScriptCaptureService;
   readonly bootstrap: BootstrapService;
 
-  constructor(host: HostDeps, agent: Agent, sandbox: Sandbox) {
-    this.host = host;
+  constructor(agent: Agent, services: EnrichmentServices) {
     this.agent = agent;
-    this.sandbox = sandbox;
-    this.transfer = new TransferService(host, sandbox);
-    this.profile = new ProfileService(host, agent);
-    this.mcpCode = new McpCodeService(host, agent);
-    this.reinstall = new ReinstallService(host, agent);
-    this.secrets = new SecretsService(host, agent);
-    this.scripts = new ScriptCaptureService(host);
-    this.bootstrap = new BootstrapService(agent);
+    this.sandbox = services.sandbox;
+    this.transfer = services.transfer;
+    this.profile = services.profile;
+    this.mcpCode = services.mcpCode;
+    this.reinstall = services.reinstall;
+    this.secrets = services.secrets;
+    this.scripts = services.scripts;
+    this.bootstrap = services.bootstrap;
   }
 
   async run(cwd: string, profile: boolean): Promise<EnrichmentStepResult[]> {
@@ -123,7 +119,7 @@ export class EnrichmentService {
         this.sandbox,
         steps,
         "re-apply preseed (trust + root config)",
-        this.agent.preSeed(safeRemoteProj(cwd).dir).join("\n"),
+        this.agent.preSeed(cwd).join("\n"),
       );
       let codePlan: CodePlan | null = null;
       let scriptPlan: ScriptCapturePlan | null = null;
@@ -194,7 +190,7 @@ export class EnrichmentService {
             );
           const result = await runLogged(
             this.sandbox,
-            this.bootstrap.renderEnrichmentConfig(safeRemoteProj(cwd).dir, {
+            this.bootstrap.renderEnrichmentConfig(cwd, {
               codePlan,
             }),
           );
@@ -230,4 +226,15 @@ export class EnrichmentService {
       throw error;
     }
   }
+}
+
+export interface EnrichmentServices {
+  sandbox: Sandbox;
+  transfer: TransferService;
+  profile: ProfileService;
+  mcpCode: McpCodeService;
+  reinstall: ReinstallService;
+  secrets: SecretsService;
+  scripts: ScriptCaptureService;
+  bootstrap: BootstrapService;
 }

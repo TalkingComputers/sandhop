@@ -17,7 +17,6 @@ test("provider conformance: fake sandbox supports path uploads, command results,
   await sandbox.spawn("ttyd");
   await expect(sandbox.exposePort(7681)).resolves.toMatchObject({
     url: expect.stringContaining("7681"),
-    authGatedByProvider: false,
   });
   await expect(provider.destroy("sbx-1")).resolves.toBe(true);
 });

@@ -13,7 +13,6 @@ export * from "./core/services/profile.js";
 export * from "./core/services/reinstall.js";
 export * from "./core/services/secrets.js";
 export * from "./core/services/session.js";
-export * from "./core/services/snapshot.js";
 export * from "./core/services/teleport.js";
 export * from "./core/services/transfer.js";
 export * from "./core/services/version.js";

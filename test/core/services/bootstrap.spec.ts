@@ -12,7 +12,7 @@ import type { CodePlan } from "../../../src/core/services/mcp-code.js";
 const manifest = buildManifest({
   agent: "claude-code",
   cliVersion: "2.1.160",
-  originalCwd: "/private/tmp/keepon-codex2",
+  cwd: "/private/tmp/keepon-codex2",
   sessionId: "session-id",
   transcriptName: "session-id.jsonl",
   ts: 1,
@@ -83,7 +83,7 @@ test("BootstrapService quotes remote project shell paths with spaces", () => {
   const spacedManifest = buildManifest({
     agent: "claude-code",
     cliVersion: "2.1.160",
-    originalCwd: "/Users/alice/My Project",
+    cwd: "/Users/alice/My Project",
     sessionId: "session-id",
     transcriptName: "session-id.jsonl",
     ts: 1,

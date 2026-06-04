@@ -71,10 +71,7 @@ class E2bSandboxAdapter implements Sandbox {
   }
 
   async exposePort(port: number): Promise<ExposedPort> {
-    return {
-      url: `https://${this.sandbox.getHost(port)}`,
-      authGatedByProvider: false,
-    };
+    return { url: `https://${this.sandbox.getHost(port)}` };
   }
 
   async destroy(): Promise<void> {

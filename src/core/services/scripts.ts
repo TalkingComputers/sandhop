@@ -1,4 +1,3 @@
-import { safeRemoteProj } from "../encode.js";
 import { isRecord } from "../json.js";
 import { expandEnv, joinPath, normalizePath } from "../paths.js";
 import type { HostDeps } from "../ports/host.js";
@@ -167,7 +166,7 @@ const settingsFiles = (host: HostDeps, cwd: string): SettingsFile[] => [
   },
   {
     localPath: `${cwd}/.claude/settings.json`,
-    sandboxPath: `${safeRemoteProj(cwd).dir}/.claude/settings.json`,
+    sandboxPath: `${cwd}/.claude/settings.json`,
     cwd,
   },
 ];

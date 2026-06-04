@@ -1,10 +1,9 @@
-import { safeRemoteProj } from "./encode.js";
+import { projectDirName } from "./encode.js";
 import type { AgentId } from "./ports/agent.js";
 
 export interface Manifest {
   agent: AgentId;
   cliVersion: string;
-  originalCwd: string;
   remoteProj: string;
   remoteEnc: string;
   sessionId: string;
@@ -15,18 +14,16 @@ export interface Manifest {
 export const buildManifest = (args: {
   agent: AgentId;
   cliVersion: string;
-  originalCwd: string;
+  cwd: string;
   sessionId: string;
   transcriptName: string;
   ts: number;
 }): Manifest => {
-  const { dir, enc } = safeRemoteProj(args.originalCwd);
   return {
     agent: args.agent,
     cliVersion: args.cliVersion,
-    originalCwd: args.originalCwd,
-    remoteProj: dir,
-    remoteEnc: enc,
+    remoteProj: args.cwd,
+    remoteEnc: projectDirName(args.cwd),
     sessionId: args.sessionId,
     transcriptName: args.transcriptName,
     ts: args.ts,

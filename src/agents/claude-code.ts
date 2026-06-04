@@ -2,6 +2,7 @@ import { projectDirName } from "../core/encode.js";
 import { collectEnvRefs } from "../core/env.js";
 import { isRecord } from "../core/json.js";
 import { MCP_TIMEOUT_MS } from "../core/mcp-timeout.js";
+import { buildClaudePreSeedScript } from "../core/sandbox-scripts.js";
 import type {
   Agent,
   AgentHostDeps,
@@ -190,10 +191,9 @@ export const CLAUDE_CODE: Agent = {
   installCmd: (version) => `npm i -g @anthropic-ai/claude-code@${version}`,
   supportsSettingsScripts: () => true,
   supportsReinstall: () => true,
-  preSeed: (remoteProj) => {
-    const script = `const fs=require("fs");const f=process.env.HOME+"/.claude.json";const j=fs.existsSync(f)?JSON.parse(fs.readFileSync(f,"utf8")):{};j.hasCompletedOnboarding=true;if(!Object.hasOwn(j,"projects"))j.projects={};j.projects[${JSON.stringify(remoteProj)}]={hasTrustDialogAccepted:true,hasCompletedProjectOnboarding:true};if(process.env.ANTHROPIC_API_KEY){if(!Object.hasOwn(j,"customApiKeyResponses"))j.customApiKeyResponses={};j.customApiKeyResponses.approved=[process.env.ANTHROPIC_API_KEY.slice(-20)];j.customApiKeyResponses.rejected=[];}fs.writeFileSync(f,JSON.stringify(j))`;
-    return [`node -e ${JSON.stringify(script)}`];
-  },
+  preSeed: (remoteProj) => [
+    `node -e ${JSON.stringify(buildClaudePreSeedScript(remoteProj))}`,
+  ],
   remoteTranscriptPath: (remoteEnc, transcriptName) =>
     `$HOME/.claude/projects/${remoteEnc}/${transcriptName}`,
   resumeCmd: (sessionId, remoteProj) =>

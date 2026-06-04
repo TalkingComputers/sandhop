@@ -9,7 +9,6 @@ import type { AuthExtractor } from "./auth.js";
 import type { BootstrapService } from "./bootstrap.js";
 import type { SecretsCollector } from "./secrets.js";
 import type { SessionReader } from "./session.js";
-import type { SnapshotBuilder } from "./snapshot.js";
 import { makeTarGzipCommand } from "./transfer.js";
 import type { VersionDetector } from "./version.js";
 
@@ -28,8 +27,7 @@ export interface TeleportOptions {
 }
 
 export interface TeleportServices {
-  host: Pick<HostDeps, "readBytes" | "spawnPipe">;
-  snapshot: SnapshotBuilder;
+  host: Pick<HostDeps, "readBytes" | "realpath" | "spawnPipe">;
   session: SessionReader;
   secrets: SecretsCollector;
   auth: AuthExtractor;
@@ -66,7 +64,7 @@ export class TeleportService {
     const pass = randomPassword();
     opts.onProgress?.("snapshotting");
     const [bundle, session, baseSecrets, auth, cliVersion] = await Promise.all([
-      this.services.snapshot.build(cwd),
+      this.services.host.realpath(cwd),
       opts.sessionId === undefined
         ? this.services.session.latest(cwd)
         : this.services.session.byId(cwd, opts.sessionId),
@@ -77,7 +75,7 @@ export class TeleportService {
     const manifest = buildManifest({
       agent: this.agent.id,
       cliVersion,
-      originalCwd: cwd,
+      cwd,
       sessionId: session.sessionId,
       transcriptName: session.transcriptName,
       ts: Date.now(),

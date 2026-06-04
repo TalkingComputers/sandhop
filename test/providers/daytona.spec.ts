@@ -134,8 +134,6 @@ test("DaytonaSandboxProvider uploads files, exposes ports, and destroys", async 
   await sandbox.uploadPath("/tmp/profile.tgz", "/local/profile.tgz");
   await expect(sandbox.exposePort(7681)).resolves.toEqual({
     url: "https://daytona-preview.example",
-    token: "preview-token",
-    authGatedByProvider: false,
   });
   await sandbox.destroy();
 

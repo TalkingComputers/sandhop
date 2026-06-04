@@ -67,7 +67,6 @@ test("E2bSandboxProvider creates sandboxes, uploads octet-stream bytes and paths
   await sandbox.spawn("ttyd");
   await expect(sandbox.exposePort(7681)).resolves.toEqual({
     url: "https://sbx-created-7681.e2b.app",
-    authGatedByProvider: false,
   });
   await expect(provider.destroy("sbx-created")).resolves.toBe(true);
 

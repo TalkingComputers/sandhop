@@ -10,6 +10,15 @@ import { FakeProvider } from "../../fakes/provider.js";
 
 const encoder = new TextEncoder();
 
+class RealpathHost extends FakeHost {
+  realpaths: string[] = [];
+
+  realpath(path: string): string {
+    this.realpaths.push(path);
+    return path;
+  }
+}
+
 test("TeleportService fast core fans out collection, uploads one gzip bundle, starts HTTPS ttyd with native resume, and skips enrichment", async () => {
   let inFlight = 0;
   let maxInFlight = 0;
@@ -20,7 +29,7 @@ test("TeleportService fast core fans out collection, uploads one gzip bundle, st
     inFlight -= 1;
     return value;
   };
-  const host = new FakeHost({
+  const host = new RealpathHost({
     home: "/home/local",
     env: {},
     bytes: {
@@ -41,9 +50,6 @@ test("TeleportService fast core fans out collection, uploads one gzip bundle, st
   };
   const service = new TeleportService(provider, CLAUDE_CODE, {
     host,
-    snapshot: {
-      build: async (cwd) => track(cwd),
-    },
     session: {
       latest: (cwd) => track(session),
       byId: (cwd, sessionId) => track(session),
@@ -61,7 +67,8 @@ test("TeleportService fast core fans out collection, uploads one gzip bundle, st
     timeoutMs: 3_600_000,
   });
 
-  expect(maxInFlight).toBe(5);
+  expect(maxInFlight).toBe(4);
+  expect(host.realpaths).toEqual(["/workspace/project"]);
   expect(provider.creates).toEqual([
     {
       envs: { MCP_TOKEN: "mcp-token", ANTHROPIC_API_KEY: "sk-ant-api03-test" },
@@ -130,7 +137,6 @@ test("TeleportService injects transport bootstrap steps and loopback ttyd bind",
   };
   const service = new TeleportService(provider, CLAUDE_CODE, {
     host,
-    snapshot: { build: async () => "/workspace/project" },
     session: { latest: async () => session, byId: async () => session },
     secrets: { collect: async () => ({ envs: {}, files: [] }) },
     auth: {
@@ -177,7 +183,6 @@ test("TeleportService uploads core secret and auth files but leaves MCP code to 
   };
   const service = new TeleportService(provider, CLAUDE_CODE, {
     host,
-    snapshot: { build: async () => "/workspace/project" },
     session: { latest: async () => session, byId: async () => session },
     secrets: {
       collect: async () => ({
@@ -235,7 +240,6 @@ test("TeleportService restore failure surfaces stdout when stderr is empty", asy
   };
   const service = new TeleportService(provider, CLAUDE_CODE, {
     host,
-    snapshot: { build: async () => "/workspace/project" },
     session: { latest: async () => session, byId: async () => session },
     secrets: { collect: async () => ({ envs: {}, files: [] }) },
     auth: {

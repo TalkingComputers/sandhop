@@ -116,11 +116,7 @@ class DaytonaSandboxAdapter implements Sandbox {
 
   async exposePort(port: number): Promise<ExposedPort> {
     const preview = await this.sandbox.getPreviewLink(port);
-    return {
-      url: preview.url,
-      token: preview.token,
-      authGatedByProvider: false,
-    };
+    return { url: preview.url };
   }
 
   async destroy(): Promise<void> {

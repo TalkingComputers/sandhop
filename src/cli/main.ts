@@ -9,7 +9,6 @@ import { AuthService } from "../core/services/auth.js";
 import { BootstrapService } from "../core/services/bootstrap.js";
 import { SecretsService } from "../core/services/secrets.js";
 import { SessionService } from "../core/services/session.js";
-import { SnapshotService } from "../core/services/snapshot.js";
 import { TeleportService } from "../core/services/teleport.js";
 import { VersionService } from "../core/services/version.js";
 import type { NodeHost } from "../host/node.js";
@@ -70,7 +69,6 @@ const runPush = async (
     console.error(`Multiple agents found; using ${agent.id}`);
   const service = new TeleportService(provider, agent, {
     host,
-    snapshot: new SnapshotService(host),
     session: new SessionService(host, agent),
     secrets: new SecretsService(host, agent),
     auth: new AuthService(host, agent),

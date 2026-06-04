@@ -73,7 +73,7 @@ class ModalSandboxAdapter implements Sandbox {
     const tunnels = await this.sandbox.tunnels(TUNNEL_TIMEOUT_MS);
     const tunnel = tunnels[port];
     if (tunnel === undefined) throw new Error(`Modal tunnel ${port} not found`);
-    return { url: `https://${tunnel.host}`, authGatedByProvider: false };
+    return { url: `https://${tunnel.host}` };
   }
 
   async destroy(): Promise<void> {

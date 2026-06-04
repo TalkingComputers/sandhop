@@ -49,10 +49,7 @@ export class FakeSandbox implements Sandbox {
 
   async exposePort(port: number): Promise<ExposedPort> {
     this.exposedPorts.push(port);
-    return {
-      url: `https://sandbox-${this.id}-${port}.example`,
-      authGatedByProvider: false,
-    };
+    return { url: `https://sandbox-${this.id}-${port}.example` };
   }
 
   async destroy(): Promise<void> {

@@ -110,7 +110,6 @@ test("VercelSandboxProvider spawn uses detached bash and upload uses mkdir plus 
   await sandbox.uploadPath("/tmp/profile.tgz", "/local/profile.tgz");
   await expect(sandbox.exposePort(7681)).resolves.toEqual({
     url: "https://vercel-7681.example",
-    authGatedByProvider: false,
   });
   await sandbox.destroy();
 

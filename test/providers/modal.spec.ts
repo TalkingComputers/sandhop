@@ -140,7 +140,6 @@ test("ModalSandboxProvider uploads files, exposes ports, and destroys", async ()
   await sandbox.uploadPath("/tmp/profile.tgz", "/tmp/profile.tgz");
   await expect(sandbox.exposePort(7681)).resolves.toEqual({
     url: "https://modal-host.example",
-    authGatedByProvider: false,
   });
   await sandbox.destroy();
 

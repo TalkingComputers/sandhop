@@ -1,7 +1,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import type { RunResult } from "../../src/core/ports/provider.js";
 import type { EnrichmentStepResult } from "../../src/core/services/bootstrap.js";
-import { enrichSandbox, runEnrichCli } from "../../src/cli/enrich.js";
+import { runEnrichCli, runEnrichment } from "../../src/cli/enrich.js";
 import { FakeHost } from "../fakes/host.js";
 import { FakeProvider, FakeSandbox } from "../fakes/provider.js";
 
@@ -99,7 +99,7 @@ test("runEnrichCli returns one when KEEPON_STRICT is set and an enrichment step 
   await expect(runCli(enrichArgv())).resolves.toBe(1);
 });
 
-test("enrichSandbox sends profile and MCP roots with TransferService, uploads sourced files, writes config, and marks completion", async () => {
+test("runEnrichment sends profile and MCP roots with TransferService, uploads sourced files, writes config, and marks completion", async () => {
   const host = new FakeHost({
     home: "/home/local",
     env: {},
@@ -123,7 +123,7 @@ cwd = "/home/local/mcp"
   });
   const provider = new FakeProvider();
 
-  await enrichSandbox(
+  await runEnrichment(
     {
       sandboxId: "sbx-1",
       agent: "codex",
@@ -181,7 +181,7 @@ cwd = "/home/local/mcp"
   expect(enrichmentExec).toContain("[keepon] enrichment summary");
 });
 
-test("enrichSandbox re-applies Codex preseed after profile transfer", async () => {
+test("runEnrichment re-applies Codex preseed after profile transfer", async () => {
   const host = new FakeHost({
     home: "/home/local",
     env: {},
@@ -191,7 +191,7 @@ test("enrichSandbox re-applies Codex preseed after profile transfer", async () =
   });
   const sandbox = new FakeSandbox("sbx-1");
 
-  await enrichSandbox(
+  await runEnrichment(
     {
       sandboxId: "sbx-1",
       agent: "codex",
@@ -217,7 +217,7 @@ test("enrichSandbox re-applies Codex preseed after profile transfer", async () =
   expect(preseedIndex).toBeGreaterThan(profileIndex);
 });
 
-test("enrichSandbox finishes profile and marker after MCP transfer failure", async () => {
+test("runEnrichment finishes profile and marker after MCP transfer failure", async () => {
   const host = new FakeHost({
     home: "/home/local",
     env: {},
@@ -240,7 +240,7 @@ test("enrichSandbox finishes profile and marker after MCP transfer failure", asy
   });
   const sandbox = new FailingMcpSandbox("sbx-1");
 
-  await enrichSandbox(
+  await runEnrichment(
     {
       sandboxId: "sbx-1",
       agent: "claude-code",
@@ -275,7 +275,7 @@ test("enrichSandbox finishes profile and marker after MCP transfer failure", asy
   expect(log).toContain("[keepon] enrichment summary");
 });
 
-test("enrichSandbox runs reinstall commands nice, HTTPS-preferred, fault-isolated, and logged", async () => {
+test("runEnrichment runs reinstall commands nice, HTTPS-preferred, fault-isolated, and logged", async () => {
   const host = new FakeHost({
     home: "/home/local",
     env: {},
@@ -296,7 +296,7 @@ test("enrichSandbox runs reinstall commands nice, HTTPS-preferred, fault-isolate
   });
   const sandbox = new FakeSandbox("sbx-1");
 
-  await enrichSandbox(
+  await runEnrichment(
     {
       sandboxId: "sbx-1",
       agent: "claude-code",
@@ -323,7 +323,7 @@ test("enrichSandbox runs reinstall commands nice, HTTPS-preferred, fault-isolate
   expect(log).toContain("touch /tmp/keepon-enriched");
 });
 
-test("enrichSandbox ships Claude settings scripts and uploads rewritten settings", async () => {
+test("runEnrichment ships Claude settings scripts and uploads rewritten settings", async () => {
   const host = new FakeHost({
     home: "/home/local",
     env: {},
@@ -373,7 +373,7 @@ test("enrichSandbox ships Claude settings scripts and uploads rewritten settings
   });
   const sandbox = new FakeSandbox("sbx-1");
 
-  await enrichSandbox(
+  await runEnrichment(
     {
       sandboxId: "sbx-1",
       agent: "claude-code",

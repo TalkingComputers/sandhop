@@ -13,8 +13,6 @@ export interface CreateOptions {
 
 export interface ExposedPort {
   url: string;
-  token?: string;
-  authGatedByProvider: boolean;
 }
 
 export interface Sandbox {

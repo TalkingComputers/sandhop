@@ -1,9 +1,22 @@
 import { pathToFileURL } from "node:url";
 import { pickAgent } from "../agents/index.js";
+import type { Agent } from "../core/ports/agent.js";
 import type { HostDeps } from "../core/ports/host.js";
 import type { Sandbox } from "../core/ports/provider.js";
-import type { EnrichmentStepResult } from "../core/services/bootstrap.js";
-import { EnrichmentService } from "../core/services/enrichment.js";
+import {
+  BootstrapService,
+  type EnrichmentStepResult,
+} from "../core/services/bootstrap.js";
+import {
+  EnrichmentService,
+  type EnrichmentServices,
+} from "../core/services/enrichment.js";
+import { McpCodeService } from "../core/services/mcp-code.js";
+import { ProfileService } from "../core/services/profile.js";
+import { ReinstallService } from "../core/services/reinstall.js";
+import { SecretsService } from "../core/services/secrets.js";
+import { ScriptCaptureService } from "../core/services/scripts.js";
+import { TransferService } from "../core/services/transfer.js";
 import { buildProvider } from "../providers/index.js";
 import { parseEnrichArgs, type EnrichArgs } from "./args.js";
 import { buildHost } from "./host.js";
@@ -19,15 +32,32 @@ const hasFailedStep = (steps: EnrichmentStepResult[]): boolean =>
 const isStrict = (strict: boolean): boolean =>
   strict || process.env["KEEPON_STRICT"] === "1";
 
-export const enrichSandbox = async (
+const buildEnrichmentServices = (
+  host: HostDeps,
+  agent: Agent,
+  sandbox: Sandbox,
+): EnrichmentServices => ({
+  sandbox,
+  transfer: new TransferService(host, sandbox),
+  profile: new ProfileService(host, agent),
+  mcpCode: new McpCodeService(host, agent),
+  reinstall: new ReinstallService(host, agent),
+  secrets: new SecretsService(host, agent),
+  scripts: new ScriptCaptureService(host),
+  bootstrap: new BootstrapService(agent),
+});
+
+export const runEnrichment = async (
   args: EnrichArgs,
   host: HostDeps,
   sandbox: Sandbox,
-): Promise<EnrichmentStepResult[]> =>
-  new EnrichmentService(host, pickAgent(args.agent), sandbox).run(
-    args.cwd,
-    args.profile,
-  );
+): Promise<EnrichmentStepResult[]> => {
+  const agent = pickAgent(args.agent);
+  return new EnrichmentService(
+    agent,
+    buildEnrichmentServices(host, agent, sandbox),
+  ).run(args.cwd, args.profile);
+};
 
 export const runEnrich = async (argv: string[]): Promise<EnrichRunResult> => {
   const args = parseEnrichArgs(argv);
@@ -37,7 +67,7 @@ export const runEnrich = async (argv: string[]): Promise<EnrichRunResult> => {
   );
   return {
     strict: args.strict,
-    steps: await enrichSandbox(args, host, sandbox),
+    steps: await runEnrichment(args, host, sandbox),
   };
 };
 

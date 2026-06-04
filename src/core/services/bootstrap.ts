@@ -2,6 +2,10 @@ import type { Manifest } from "../manifest.js";
 import { dirname } from "../paths.js";
 import type { Agent } from "../ports/agent.js";
 import {
+  buildMergeClaudeMcpScript,
+  buildPruneMcpTablesScript,
+} from "../sandbox-scripts.js";
+import {
   LOW_PRIORITY_SETUP,
   SUDO_SETUP,
   nonFatal,
@@ -29,27 +33,6 @@ const ARCH_SETUP =
 const ZSTD_INSTALL =
   "command -v zstd || $SUDO sh -lc 'command -v apt-get >/dev/null && (apt-get update && apt-get install -y zstd) || (command -v dnf >/dev/null && dnf install -y zstd) || (command -v apk >/dev/null && apk add zstd) || (command -v yum >/dev/null && yum install -y zstd)'";
 
-const pruneMcpTablesScript = (path: string): string =>
-  [
-    'const fs=require("fs")',
-    `const f=${JSON.stringify(path)}.replace("$HOME",process.env.HOME)`,
-    'const lines=fs.readFileSync(f,"utf8").split(/\\r?\\n/)',
-    "const out=[]",
-    "let skip=false",
-    "for(const line of lines){if(/^\\s*\\[mcp_servers(?:\\.|\\])/.test(line)){skip=true;continue}if(skip&&/^\\s*\\[/.test(line))skip=false;if(!skip)out.push(line)}",
-    'fs.writeFileSync(f,out.join("\\n").replace(/\\n*$/,"\\n"))',
-  ].join(";");
-
-const mergeClaudeMcpScript = (path: string, content: string): string =>
-  [
-    'const fs=require("fs")',
-    `const f=${JSON.stringify(path)}.replace("$HOME",process.env.HOME)`,
-    `const s=JSON.parse(${JSON.stringify(content)})`,
-    'const j=fs.existsSync(f)?JSON.parse(fs.readFileSync(f,"utf8")):{}',
-    "j.mcpServers=s",
-    'fs.writeFileSync(f,JSON.stringify(j,null,2)+"\\n")',
-  ].join(";");
-
 const renderMcpConfig = (agent: Agent, codePlan: CodePlan): string[] => {
   if (codePlan.rewrites.length === 0) return [];
   const config = agent.formatMcpConfig(codePlan.rewrites);
@@ -57,13 +40,13 @@ const renderMcpConfig = (agent: Agent, codePlan: CodePlan): string[] => {
   if (config.mode === "merge-claude-json")
     return [
       `mkdir -p ${quoteHomePath(dir)}`,
-      `node -e ${JSON.stringify(mergeClaudeMcpScript(config.path, config.content))}`,
+      `node -e ${JSON.stringify(buildMergeClaudeMcpScript(config.path, config.content))}`,
     ];
   const redirect = config.mode === "append" ? ">>" : ">";
   return [
     `mkdir -p ${quoteHomePath(dir)}`,
     ...(config.mode === "append"
-      ? [`node -e ${JSON.stringify(pruneMcpTablesScript(config.path))}`]
+      ? [`node -e ${JSON.stringify(buildPruneMcpTablesScript(config.path))}`]
       : []),
     `cat ${redirect} ${quoteHomePath(config.path)} <<'KEEPON_MCP_CONFIG'`,
     config.content.trimEnd(),
