@@ -13,7 +13,9 @@ import type {
   SandboxProvider,
 } from "../../core/ports/provider.js";
 import { shellQuote } from "../../core/shell.js";
+import { destroyOrFalse } from "../destroy.js";
 import { toBuffer } from "../encode.js";
+import { requireCredentials } from "../index.js";
 import { lazyImport, lazyOnce } from "../lazy-import.js";
 
 type DaytonaModule = typeof import("@daytonaio/sdk");
@@ -165,17 +167,16 @@ export class DaytonaSandboxProvider implements SandboxProvider {
   }
 
   async destroy(id: string): Promise<boolean> {
-    try {
-      const sandbox = (await (
-        await this.client()
-      ).get(id)) as DaytonaSandboxInstance;
-      await sandbox.delete(COMMAND_TIMEOUT_SECONDS);
-      return true;
-    } catch (error: unknown) {
-      if (error instanceof Error && error.name === "DaytonaNotFoundError")
-        return false;
-      throw error;
-    }
+    return destroyOrFalse(
+      (error) =>
+        error instanceof Error && error.name === "DaytonaNotFoundError",
+      async () => {
+        const sandbox = (await (
+          await this.client()
+        ).get(id)) as DaytonaSandboxInstance;
+        await sandbox.delete(COMMAND_TIMEOUT_SECONDS);
+      },
+    );
   }
 
   private async createClient(): Promise<DaytonaClient> {
@@ -183,13 +184,12 @@ export class DaytonaSandboxProvider implements SandboxProvider {
       DAYTONA_PACKAGE,
       DAYTONA_INSTALL_HINT,
     );
-    const apiKey = this.host.env.DAYTONA_API_KEY;
-    if (apiKey === undefined)
-      throw new Error("DAYTONA_API_KEY is required for daytona provider");
+    const credentials = requireCredentials(this.host, "daytona");
+    const apiKey = credentials.DAYTONA_API_KEY;
     const config: DaytonaConfig = { apiKey };
-    const apiUrl = this.host.env.DAYTONA_API_URL;
+    const apiUrl = credentials.DAYTONA_API_URL;
     if (apiUrl !== undefined) config.apiUrl = apiUrl;
-    const target = this.host.env.DAYTONA_TARGET;
+    const target = credentials.DAYTONA_TARGET;
     if (target !== undefined) config.target = target;
     return new Daytona(config);
   }

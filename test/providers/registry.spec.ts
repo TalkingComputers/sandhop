@@ -1,9 +1,11 @@
 import { expect, test } from "vitest";
+import { CredentialError } from "../../src/core/errors.js";
 import type { ProviderId } from "../../src/providers/index.js";
 import {
   PROVIDER_IDS,
   PROVIDER_INFO,
   buildProvider,
+  requireCredentials,
 } from "../../src/providers/index.js";
 import { FakeHost } from "../fakes/host.js";
 
@@ -74,6 +76,12 @@ test("PROVIDER_INFO declares credential prompts for every provider", () => {
           required: true,
         },
         {
+          env: "DAYTONA_API_URL",
+          label: "Daytona API URL (optional)",
+          secret: false,
+          required: false,
+        },
+        {
           env: "DAYTONA_TARGET",
           label: "Daytona target region (optional)",
           secret: false,
@@ -112,4 +120,20 @@ test("PROVIDER_INFO declares credential prompts for every provider", () => {
     expect(PROVIDER_INFO[id].credentials.some((field) => field.required)).toBe(
       true,
     );
+});
+
+test("requireCredentials throws CredentialError for missing required credentials", () => {
+  const host = new FakeHost({ home: "/home/local", env: {} });
+
+  let error: unknown;
+  try {
+    requireCredentials(host, "daytona");
+  } catch (caught: unknown) {
+    error = caught;
+  }
+
+  expect(error).toBeInstanceOf(CredentialError);
+  expect(error).toMatchObject({
+    message: "DAYTONA_API_KEY is required — set it or run `keepon setup`",
+  });
 });

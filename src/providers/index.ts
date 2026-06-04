@@ -1,5 +1,6 @@
 import type { HostDeps } from "../core/ports/host.js";
 import type { SandboxProvider } from "../core/ports/provider.js";
+import { CredentialError } from "../core/errors.js";
 import { DaytonaSandboxProvider } from "./daytona/index.js";
 import { E2bSandboxProvider } from "./e2b/index.js";
 import { ModalSandboxProvider } from "./modal/index.js";
@@ -68,6 +69,12 @@ export const PROVIDER_INFO: Record<ProviderId, ProviderInfo> = {
         required: true,
       },
       {
+        env: "DAYTONA_API_URL",
+        label: "Daytona API URL (optional)",
+        secret: false,
+        required: false,
+      },
+      {
         env: "DAYTONA_TARGET",
         label: "Daytona target region (optional)",
         secret: false,
@@ -111,4 +118,20 @@ export const buildProvider = (
   if (id === "daytona") return new DaytonaSandboxProvider(host);
   if (id === "vercel") return new VercelSandboxProvider(host);
   throw new Error(`Unknown provider ${id}`);
+};
+
+export const requireCredentials = (
+  host: Pick<HostDeps, "env">,
+  id: ProviderId,
+): Record<string, string> => {
+  const values: Record<string, string> = {};
+  for (const field of PROVIDER_INFO[id].credentials) {
+    const value = host.env[field.env];
+    if (field.required && (value === undefined || value === ""))
+      throw new CredentialError(
+        `${field.env} is required — set it or run \`keepon setup\``,
+      );
+    if (value !== undefined && value !== "") values[field.env] = value;
+  }
+  return values;
 };

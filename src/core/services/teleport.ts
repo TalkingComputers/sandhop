@@ -4,6 +4,7 @@ import type { Agent } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
 import type { SandboxProvider } from "../ports/provider.js";
 import type { Transport } from "../ports/transport.js";
+import { randomToken } from "../rand.js";
 import { shellQuote } from "../shell.js";
 import type { AuthExtractor } from "./auth.js";
 import type { BootstrapService } from "./bootstrap.js";
@@ -35,15 +36,6 @@ export interface TeleportServices {
   bootstrap: BootstrapService;
 }
 
-const alphabet =
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-
-const randomPassword = (): string => {
-  const bytes = new Uint8Array(24);
-  globalThis.crypto.getRandomValues(bytes);
-  return [...bytes].map((byte) => alphabet[byte & 63]!).join("");
-};
-
 export class TeleportService {
   readonly provider: SandboxProvider;
   readonly agent: Agent;
@@ -61,7 +53,7 @@ export class TeleportService {
 
   async run(cwd: string, opts: TeleportOptions): Promise<TeleportResult> {
     const user = "keepon";
-    const pass = randomPassword();
+    const pass = randomToken(24);
     opts.onProgress?.("snapshotting");
     const [bundle, session, baseSecrets, auth, cliVersion] = await Promise.all([
       this.services.host.realpath(cwd),

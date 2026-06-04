@@ -2,6 +2,8 @@ interface ErrorWithCause {
   cause?: unknown;
 }
 
+export class CredentialError extends Error {}
+
 export const formatErrorText = (error: unknown): string => {
   if (!(error instanceof Error)) return String(error);
   const cause = (error as ErrorWithCause).cause;

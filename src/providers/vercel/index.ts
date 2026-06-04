@@ -9,7 +9,9 @@ import type {
   SandboxInfo,
   SandboxProvider,
 } from "../../core/ports/provider.js";
+import { destroyOrFalse } from "../destroy.js";
 import { toBuffer } from "../encode.js";
+import { requireCredentials } from "../index.js";
 import { lazyImport, lazyOnce } from "../lazy-import.js";
 
 type VercelModule = typeof import("@vercel/sandbox");
@@ -154,25 +156,20 @@ export class VercelSandboxProvider implements SandboxProvider {
   async destroy(id: string): Promise<boolean> {
     const credentials = this.credentials();
     const { Sandbox } = await this.sdk();
-    try {
+    return destroyOrFalse(isNotFoundError, async () => {
       await (await Sandbox.get({ ...credentials, name: id })).stop();
-      return true;
-    } catch (error: unknown) {
-      if (isNotFoundError(error)) return false;
-      throw error;
-    }
+    });
   }
 
   private credentials(): VercelCredentials {
-    const token = this.host.env["VERCEL_TOKEN"];
-    if (token === undefined)
-      throw new Error("VERCEL_TOKEN is required for vercel provider");
-    const teamId = this.host.env["VERCEL_TEAM_ID"];
-    if (teamId === undefined)
-      throw new Error("VERCEL_TEAM_ID is required for vercel provider");
-    const projectId = this.host.env["VERCEL_PROJECT_ID"];
-    if (projectId === undefined)
-      throw new Error("VERCEL_PROJECT_ID is required for vercel provider");
-    return { token, teamId, projectId };
+    const credentials = requireCredentials(this.host, "vercel") as Record<
+      "VERCEL_TOKEN" | "VERCEL_TEAM_ID" | "VERCEL_PROJECT_ID",
+      string
+    >;
+    return {
+      token: credentials.VERCEL_TOKEN,
+      teamId: credentials.VERCEL_TEAM_ID,
+      projectId: credentials.VERCEL_PROJECT_ID,
+    };
   }
 }

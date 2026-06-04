@@ -4,6 +4,7 @@ import {
   pickAgent,
   selectDefaultAgent,
 } from "../agents/index.js";
+import { CredentialError } from "../core/errors.js";
 import type { Agent } from "../core/ports/agent.js";
 import { AuthService } from "../core/services/auth.js";
 import { BootstrapService } from "../core/services/bootstrap.js";
@@ -133,11 +134,7 @@ export const main = async (argv: string[]): Promise<void> => {
 
 const formatCliError = (error: unknown): string => {
   const message = error instanceof Error ? error.message : String(error);
-  if (
-    message.startsWith("--provider must") ||
-    message.includes(" is required for ") ||
-    message.includes("API key")
-  )
+  if (error instanceof CredentialError)
     return `${message}\nRun \`keepon setup\` to configure a provider.`;
   return message;
 };

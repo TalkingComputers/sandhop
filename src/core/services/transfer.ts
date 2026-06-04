@@ -2,6 +2,7 @@ import pLimit from "p-limit";
 import { basename, dirname } from "../paths.js";
 import type { HostDeps } from "../ports/host.js";
 import type { Sandbox } from "../ports/provider.js";
+import { randomToken } from "../rand.js";
 import { LOW_PRIORITY_SETUP, shellQuote } from "../shell.js";
 
 const CHUNK_BYTES = 90 * 1024 * 1024;
@@ -19,15 +20,6 @@ export interface TransferOptions {
   lowPriority?: boolean;
   excludes?: string[];
 }
-
-const alphabet =
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-
-const randomId = (): string => {
-  const bytes = new Uint8Array(12);
-  globalThis.crypto.getRandomValues(bytes);
-  return [...bytes].map((byte) => alphabet[byte % alphabet.length]!).join("");
-};
 
 const safeLabel = (label: string): string =>
   label.replace(/[^A-Za-z0-9.-]/g, "-");
@@ -155,7 +147,7 @@ export class TransferService {
     opts?: TransferOptions,
   ): Promise<void> {
     const safe = safeLabel(label);
-    const id = randomId();
+    const id = randomToken(12);
     const codec = readCodec(opts);
     const isDirectory =
       !this.host.exists(localPath) || this.host.isDirectory(localPath);

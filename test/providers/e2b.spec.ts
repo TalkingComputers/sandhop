@@ -38,6 +38,8 @@ vi.mock("e2b", () => ({
   Sandbox: e2bMocks.Sandbox,
 }));
 
+const env = { E2B_API_KEY: "e2b-key" };
+
 test("E2bSandboxProvider creates sandboxes, uploads octet-stream bytes and paths, runs commands, exposes HTTPS URLs, and destroys", async () => {
   e2bMocks.commandsRun.mockResolvedValue({
     exitCode: 0,
@@ -47,7 +49,7 @@ test("E2bSandboxProvider creates sandboxes, uploads octet-stream bytes and paths
   const localPath = "/tmp/keepon-e2b.txt";
   const host = new FakeHost({
     home: "/home/local",
-    env: {},
+    env,
     files: { [localPath]: "large" },
   });
   const provider = new E2bSandboxProvider(host);
@@ -71,6 +73,7 @@ test("E2bSandboxProvider creates sandboxes, uploads octet-stream bytes and paths
   await expect(provider.destroy("sbx-created")).resolves.toBe(true);
 
   expect(e2bMocks.Sandbox.create).toHaveBeenCalledWith("base", {
+    apiKey: "e2b-key",
     envs: { A: "1" },
     timeoutMs: 600000,
   });
@@ -105,7 +108,7 @@ test("E2bSandboxProvider returns non-zero command exits as RunResult data", asyn
     }),
   );
   const provider = new E2bSandboxProvider(
-    new FakeHost({ home: "/home/local", env: {} }),
+    new FakeHost({ home: "/home/local", env }),
   );
   const sandbox = await provider.create({
     image: "base",
@@ -123,7 +126,7 @@ test("E2bSandboxProvider returns non-zero command exits as RunResult data", asyn
 test("E2bSandboxProvider reconnects after adapter destroy", async () => {
   e2bMocks.Sandbox.connect.mockClear();
   const provider = new E2bSandboxProvider(
-    new FakeHost({ home: "/home/local", env: {} }),
+    new FakeHost({ home: "/home/local", env }),
   );
   const sandbox = await provider.create({
     image: "base",
@@ -134,5 +137,7 @@ test("E2bSandboxProvider reconnects after adapter destroy", async () => {
   await sandbox.destroy();
   await provider.connect("sbx-created");
 
-  expect(e2bMocks.Sandbox.connect).toHaveBeenCalledWith("sbx-created");
+  expect(e2bMocks.Sandbox.connect).toHaveBeenCalledWith("sbx-created", {
+    apiKey: "e2b-key",
+  });
 });

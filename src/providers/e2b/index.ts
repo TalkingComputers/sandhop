@@ -9,8 +9,13 @@ import type {
   SandboxProvider,
 } from "../../core/ports/provider.js";
 import { toArrayBuffer } from "../encode.js";
+import { requireCredentials } from "../index.js";
 
 type E2bSandboxInstance = Awaited<ReturnType<typeof E2bSandbox.create>>;
+
+interface E2bCredentials {
+  apiKey: string;
+}
 
 const UPLOAD_TIMEOUT_MS = 600000;
 const PATH_UPLOAD_TIMEOUT_MS = 3_600_000;
@@ -81,14 +86,16 @@ class E2bSandboxAdapter implements Sandbox {
 
 export class E2bSandboxProvider implements SandboxProvider {
   readonly name = "e2b";
-  readonly host: Pick<HostDeps, "openBlob">;
+  readonly host: Pick<HostDeps, "env" | "openBlob">;
 
-  constructor(host: Pick<HostDeps, "openBlob">) {
+  constructor(host: Pick<HostDeps, "env" | "openBlob">) {
     this.host = host;
   }
 
   async create(opts: CreateOptions): Promise<Sandbox> {
+    const credentials = this.credentials();
     const sandbox = await E2bSandbox.create(opts.image ?? "base", {
+      ...credentials,
       envs: opts.envs,
       timeoutMs: opts.timeoutMs,
     });
@@ -96,12 +103,15 @@ export class E2bSandboxProvider implements SandboxProvider {
   }
 
   async connect(id: string): Promise<Sandbox> {
-    return new E2bSandboxAdapter(await E2bSandbox.connect(id), this.host);
+    return new E2bSandboxAdapter(
+      await E2bSandbox.connect(id, this.credentials()),
+      this.host,
+    );
   }
 
   async list(): Promise<SandboxInfo[]> {
     const sandboxes: SandboxInfo[] = [];
-    const paginator = E2bSandbox.list();
+    const paginator = E2bSandbox.list(this.credentials());
     while (paginator.hasNext) {
       for (const sandbox of await paginator.nextItems()) {
         sandboxes.push({ id: sandbox.sandboxId, startedAt: sandbox.startedAt });
@@ -111,6 +121,14 @@ export class E2bSandboxProvider implements SandboxProvider {
   }
 
   async destroy(id: string): Promise<boolean> {
-    return E2bSandbox.kill(id);
+    return E2bSandbox.kill(id, this.credentials());
+  }
+
+  private credentials(): E2bCredentials {
+    const credentials = requireCredentials(this.host, "e2b") as Record<
+      "E2B_API_KEY",
+      string
+    >;
+    return { apiKey: credentials.E2B_API_KEY };
   }
 }

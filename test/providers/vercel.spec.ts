@@ -246,6 +246,6 @@ test("VercelSandboxProvider requires env credentials", async () => {
 
     await expect(
       provider.create({ envs: {}, timeoutMs: 600000 }),
-    ).rejects.toThrow(`${key} is required for vercel provider`);
+    ).rejects.toThrow(`${key} is required — set it or run \`keepon setup\``);
   }
 });

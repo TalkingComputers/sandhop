@@ -11,7 +11,9 @@ import type {
   SandboxInfo,
   SandboxProvider,
 } from "../../core/ports/provider.js";
+import { destroyOrFalse } from "../destroy.js";
 import { toBytes } from "../encode.js";
+import { requireCredentials } from "../index.js";
 import { lazyImport, lazyOnce } from "../lazy-import.js";
 
 type ModalModule = typeof import("modal");
@@ -119,15 +121,13 @@ export class ModalSandboxProvider implements SandboxProvider {
   }
 
   async destroy(id: string): Promise<boolean> {
-    try {
-      const sandbox = await (await this.client()).sandboxes.fromId(id);
-      await sandbox.terminate();
-      return true;
-    } catch (error: unknown) {
-      if (error instanceof Error && error.name === "NotFoundError")
-        return false;
-      throw error;
-    }
+    return destroyOrFalse(
+      (error) => error instanceof Error && error.name === "NotFoundError",
+      async () => {
+        const sandbox = await (await this.client()).sandboxes.fromId(id);
+        await sandbox.terminate();
+      },
+    );
   }
 
   private async createClient(): Promise<ModalClientType> {
@@ -135,12 +135,10 @@ export class ModalSandboxProvider implements SandboxProvider {
       MODAL_PACKAGE,
       MODAL_INSTALL_HINT,
     );
-    const tokenId = this.host.env.MODAL_TOKEN_ID;
-    const tokenSecret = this.host.env.MODAL_TOKEN_SECRET;
-    if (tokenId === undefined)
-      throw new Error("MODAL_TOKEN_ID is required for modal provider");
-    if (tokenSecret === undefined)
-      throw new Error("MODAL_TOKEN_SECRET is required for modal provider");
-    return new ModalClient({ tokenId, tokenSecret });
+    const credentials = requireCredentials(this.host, "modal");
+    return new ModalClient({
+      tokenId: credentials.MODAL_TOKEN_ID,
+      tokenSecret: credentials.MODAL_TOKEN_SECRET,
+    });
   }
 }
