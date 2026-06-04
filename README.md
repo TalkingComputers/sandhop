@@ -34,7 +34,7 @@ Open `SANDHOP_URL` and sign in with the `SANDHOP_AUTH` user/password to continue
 
 Sandhop is provider-agnostic. `sandhop setup` configures the default; override per-run with `--provider`.
 
-| Provider           | `--provider` | Credentials (collected by `sandhop setup`)             |
+| Provider           | `--provider` | Credentials (collected by `sandhop setup`)            |
 | ------------------ | ------------ | ----------------------------------------------------- |
 | **E2B** (default)  | `e2b`        | `E2B_API_KEY`                                         |
 | **Modal**          | `modal`      | `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET`                |
@@ -95,7 +95,7 @@ sandhop kill <sandbox-id>                 # destroy a sandbox
 
 ## Architecture
 
-TypeScript modular monolith with a hexagonal core. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+TypeScript modular monolith with a hexagonal core.
 
 - `src/core`: ports, pure data types, orchestration services (teleport, enrichment, snapshot, profile, secrets, MCP).
 - `src/host`: local Node filesystem/process/keychain/tar adapter.

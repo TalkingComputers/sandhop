@@ -28,7 +28,6 @@
   "files": [
     "dist",
     "plugin",
-    "docs/ARCHITECTURE.md",
     "README.md",
     "LICENSE"
   ],
