@@ -40,8 +40,10 @@
     "dev": "tsx src/cli/main.ts"
   },
   "dependencies": {
+    "@clack/prompts": "^1.5.1",
     "e2b": "^2.27.0",
     "p-limit": "^7.3.0",
+    "smol-toml": "^1.6.1",
     "tar": "^7.5.16"
   },
   "devDependencies": {

@@ -1,17 +1,18 @@
 import type { AgentId } from "../core/ports/agent.js";
 import type { Transport } from "../core/ports/transport.js";
+import type { KeeponTransport } from "./config.js";
 import { PROVIDER_IDS, type ProviderId } from "../providers/index.js";
 import { CloudflaredTransport } from "../transports/cloudflared.js";
 import { PublicTransport } from "../transports/public.js";
 
 export interface ParsedArgs {
-  cmd: "push" | "list" | "kill";
+  cmd: "push" | "list" | "kill" | "setup";
   agent?: AgentId;
   session?: string;
   killId?: string;
   cwd: string;
-  provider: ProviderId;
-  transport: "public" | "cloudflared";
+  provider?: ProviderId;
+  transport?: KeeponTransport;
   profile: boolean;
 }
 
@@ -29,11 +30,16 @@ const readAgent = (value: string | undefined): AgentId | undefined => {
   throw new Error(`Unknown agent ${value}`);
 };
 
-const readTransport = (value: string | undefined): "public" | "cloudflared" => {
+export const readTransport = (value: string | undefined): KeeponTransport => {
   if (value === undefined) return "public";
   if (value === "public" || value === "cloudflared") return value;
   throw new Error("--tunnel must be 'public' or 'cloudflared'");
 };
+
+const readOptionalTransport = (
+  value: string | undefined,
+): KeeponTransport | undefined =>
+  value === undefined ? undefined : readTransport(value);
 
 const isProviderId = (value: string): value is ProviderId =>
   PROVIDER_IDS.includes(value as ProviderId);
@@ -44,16 +50,26 @@ export const readProvider = (value: string | undefined): ProviderId => {
   throw new Error(`--provider must be one of: ${PROVIDER_IDS.join(", ")}`);
 };
 
+const readOptionalProvider = (
+  value: string | undefined,
+): ProviderId | undefined =>
+  value === undefined ? undefined : readProvider(value);
+
+const readCmd = (value: string | undefined): ParsedArgs["cmd"] => {
+  if (value === "list" || value === "kill" || value === "setup") return value;
+  return "push";
+};
+
 export const parseArgs = (argv: string[], cwd: string): ParsedArgs => {
-  const cmd = argv[0] === "list" || argv[0] === "kill" ? argv[0] : "push";
+  const cmd = readCmd(argv[0]);
   return {
     cmd,
     agent: readAgent(readFlag(argv, "--agent")),
     session: readFlag(argv, "--session"),
     killId: cmd === "kill" ? argv[1] : undefined,
     cwd: readFlag(argv, "--cwd") ?? cwd,
-    provider: readProvider(readFlag(argv, "--provider")),
-    transport: readTransport(
+    provider: readOptionalProvider(readFlag(argv, "--provider")),
+    transport: readOptionalTransport(
       argv.includes("--tunnel") ? readFlag(argv, "--tunnel") : undefined,
     ),
     profile: !argv.includes("--no-profile"),
@@ -64,7 +80,7 @@ export const buildTransport = (
   args: ParsedArgs,
   env: Record<string, string | undefined>,
 ): Transport => {
-  if (args.transport === "public") return new PublicTransport();
+  if (args.transport !== "cloudflared") return new PublicTransport();
   return new CloudflaredTransport({
     token: env.CLOUDFLARE_TUNNEL_TOKEN,
     hostname: env.CLOUDFLARE_TUNNEL_HOSTNAME,

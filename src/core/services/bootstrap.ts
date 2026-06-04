@@ -77,6 +77,12 @@ const renderMcpConfig = (
   ];
 };
 
+const renderMcpExcluded = (codePlan: CodePlan): string[] =>
+  codePlan.excluded.map(
+    (server) =>
+      `echo "[keepon] mcp skipped: ${shellLog(server.name)} (${shellLog(server.reason)})"`,
+  );
+
 const renderMcpCode = (codePlan: CodePlan | null | undefined): string[] => {
   if (codePlan === null || codePlan === undefined) return [];
   const runtimes = [
@@ -147,9 +153,11 @@ export class BootstrapService {
   ): string {
     if (opts.codePlan === null || opts.codePlan === undefined)
       return 'echo "[keepon] mcp config skipped"';
+    const excluded = renderMcpExcluded(opts.codePlan);
     const config = renderMcpConfig(this.agent, opts.codePlan, remoteProj);
-    if (config.length === 0) return 'echo "[keepon] mcp config skipped"';
-    return config.join("\n");
+    if (config.length === 0)
+      return [...excluded, 'echo "[keepon] mcp config skipped"'].join("\n");
+    return [...excluded, ...config].join("\n");
   }
 
   renderEnrichmentInstalls(opts: EnrichmentBootstrapOptions): string {

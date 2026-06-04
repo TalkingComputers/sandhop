@@ -121,7 +121,12 @@ test("BootstrapService enrichment installs runtimes and deps, writes rewritten M
     installCmds: ["cd /home/user/mcp && npm ci"],
     referencedFiles: [],
     envRefs: [],
-    excluded: [],
+    excluded: [
+      {
+        name: "postgres",
+        reason: "binds to localhost / loopback (unreachable from sandbox)",
+      },
+    ],
     classifications: [{ name: "local", kind: "local-path" }],
   };
 
@@ -164,6 +169,9 @@ test("BootstrapService enrichment installs runtimes and deps, writes rewritten M
   expect(script).toContain("$HOME/.claude.json");
   expect(script).toContain("/home/user/mcp/server.js");
   expect(script).toContain("touch /tmp/keepon-enriched");
+  expect(script).toContain(
+    'echo "[keepon] mcp skipped: postgres (binds to localhost / loopback (unreachable from sandbox))"',
+  );
   expect(script).toContain('echo "[keepon] enrichment summary"');
   expect(script.indexOf("cd /home/user/mcp && npm ci")).toBeLessThan(
     script.indexOf("$HOME/.claude.json"),

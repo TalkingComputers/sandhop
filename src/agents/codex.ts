@@ -8,6 +8,8 @@ import type {
   McpServer,
   SessionRef,
 } from "../core/ports/agent.js";
+import { MCP_STARTUP_TIMEOUT_SEC } from "../core/mcp-timeout.js";
+import { parse, type TomlTable, type TomlValue } from "smol-toml";
 
 const fileName = (path: string): string => path.split("/").pop()!;
 
@@ -46,65 +48,110 @@ const readRecordedCwd = (
   }
 };
 
-const readTomlEnvRefs = (text: string): string[] => {
-  const refs = new Set<string>();
-  for (const match of text.matchAll(
+const isTomlTable = (value: unknown): value is TomlTable =>
+  typeof value === "object" &&
+  value !== null &&
+  !Array.isArray(value) &&
+  !(value instanceof Date);
+
+const toTomlTable = (
+  value: TomlValue | undefined,
+  path: string,
+): TomlTable | undefined => {
+  if (value === undefined) return undefined;
+  if (!isTomlTable(value)) throw new Error(`Expected ${path} to be a table`);
+  return value;
+};
+
+const toTomlString = (
+  value: TomlValue | undefined,
+  path: string,
+): string | undefined => {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string")
+    throw new Error(`Expected ${path} to be a string`);
+  return value;
+};
+
+const toTomlStringArray = (
+  value: TomlValue | undefined,
+  path: string,
+): string[] | undefined => {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) throw new Error(`Expected ${path} to be an array`);
+  return value.map((item, index) => {
+    if (typeof item !== "string")
+      throw new Error(`Expected ${path}[${index}] to be a string`);
+    return item;
+  });
+};
+
+const toTomlStringRecord = (
+  value: TomlValue | undefined,
+  path: string,
+): Record<string, string> | undefined => {
+  const table = toTomlTable(value, path);
+  if (table === undefined) return undefined;
+  return Object.fromEntries(
+    Object.entries(table).map(([key, field]) => {
+      if (typeof field !== "string")
+        throw new Error(`Expected ${path}.${key} to be a string`);
+      return [key, field];
+    }),
+  );
+};
+
+const collectEnvRefsFromString = (refs: Set<string>, value: string): void => {
+  for (const match of value.matchAll(
     /(?:\$\{([A-Z][A-Z0-9_]*)\}|\$([A-Z][A-Z0-9_]*)|process\.env\.([A-Z][A-Z0-9_]*))/g,
   )) {
     const name = match[1] ?? match[2] ?? match[3];
     if (name !== undefined) refs.add(name);
   }
-  let inEnv = false;
-  for (const line of text.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (/^\[.*\.env\]$/.test(trimmed)) {
-      inEnv = true;
-      continue;
+};
+
+const collectEnvRefsFromValue = (refs: Set<string>, value: TomlValue): void => {
+  if (typeof value === "string") collectEnvRefsFromString(refs, value);
+  else if (Array.isArray(value))
+    for (const item of value) collectEnvRefsFromValue(refs, item);
+  else if (isTomlTable(value))
+    for (const item of Object.values(value))
+      collectEnvRefsFromValue(refs, item);
+};
+
+const readTomlEnvRefs = (text: string): string[] => {
+  const refs = new Set<string>();
+  const parsed = parse(text);
+  const mcpServers = toTomlTable(parsed.mcp_servers, "mcp_servers");
+  if (mcpServers !== undefined)
+    for (const [name, value] of Object.entries(mcpServers)) {
+      const server = toTomlTable(value, `mcp_servers.${name}`);
+      if (server === undefined) throw new Error(`Expected mcp_servers.${name}`);
+      const env = toTomlTable(server.env, `mcp_servers.${name}.env`);
+      if (env !== undefined) for (const key of Object.keys(env)) refs.add(key);
     }
-    if (trimmed.startsWith("[")) inEnv = false;
-    if (inEnv) {
-      const key = trimmed.match(/^([A-Za-z][A-Za-z0-9_]*)\s*=/)?.[1];
-      if (key !== undefined) refs.add(key);
-    }
-    const inlineEnv = trimmed.match(/env\s*=\s*\{([^}]*)\}/)?.[1];
-    if (inlineEnv !== undefined) {
-      for (const match of inlineEnv.matchAll(/([A-Za-z][A-Za-z0-9_]*)\s*=/g))
-        refs.add(match[1]!);
-    }
-  }
+  for (const value of Object.values(parsed))
+    collectEnvRefsFromValue(refs, value);
   return [...refs].sort();
 };
 
-const trimQuotes = (value: string): string =>
-  value.replace(/^"|"$/g, "").replace(/\\"/g, '"');
-
-const readTomlString = (value: string): string | undefined => {
-  const trimmed = value.trim();
-  return /^"(?:\\.|[^"])*"$/.test(trimmed) ? trimQuotes(trimmed) : undefined;
-};
-
-const readTomlArray = (value: string): string[] | undefined => {
-  const trimmed = value.trim();
-  if (!trimmed.startsWith("[") || !trimmed.endsWith("]")) return undefined;
-  const values: string[] = [];
-  for (const match of trimmed.matchAll(/"((?:\\.|[^"])*)"/g)) {
-    values.push(match[1]!.replace(/\\"/g, '"'));
-  }
-  return values;
-};
-
-const readTomlInlineEnv = (
-  value: string,
-): Record<string, string> | undefined => {
-  const trimmed = value.trim();
-  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return undefined;
-  const env: Record<string, string> = {};
-  for (const match of trimmed.matchAll(
-    /([A-Za-z][A-Za-z0-9_]*)\s*=\s*"((?:\\.|[^"])*)"/g,
-  )) {
-    env[match[1]!] = match[2]!.replace(/\\"/g, '"');
-  }
-  return env;
+const toMcpServer = (name: string, value: TomlValue): McpServer => {
+  const table = toTomlTable(value, `mcp_servers.${name}`);
+  if (table === undefined) throw new Error(`Expected mcp_servers.${name}`);
+  const command = toTomlString(table.command, `mcp_servers.${name}.command`);
+  const args = toTomlStringArray(table.args, `mcp_servers.${name}.args`);
+  const cwd = toTomlString(table.cwd, `mcp_servers.${name}.cwd`);
+  const url = toTomlString(table.url, `mcp_servers.${name}.url`);
+  const env = toTomlStringRecord(table.env, `mcp_servers.${name}.env`);
+  return {
+    name,
+    transport: url === undefined ? "stdio" : "http",
+    ...(command === undefined ? {} : { command }),
+    ...(args === undefined ? {} : { args }),
+    ...(cwd === undefined ? {} : { cwd }),
+    ...(url === undefined ? {} : { url }),
+    ...(env === undefined ? {} : { env }),
+  };
 };
 
 const parseMcpServers = (deps: AgentMcpDeps, cwd: string): McpServer[] => {
@@ -112,78 +159,17 @@ const parseMcpServers = (deps: AgentMcpDeps, cwd: string): McpServer[] => {
     `${deps.home}/.codex/config.toml`,
     `${cwd}/.codex/config.toml`,
   ];
-  const servers: Record<string, McpServer> = {};
-  let currentName: string | null = null;
-  let inEnv = false;
+  const servers = new Map<string, McpServer>();
   for (const file of files) {
     const text = deps.readFile(file);
     if (text === null) continue;
-    for (const line of text.split(/\r?\n/)) {
-      const trimmed = line.trim();
-      if (trimmed === "" || trimmed.startsWith("#")) continue;
-      const envHeader = trimmed.match(/^\[mcp_servers\.("?[^".\]]+"?)\.env\]$/);
-      if (envHeader) {
-        currentName = trimQuotes(envHeader[1]!);
-        inEnv = true;
-        servers[currentName] = servers[currentName] ?? {
-          name: currentName,
-          transport: "stdio",
-        };
-        continue;
-      }
-      const serverHeader = trimmed.match(/^\[mcp_servers\.("?[^".\]]+"?)\]$/);
-      if (serverHeader) {
-        currentName = trimQuotes(serverHeader[1]!);
-        inEnv = false;
-        servers[currentName] = servers[currentName] ?? {
-          name: currentName,
-          transport: "stdio",
-        };
-        continue;
-      }
-      if (trimmed.startsWith("[")) {
-        currentName = null;
-        inEnv = false;
-        continue;
-      }
-      if (currentName === null) continue;
-      const pair = trimmed.match(/^([A-Za-z][A-Za-z0-9_]*)\s*=\s*(.+)$/);
-      if (!pair) continue;
-      const key = pair[1]!;
-      const raw = pair[2]!;
-      const server = servers[currentName]!;
-      if (inEnv) {
-        const value = readTomlString(raw);
-        if (value !== undefined)
-          server.env = { ...(server.env ?? {}), [key]: value };
-        continue;
-      }
-      if (key === "command") {
-        const value = readTomlString(raw);
-        if (value !== undefined) server.command = value;
-      }
-      if (key === "args") {
-        const value = readTomlArray(raw);
-        if (value !== undefined) server.args = value;
-      }
-      if (key === "cwd") {
-        const value = readTomlString(raw);
-        if (value !== undefined) server.cwd = value;
-      }
-      if (key === "url") {
-        const value = readTomlString(raw);
-        if (value !== undefined) {
-          server.url = value;
-          server.transport = "http";
-        }
-      }
-      if (key === "env") {
-        const value = readTomlInlineEnv(raw);
-        if (value !== undefined) server.env = value;
-      }
-    }
+    const parsed = parse(text);
+    const mcpServers = toTomlTable(parsed.mcp_servers, "mcp_servers");
+    if (mcpServers === undefined) continue;
+    for (const [name, value] of Object.entries(mcpServers))
+      servers.set(name, toMcpServer(name, value));
   }
-  return Object.values(servers).filter(
+  return [...servers.values()].filter(
     (server) => server.command !== undefined || server.url !== undefined,
   );
 };
@@ -194,6 +180,7 @@ const formatMcpConfig = (servers: McpServer[]): McpConfigWrite => {
   const lines: string[] = [];
   for (const server of servers) {
     lines.push(`[mcp_servers.${quoteToml(server.name)}]`);
+    lines.push(`startup_timeout_sec = ${MCP_STARTUP_TIMEOUT_SEC}`);
     if (server.command !== undefined)
       lines.push(`command = ${quoteToml(server.command)}`);
     if (server.args !== undefined)

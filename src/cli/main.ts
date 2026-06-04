@@ -12,8 +12,25 @@ import { SnapshotService } from "../core/services/snapshot.js";
 import { TeleportService } from "../core/services/teleport.js";
 import { VersionService } from "../core/services/version.js";
 import { NodeHost } from "../host/node.js";
-import { buildProvider } from "../providers/index.js";
-import { buildTransport, parseArgs } from "./args.js";
+import { buildProvider, type ProviderId } from "../providers/index.js";
+import {
+  buildTransport,
+  parseArgs,
+  readProvider,
+  readTransport,
+  type ParsedArgs,
+} from "./args.js";
+import {
+  applyConfigToEnv,
+  loadConfig,
+  type KeeponTransport,
+} from "./config.js";
+import { runSetup } from "./setup.js";
+
+type RuntimeArgs = Omit<ParsedArgs, "provider" | "transport"> & {
+  provider: ProviderId;
+  transport: KeeponTransport;
+};
 
 const buildHost = (): NodeHost => {
   const home = process.env.HOME;
@@ -21,11 +38,21 @@ const buildHost = (): NodeHost => {
   return new NodeHost(process.env, home);
 };
 
+const withRuntimeDefaults = (args: ParsedArgs, host: NodeHost): RuntimeArgs => {
+  const config = loadConfig(host.home);
+  if (config !== null) applyConfigToEnv(config, host.env);
+  return {
+    ...args,
+    provider: args.provider ?? readProvider(host.env["KEEPON_PROVIDER"]),
+    transport: args.transport ?? readTransport(host.env["KEEPON_TRANSPORT"]),
+  };
+};
+
 const runPush = async (
-  args: ReturnType<typeof parseArgs>,
+  args: RuntimeArgs,
+  host: NodeHost,
   onProgress: (msg: string) => void,
 ): Promise<void> => {
-  const host = buildHost();
   const provider = buildProvider(args.provider, host);
   const agent = args.agent
     ? pickAgent(args.agent)
@@ -82,25 +109,42 @@ const runPush = async (
 
 export const main = async (argv: string[]): Promise<void> => {
   const args = parseArgs(argv, process.cwd());
+  if (args.cmd === "setup") {
+    await runSetup(buildHost());
+    return;
+  }
+  const host = buildHost();
+  const runtimeArgs = withRuntimeDefaults(args, host);
   if (args.cmd === "list") {
-    const provider = buildProvider(args.provider, buildHost());
+    const provider = buildProvider(runtimeArgs.provider, host);
     for (const sandbox of await provider.list())
       console.log(`${sandbox.id}\t${sandbox.startedAt.toISOString()}`);
     return;
   }
   if (args.cmd === "kill") {
-    const provider = buildProvider(args.provider, buildHost());
+    const provider = buildProvider(runtimeArgs.provider, host);
     if (args.killId === undefined)
       throw new Error("kill requires a sandbox id");
     console.log((await provider.destroy(args.killId)) ? "killed" : "not found");
     return;
   }
-  await runPush(args, (msg) => console.error(msg));
+  await runPush(runtimeArgs, host, (msg) => console.error(msg));
   process.exit(0);
+};
+
+const formatCliError = (error: unknown): string => {
+  const message = error instanceof Error ? error.message : String(error);
+  if (
+    message.startsWith("--provider must") ||
+    message.includes(" is required for ") ||
+    message.includes("API key")
+  )
+    return `${message}\nRun \`keepon setup\` to configure a provider.`;
+  return message;
 };
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
   main(process.argv.slice(2)).catch((error: unknown) => {
-    console.error(String(error instanceof Error ? error.message : error));
+    console.error(formatCliError(error));
     process.exit(1);
   });

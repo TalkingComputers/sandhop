@@ -89,6 +89,20 @@ const isBinary = (host: HostDeps, path: string): boolean => {
 const isAppBundlePath = (path: string): boolean =>
   /\/Applications\/[^/]+\.app\//.test(path);
 
+const LOCAL_BIND_PATTERN =
+  /(^|[^a-z])(localhost|127\.0\.0\.1|::1|0\.0\.0\.0)([^a-z]|$)/i;
+
+const localBindValues = (server: McpServer): string[] => {
+  const values: string[] = [];
+  if (server.url !== undefined) values.push(server.url);
+  if (server.args !== undefined) values.push(...server.args);
+  if (server.env !== undefined) values.push(...Object.values(server.env));
+  return values;
+};
+
+const hasLocalBindValue = (server: McpServer): boolean =>
+  localBindValues(server).some((value) => LOCAL_BIND_PATTERN.test(value));
+
 const readSourceFiles = (
   host: HostDeps,
   refs: Set<string>,
@@ -247,6 +261,11 @@ export const classify = (
   server: McpServer,
   paths: string[],
 ): { kind: McpServerClassification; reason?: string } => {
+  if (hasLocalBindValue(server))
+    return {
+      kind: "excluded",
+      reason: "binds to localhost / loopback (unreachable from sandbox)",
+    };
   if (
     server.url !== undefined ||
     server.transport === "http" ||

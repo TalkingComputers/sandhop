@@ -1,4 +1,5 @@
 import { projectDirName } from "../core/encode.js";
+import { MCP_TIMEOUT_MS } from "../core/mcp-timeout.js";
 import type {
   Agent,
   AgentHostDeps,
@@ -223,5 +224,5 @@ export const CLAUDE_CODE: Agent = {
   remoteTranscriptPath: (remoteEnc, transcriptName) =>
     `$HOME/.claude/projects/${remoteEnc}/${transcriptName}`,
   resumeCmd: (sessionId, remoteProj) =>
-    `cd "${remoteProj}" && claude --resume ${sessionId}`,
+    `cd "${remoteProj}" && MCP_TIMEOUT=${MCP_TIMEOUT_MS} claude --resume ${sessionId}`,
 };

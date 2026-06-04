@@ -5,9 +5,9 @@ test("parseArgs keeps push defaults and flags", () => {
   expect(parseArgs([], "/workspace/project")).toMatchObject({
     cmd: "push",
     cwd: "/workspace/project",
-    provider: "e2b",
     profile: true,
-    transport: "public",
+    provider: undefined,
+    transport: undefined,
   });
   expect(
     parseArgs(
@@ -24,6 +24,15 @@ test("parseArgs keeps push defaults and flags", () => {
   ).toMatchObject({
     cmd: "push",
     cwd: "/workspace/other",
+  });
+});
+
+test("parseArgs reads setup command", () => {
+  expect(parseArgs(["setup"], "/workspace/project")).toMatchObject({
+    cmd: "setup",
+    cwd: "/workspace/project",
+    provider: undefined,
+    transport: undefined,
   });
 });
 

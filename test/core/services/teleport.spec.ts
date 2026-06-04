@@ -95,7 +95,7 @@ test("TeleportService fast core fans out collection, uploads one gzip bundle, st
   expect(provider.sandbox.spawns[0]).toContain("ttyd -p 7681 -W -c keepon:");
   expect(provider.sandbox.spawns[0]).not.toContain("-i 127.0.0.1");
   expect(provider.sandbox.spawns[0]).toContain(
-    "bash -lc 'cd \"/workspace/project\" && claude --resume session-id'",
+    "bash -lc 'cd \"/workspace/project\" && MCP_TIMEOUT=120000 claude --resume session-id'",
   );
   expect(provider.sandbox.spawns[0]).not.toContain("for f in");
   expect(provider.sandbox.execs).toHaveLength(1);
