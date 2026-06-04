@@ -96,9 +96,9 @@ export class TeleportService {
     const envs = { ...baseSecrets.envs, ...auth.envs };
     opts.onProgress?.("creating sandbox");
     const sandbox = await this.provider.create({
-      image: "base",
       envs,
       timeoutMs: opts.timeoutMs,
+      ports: [7681],
     });
     opts.onProgress?.("uploading bundle");
     const bundlePath = makePath("bundle.tgz");

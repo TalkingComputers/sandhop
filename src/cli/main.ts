@@ -12,7 +12,7 @@ import { SnapshotService } from "../core/services/snapshot.js";
 import { TeleportService } from "../core/services/teleport.js";
 import { VersionService } from "../core/services/version.js";
 import { NodeHost } from "../host/node.js";
-import { E2bSandboxProvider } from "../providers/e2b/index.js";
+import { buildProvider } from "../providers/index.js";
 import { buildTransport, parseArgs } from "./args.js";
 
 const buildHost = (): NodeHost => {
@@ -26,7 +26,7 @@ const runPush = async (
   onProgress: (msg: string) => void,
 ): Promise<void> => {
   const host = buildHost();
-  const provider = new E2bSandboxProvider(host);
+  const provider = buildProvider(args.provider, host);
   const agent = args.agent
     ? pickAgent(args.agent)
     : selectDefaultAgent(detectAgents(host, args.cwd));
@@ -68,6 +68,8 @@ const runPush = async (
       agent.id,
       "--cwd",
       args.cwd,
+      "--provider",
+      args.provider,
       ...(args.profile ? [] : ["--no-profile"]),
     ],
     { cwd: args.cwd, env: process.env },
@@ -77,13 +79,13 @@ const runPush = async (
 export const main = async (argv: string[]): Promise<void> => {
   const args = parseArgs(argv, process.cwd());
   if (args.cmd === "list") {
-    const provider = new E2bSandboxProvider(buildHost());
+    const provider = buildProvider(args.provider, buildHost());
     for (const sandbox of await provider.list())
       console.log(`${sandbox.id}\t${sandbox.startedAt.toISOString()}`);
     return;
   }
   if (args.cmd === "kill") {
-    const provider = new E2bSandboxProvider(buildHost());
+    const provider = buildProvider(args.provider, buildHost());
     if (args.killId === undefined)
       throw new Error("kill requires a sandbox id");
     console.log((await provider.destroy(args.killId)) ? "killed" : "not found");

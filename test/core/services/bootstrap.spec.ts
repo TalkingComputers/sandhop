@@ -24,9 +24,18 @@ test("BootstrapService core installs exact CLI version, places transcript, and s
   expect(script).toContain("npm i -g @anthropic-ai/claude-code@2.1.160");
   expect(script).not.toContain("zstd");
   expect(script).not.toContain("apt-get");
-  expect(script).toContain('sudo mkdir -p "/private/tmp/keepon-codex2"');
   expect(script).toContain(
-    'sudo chown -R "$(id -u):$(id -g)" "/private/tmp/keepon-codex2"',
+    'SUDO=""; if [ "$(id -u)" != 0 ] && command -v sudo >/dev/null 2>&1; then SUDO="sudo"; fi',
+  );
+  expect(script).toContain(
+    'ARCH=$(uname -m); case "$ARCH" in aarch64|arm64) TTYD_ARCH=aarch64; CF_ARCH=arm64;; *) TTYD_ARCH=x86_64; CF_ARCH=amd64;; esac',
+  );
+  expect(script).toContain(
+    "curl -fsSL https://github.com/tsl0922/ttyd/releases/latest/download/ttyd.${TTYD_ARCH} -o /usr/local/bin/ttyd",
+  );
+  expect(script).toContain('$SUDO mkdir -p "/private/tmp/keepon-codex2"');
+  expect(script).toContain(
+    '$SUDO chown -R "$(id -u):$(id -g)" "/private/tmp/keepon-codex2"',
   );
   expect(script).toContain(
     'git config --global --add safe.directory "/private/tmp/keepon-codex2"',
@@ -35,15 +44,15 @@ test("BootstrapService core installs exact CLI version, places transcript, and s
     'tar -xzf /tmp/bundle.tgz -C "/private/tmp/keepon-codex2"',
   );
   expect(
-    script.indexOf('sudo mkdir -p "/private/tmp/keepon-codex2"'),
+    script.indexOf('$SUDO mkdir -p "/private/tmp/keepon-codex2"'),
   ).toBeLessThan(
     script.indexOf(
-      'sudo chown -R "$(id -u):$(id -g)" "/private/tmp/keepon-codex2"',
+      '$SUDO chown -R "$(id -u):$(id -g)" "/private/tmp/keepon-codex2"',
     ),
   );
   expect(
     script.indexOf(
-      'sudo chown -R "$(id -u):$(id -g)" "/private/tmp/keepon-codex2"',
+      '$SUDO chown -R "$(id -u):$(id -g)" "/private/tmp/keepon-codex2"',
     ),
   ).toBeLessThan(
     script.indexOf(
@@ -77,7 +86,7 @@ test("BootstrapService quotes remote project shell paths with spaces", () => {
   });
   const script = new BootstrapService(CLAUDE_CODE).render(spacedManifest, {});
 
-  expect(script).toContain('sudo mkdir -p "/Users/alice/My Project"');
+  expect(script).toContain('$SUDO mkdir -p "/Users/alice/My Project"');
   expect(script).toContain(
     'tar -xzf /tmp/bundle.tgz -C "/Users/alice/My Project"',
   );
@@ -121,7 +130,10 @@ test("BootstrapService enrichment installs runtimes and deps, writes rewritten M
     },
   );
 
-  expect(script).toContain("command -v zstd || sudo apt-get install -y zstd");
+  expect(script).toContain(
+    'SUDO=""; if [ "$(id -u)" != 0 ] && command -v sudo >/dev/null 2>&1; then SUDO="sudo"; fi',
+  );
+  expect(script).toContain("command -v zstd || $SUDO apt-get install -y zstd");
   expect(script).toContain('KEEPON_LOW_PRIORITY="nice -n 19"');
   expect(script).toContain("nice -n 19 ionice -c3");
   expect(script).toContain(

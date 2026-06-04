@@ -20,12 +20,14 @@ import {
 } from "../core/services/scripts.js";
 import { TransferService } from "../core/services/transfer.js";
 import { NodeHost } from "../host/node.js";
-import { E2bSandboxProvider } from "../providers/e2b/index.js";
+import { buildProvider, type ProviderId } from "../providers/index.js";
+import { readProvider } from "./args.js";
 
 export interface EnrichArgs {
   sandboxId: string;
   agent: AgentId;
   cwd: string;
+  provider: ProviderId;
   profile: boolean;
 }
 
@@ -46,6 +48,7 @@ const parseEnrichArgs = (argv: string[]): EnrichArgs => ({
   sandboxId: readFlag(argv, "--sandbox-id"),
   agent: readAgent(readFlag(argv, "--agent")),
   cwd: readFlag(argv, "--cwd"),
+  provider: readProvider(readFlag(argv, "--provider")),
   profile: !argv.includes("--no-profile"),
 });
 
@@ -278,7 +281,9 @@ export const runEnrich = async (argv: string[]): Promise<void> => {
   const home = process.env.HOME;
   if (home === undefined) throw new Error("HOME is required");
   const host = new NodeHost(process.env, home);
-  const sandbox = await new E2bSandboxProvider(host).connect(args.sandboxId);
+  const sandbox = await buildProvider(args.provider, host).connect(
+    args.sandboxId,
+  );
   await enrichSandbox(args, host, sandbox);
 };
 

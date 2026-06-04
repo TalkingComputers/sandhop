@@ -28,8 +28,8 @@ export class CloudflaredTransport implements Transport {
 
   bootstrapSteps(): string[] {
     return [
-      "sudo curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared",
-      "sudo chmod +x /usr/local/bin/cloudflared",
+      "$SUDO curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${CF_ARCH} -o /usr/local/bin/cloudflared",
+      "$SUDO chmod +x /usr/local/bin/cloudflared",
     ];
   }
 

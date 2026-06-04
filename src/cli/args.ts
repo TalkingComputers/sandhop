@@ -1,5 +1,6 @@
 import type { AgentId } from "../core/ports/agent.js";
 import type { Transport } from "../core/ports/transport.js";
+import { PROVIDER_IDS, type ProviderId } from "../providers/index.js";
 import { CloudflaredTransport } from "../transports/cloudflared.js";
 import { PublicTransport } from "../transports/public.js";
 
@@ -9,6 +10,7 @@ export interface ParsedArgs {
   session?: string;
   killId?: string;
   cwd: string;
+  provider: ProviderId;
   transport: "public" | "cloudflared";
   profile: boolean;
 }
@@ -33,6 +35,15 @@ const readTransport = (value: string | undefined): "public" | "cloudflared" => {
   throw new Error("--tunnel must be 'public' or 'cloudflared'");
 };
 
+const isProviderId = (value: string): value is ProviderId =>
+  PROVIDER_IDS.includes(value as ProviderId);
+
+export const readProvider = (value: string | undefined): ProviderId => {
+  if (value === undefined) return "e2b";
+  if (isProviderId(value)) return value;
+  throw new Error(`--provider must be one of: ${PROVIDER_IDS.join(", ")}`);
+};
+
 export const parseArgs = (argv: string[], cwd: string): ParsedArgs => {
   const cmd = argv[0] === "list" || argv[0] === "kill" ? argv[0] : "push";
   return {
@@ -41,6 +52,7 @@ export const parseArgs = (argv: string[], cwd: string): ParsedArgs => {
     session: readFlag(argv, "--session"),
     killId: cmd === "kill" ? argv[1] : undefined,
     cwd: readFlag(argv, "--cwd") ?? cwd,
+    provider: readProvider(readFlag(argv, "--provider")),
     transport: readTransport(
       argv.includes("--tunnel") ? readFlag(argv, "--tunnel") : undefined,
     ),

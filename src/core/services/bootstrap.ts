@@ -15,7 +15,11 @@ export type EnrichmentStepResult =
   | { name: string; ok: true }
   | { name: string; ok: false; error: string };
 
-const ZSTD_INSTALL = "command -v zstd || sudo apt-get install -y zstd";
+const SUDO_SETUP =
+  'SUDO=""; if [ "$(id -u)" != 0 ] && command -v sudo >/dev/null 2>&1; then SUDO="sudo"; fi';
+const ARCH_SETUP =
+  'ARCH=$(uname -m); case "$ARCH" in aarch64|arm64) TTYD_ARCH=aarch64; CF_ARCH=arm64;; *) TTYD_ARCH=x86_64; CF_ARCH=amd64;; esac';
+const ZSTD_INSTALL = "command -v zstd || $SUDO apt-get install -y zstd";
 const LOW_PRIORITY_SETUP =
   'KEEPON_LOW_PRIORITY="nice -n 19"; if command -v ionice >/dev/null 2>&1; then KEEPON_LOW_PRIORITY="nice -n 19 ionice -c3"; fi';
 
@@ -133,13 +137,15 @@ export class BootstrapService {
     );
     return [
       "set -e",
-      "sudo curl -fsSL https://github.com/tsl0922/ttyd/releases/latest/download/ttyd.x86_64 -o /usr/local/bin/ttyd",
-      "sudo chmod +x /usr/local/bin/ttyd",
+      SUDO_SETUP,
+      ARCH_SETUP,
+      "$SUDO curl -fsSL https://github.com/tsl0922/ttyd/releases/latest/download/ttyd.${TTYD_ARCH} -o /usr/local/bin/ttyd",
+      "$SUDO chmod +x /usr/local/bin/ttyd",
       ...(opts.transportSteps ?? []),
       this.agent.installCmd(manifest.cliVersion),
       ...this.agent.preSeed(manifest.remoteProj),
-      `sudo mkdir -p "${manifest.remoteProj}"`,
-      `sudo chown -R "$(id -u):$(id -g)" "${manifest.remoteProj}"`,
+      `$SUDO mkdir -p "${manifest.remoteProj}"`,
+      `$SUDO chown -R "$(id -u):$(id -g)" "${manifest.remoteProj}"`,
       `git config --global --add safe.directory "${manifest.remoteProj}"`,
       `tar -xzf /tmp/bundle.tgz -C "${manifest.remoteProj}"`,
       `dest="${dest}"`,
@@ -150,7 +156,7 @@ export class BootstrapService {
   }
 
   renderEnrichmentSetup(): string {
-    return ["set -e", LOW_PRIORITY_SETUP, ZSTD_INSTALL].join("\n");
+    return ["set -e", SUDO_SETUP, LOW_PRIORITY_SETUP, ZSTD_INSTALL].join("\n");
   }
 
   renderEnrichmentConfig(
@@ -166,6 +172,7 @@ export class BootstrapService {
 
   renderEnrichmentInstalls(opts: EnrichmentBootstrapOptions): string {
     return [
+      SUDO_SETUP,
       LOW_PRIORITY_SETUP,
       nonFatal(ZSTD_INSTALL),
       ...renderMcpCode(opts.codePlan),
@@ -176,6 +183,7 @@ export class BootstrapService {
     if (plan === null || plan.installCmds.length === 0)
       return 'echo "[keepon] settings script installs skipped"';
     return [
+      SUDO_SETUP,
       LOW_PRIORITY_SETUP,
       ...plan.installCmds.map((cmd) => nonFatal(runLowPriority(cmd))),
     ].join("\n");

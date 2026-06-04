@@ -49,5 +49,9 @@
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^3.0.0"
+  },
+  "optionalDependencies": {
+    "@daytonaio/sdk": "^0.184.0",
+    "modal": "^0.7.6"
   }
 }

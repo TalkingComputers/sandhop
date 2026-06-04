@@ -65,9 +65,9 @@ test("TeleportService fast core fans out collection, uploads one gzip bundle, st
   expect(maxInFlight).toBe(5);
   expect(provider.creates).toEqual([
     {
-      image: "base",
       envs: { MCP_TOKEN: "mcp-token", ANTHROPIC_API_KEY: "sk-ant-api03-test" },
       timeoutMs: 3_600_000,
+      ports: [7681],
     },
   ]);
   expect(provider.sandbox.pathUploads).toEqual([]);

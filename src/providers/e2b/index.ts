@@ -108,7 +108,7 @@ export class E2bSandboxProvider implements SandboxProvider {
   }
 
   async create(opts: CreateOptions): Promise<Sandbox> {
-    const sandbox = await E2bSandbox.create(opts.image, {
+    const sandbox = await E2bSandbox.create(opts.image ?? "base", {
       envs: opts.envs,
       timeoutMs: opts.timeoutMs,
     });

@@ -1,0 +1,177 @@
+import { expect, test, vi } from "vitest";
+import { FakeHost } from "../fakes/host.js";
+
+const modalMocks = vi.hoisted(() => {
+  const stdoutReadText = vi.fn(async () => "stdout");
+  const stderrReadText = vi.fn(async () => "stderr");
+  const wait = vi.fn(async () => 7);
+  const exec = vi.fn(async () => ({
+    stdout: { readText: stdoutReadText },
+    stderr: { readText: stderrReadText },
+    wait,
+  }));
+  const write = vi.fn(async () => undefined);
+  const close = vi.fn(async () => undefined);
+  const open = vi.fn(async () => ({ write, close }));
+  const tunnels = vi.fn(async () => ({
+    7681: { host: "modal-host.example" },
+  }));
+  const terminate = vi.fn(async () => undefined);
+  const sandbox = {
+    sandboxId: "modal-sbx",
+    exec,
+    open,
+    tunnels,
+    terminate,
+  };
+  const fromName = vi.fn(async () => ({ appId: "app-id" }));
+  const fromRegistry = vi.fn((image: string) => ({ image }));
+  const create = vi.fn(async () => sandbox);
+  const list = vi.fn(async function* () {
+    yield {
+      sandboxId: "modal-sbx",
+      createdAt: new Date("2026-01-01T00:00:00Z"),
+    };
+  });
+  const ModalClient = vi.fn(() => ({
+    apps: { fromName },
+    images: { fromRegistry },
+    sandboxes: { create, list },
+  }));
+  return {
+    ModalClient,
+    close,
+    create,
+    exec,
+    fromName,
+    fromRegistry,
+    list,
+    open,
+    sandbox,
+    stderrReadText,
+    stdoutReadText,
+    terminate,
+    tunnels,
+    wait,
+    write,
+  };
+});
+
+const loadProvider = async () => {
+  vi.resetModules();
+  vi.clearAllMocks();
+  vi.doMock("modal", () => ({ ModalClient: modalMocks.ModalClient }));
+  return import("../../src/providers/modal/index.js");
+};
+
+test("ModalSandboxProvider creates a keepon sandbox and maps exec results", async () => {
+  const { ModalSandboxProvider } = await loadProvider();
+  const host = new FakeHost({
+    home: "/home/local",
+    env: { MODAL_TOKEN_ID: "id", MODAL_TOKEN_SECRET: "secret" },
+  });
+  const provider = new ModalSandboxProvider(host);
+
+  const sandbox = await provider.create({
+    envs: { A: "1" },
+    timeoutMs: 600000,
+    ports: [7681],
+  });
+
+  await expect(sandbox.exec("echo ok")).resolves.toEqual({
+    exitCode: 7,
+    stdout: "stdout",
+    stderr: "stderr",
+  });
+  expect(modalMocks.ModalClient).toHaveBeenCalledWith({
+    tokenId: "id",
+    tokenSecret: "secret",
+  });
+  expect(modalMocks.fromName).toHaveBeenCalledWith("keepon", {
+    createIfMissing: true,
+  });
+  expect(modalMocks.fromRegistry).toHaveBeenCalledWith("node:22");
+  expect(modalMocks.create).toHaveBeenCalledWith(
+    { appId: "app-id" },
+    { image: "node:22" },
+    {
+      command: ["sleep", "infinity"],
+      encryptedPorts: [7681],
+      env: { A: "1" },
+      timeoutMs: 600000,
+    },
+  );
+  expect(modalMocks.exec).toHaveBeenCalledWith(["bash", "-lc", "echo ok"], {
+    timeoutMs: 600000,
+  });
+});
+
+test("ModalSandboxProvider spawn starts without awaiting process completion", async () => {
+  const { ModalSandboxProvider } = await loadProvider();
+  const provider = new ModalSandboxProvider(
+    new FakeHost({
+      home: "/home/local",
+      env: { MODAL_TOKEN_ID: "id", MODAL_TOKEN_SECRET: "secret" },
+    }),
+  );
+  const sandbox = await provider.create({ envs: {}, timeoutMs: 600000 });
+
+  await sandbox.spawn("ttyd");
+
+  expect(modalMocks.exec).toHaveBeenCalledWith(["bash", "-lc", "ttyd"]);
+  expect(modalMocks.wait).not.toHaveBeenCalled();
+});
+
+test("ModalSandboxProvider uploads files, exposes ports, and destroys", async () => {
+  const { ModalSandboxProvider } = await loadProvider();
+  const provider = new ModalSandboxProvider(
+    new FakeHost({
+      home: "/home/local",
+      env: { MODAL_TOKEN_ID: "id", MODAL_TOKEN_SECRET: "secret" },
+      bytes: { "/tmp/profile.tgz": new Uint8Array([9, 8]) },
+    }),
+  );
+  const sandbox = await provider.create({ envs: {}, timeoutMs: 600000 });
+
+  await sandbox.uploadFile("/tmp/a", "hello");
+  await sandbox.uploadFile("/tmp/b", new Uint8Array([1, 2]));
+  await sandbox.uploadPath("/tmp/profile.tgz", "/tmp/profile.tgz");
+  await expect(sandbox.exposePort(7681)).resolves.toEqual({
+    url: "https://modal-host.example",
+    authGatedByProvider: false,
+  });
+  await sandbox.destroy();
+
+  expect(modalMocks.open).toHaveBeenCalledWith("/tmp/a", "w");
+  expect(modalMocks.open).toHaveBeenCalledWith("/tmp/b", "w");
+  expect(modalMocks.open).toHaveBeenCalledWith("/tmp/profile.tgz", "w");
+  expect(modalMocks.write).toHaveBeenCalledWith(
+    new TextEncoder().encode("hello"),
+  );
+  expect(modalMocks.write).toHaveBeenCalledWith(new Uint8Array([1, 2]));
+  expect(modalMocks.write).toHaveBeenCalledWith(new Uint8Array([9, 8]));
+  expect(modalMocks.close).toHaveBeenCalledTimes(3);
+  expect(modalMocks.tunnels).toHaveBeenCalledWith(60000);
+  expect(modalMocks.terminate).toHaveBeenCalled();
+});
+
+test("ModalSandboxProvider missing package throws install hint", async () => {
+  vi.resetModules();
+  vi.doMock("modal", () => {
+    throw new Error("Cannot find package 'modal'");
+  });
+  const { ModalSandboxProvider } =
+    await import("../../src/providers/modal/index.js");
+  const provider = new ModalSandboxProvider(
+    new FakeHost({
+      home: "/home/local",
+      env: { MODAL_TOKEN_ID: "id", MODAL_TOKEN_SECRET: "secret" },
+    }),
+  );
+
+  await expect(
+    provider.create({ envs: {}, timeoutMs: 600000 }),
+  ).rejects.toThrow(
+    "The 'modal' provider needs the 'modal' package. Run: npm i modal",
+  );
+});

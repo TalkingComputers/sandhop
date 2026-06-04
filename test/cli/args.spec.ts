@@ -5,6 +5,7 @@ test("parseArgs keeps push defaults and flags", () => {
   expect(parseArgs([], "/workspace/project")).toMatchObject({
     cmd: "push",
     cwd: "/workspace/project",
+    provider: "e2b",
     profile: true,
     transport: "public",
   });
@@ -24,6 +25,21 @@ test("parseArgs keeps push defaults and flags", () => {
     cmd: "push",
     cwd: "/workspace/other",
   });
+});
+
+test("parseArgs validates provider values", () => {
+  expect(
+    parseArgs(["push", "--provider", "e2b"], "/workspace/project"),
+  ).toMatchObject({ provider: "e2b" });
+  expect(
+    parseArgs(["push", "--provider", "modal"], "/workspace/project"),
+  ).toMatchObject({ provider: "modal" });
+  expect(
+    parseArgs(["push", "--provider", "daytona"], "/workspace/project"),
+  ).toMatchObject({ provider: "daytona" });
+  expect(() =>
+    parseArgs(["push", "--provider", "bogus"], "/workspace/project"),
+  ).toThrow("--provider must be one of: e2b, modal, daytona");
 });
 
 test("parseArgs validates tunnel values", () => {

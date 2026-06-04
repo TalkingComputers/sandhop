@@ -21,7 +21,7 @@ test("CloudflaredTransport quick mode returns the trycloudflare URL", async () =
   expect(transport.id).toBe("cloudflared");
   expect(transport.ttydBindAddress()).toBe("127.0.0.1");
   expect(transport.bootstrapSteps()).toContain(
-    "sudo curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared",
+    "$SUDO curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${CF_ARCH} -o /usr/local/bin/cloudflared",
   );
   expect(sandbox.spawns).toEqual([
     "cloudflared tunnel --no-autoupdate --protocol http2 --url http://localhost:7681 > /tmp/keepon-cloudflared.log 2>&1",
