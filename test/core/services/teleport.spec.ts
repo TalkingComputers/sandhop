@@ -211,3 +211,47 @@ test("TeleportService uploads core secret and auth files but leaves MCP code to 
   });
   expect(provider.sandbox.execs[0]).not.toContain("mcp-code");
 });
+
+test("TeleportService restore failure surfaces stdout when stderr is empty", async () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    bytes: {
+      "/home/local/.claude/projects/-workspace-project/session-id.jsonl":
+        encoder.encode("transcript"),
+    },
+  });
+  const provider = new FakeProvider();
+  provider.sandbox.execResults.push({
+    exitCode: 1,
+    stdout: "daytona npm EACCES output",
+    stderr: "",
+  });
+  const session: SessionRef = {
+    sessionId: "session-id",
+    transcriptPath:
+      "/home/local/.claude/projects/-workspace-project/session-id.jsonl",
+    transcriptName: "session-id.jsonl",
+  };
+  const service = new TeleportService(provider, CLAUDE_CODE, {
+    host,
+    snapshot: { build: async () => "/workspace/project" },
+    session: { latest: async () => session, byId: async () => session },
+    secrets: { collect: async () => ({ envs: {}, files: [] }) },
+    auth: {
+      extract: async () => ({
+        envs: { ANTHROPIC_API_KEY: "sk-ant-api03-test" },
+        files: [],
+      }),
+    },
+    version: { detect: async () => "2.1.160" },
+    bootstrap: new BootstrapService(CLAUDE_CODE),
+  });
+
+  await expect(
+    service.run("/workspace/project", {
+      transport: new PublicTransport(),
+      timeoutMs: 3_600_000,
+    }),
+  ).rejects.toThrow("Restore failed: daytona npm EACCES output");
+});

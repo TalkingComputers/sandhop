@@ -119,6 +119,7 @@ export class BootstrapService {
   }
 
   render(manifest: Manifest, opts: BootstrapOptions): string {
+    const installCmd = this.agent.installCmd(manifest.cliVersion);
     const dest = this.agent.remoteTranscriptPath(
       manifest.remoteEnc,
       manifest.transcriptName,
@@ -130,7 +131,7 @@ export class BootstrapService {
       "$SUDO curl -fsSL https://github.com/tsl0922/ttyd/releases/latest/download/ttyd.${TTYD_ARCH} -o /usr/local/bin/ttyd",
       "$SUDO chmod +x /usr/local/bin/ttyd",
       ...(opts.transportSteps ?? []),
-      this.agent.installCmd(manifest.cliVersion),
+      `${installCmd} || $SUDO env PATH="$PATH" ${installCmd}`,
       ...this.agent.preSeed(manifest.remoteProj),
       `$SUDO mkdir -p "${manifest.remoteProj}"`,
       `$SUDO chown -R "$(id -u):$(id -g)" "${manifest.remoteProj}"`,

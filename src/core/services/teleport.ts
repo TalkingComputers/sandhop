@@ -113,7 +113,7 @@ export class TeleportService {
       }),
     );
     if (restore.exitCode !== 0 || !restore.stdout.includes("KEEPON_RESTORE_OK"))
-      throw new Error(`Restore failed: ${restore.stderr}`);
+      throw new Error(`Restore failed: ${restore.stderr || restore.stdout}`);
     opts.onProgress?.("restoring session");
     const resume = this.agent.resumeCmd(session.sessionId, manifest.remoteProj);
     const bind = opts.transport.ttydBindAddress();

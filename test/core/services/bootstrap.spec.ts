@@ -23,7 +23,9 @@ const ZSTD_INSTALL =
 test("BootstrapService core installs exact CLI version, places transcript, and skips enrichment without zstd or apt", () => {
   const script = new BootstrapService(CLAUDE_CODE).render(manifest, {});
 
-  expect(script).toContain("npm i -g @anthropic-ai/claude-code@2.1.160");
+  expect(script).toContain(
+    'npm i -g @anthropic-ai/claude-code@2.1.160 || $SUDO env PATH="$PATH" npm i -g @anthropic-ai/claude-code@2.1.160',
+  );
   expect(script).not.toContain("zstd");
   expect(script).not.toContain("apt-get");
   expect(script).toContain(

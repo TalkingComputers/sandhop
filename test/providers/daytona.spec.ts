@@ -7,8 +7,6 @@ const daytonaMocks = vi.hoisted(() => {
     exitCode: 3,
     result: "combined",
   }));
-  const createSession = vi.fn(async () => undefined);
-  const executeSessionCommand = vi.fn(async () => undefined);
   const uploadFile = vi.fn(async () => undefined);
   const getPreviewLink = vi.fn(async () => ({
     url: "https://daytona-preview.example",
@@ -17,7 +15,7 @@ const daytonaMocks = vi.hoisted(() => {
   const deleteSandbox = vi.fn(async () => undefined);
   const sandbox = {
     id: "daytona-sbx",
-    process: { executeCommand, createSession, executeSessionCommand },
+    process: { executeCommand },
     fs: { uploadFile },
     getPreviewLink,
     delete: deleteSandbox,
@@ -29,10 +27,8 @@ const daytonaMocks = vi.hoisted(() => {
   return {
     Daytona,
     create,
-    createSession,
     deleteSandbox,
     executeCommand,
-    executeSessionCommand,
     get,
     getPreviewLink,
     list,
@@ -94,7 +90,7 @@ test("DaytonaSandboxProvider creates a sandbox and maps combined exec output", a
   );
 });
 
-test("DaytonaSandboxProvider spawn uses one async session", async () => {
+test("DaytonaSandboxProvider spawn backgrounds commands without a session", async () => {
   const { DaytonaSandboxProvider } = await loadProvider();
   const provider = new DaytonaSandboxProvider(
     new FakeHost({
@@ -107,16 +103,19 @@ test("DaytonaSandboxProvider spawn uses one async session", async () => {
   await sandbox.spawn("ttyd");
   await sandbox.spawn("cloudflared");
 
-  expect(daytonaMocks.createSession).toHaveBeenCalledTimes(1);
-  expect(daytonaMocks.executeSessionCommand).toHaveBeenNthCalledWith(
+  expect(daytonaMocks.executeCommand).toHaveBeenNthCalledWith(
     1,
-    "keepon",
-    { command: "ttyd", runAsync: true },
+    "nohup bash -lc 'ttyd' >/dev/null 2>&1 &",
+    undefined,
+    undefined,
+    600,
   );
-  expect(daytonaMocks.executeSessionCommand).toHaveBeenNthCalledWith(
+  expect(daytonaMocks.executeCommand).toHaveBeenNthCalledWith(
     2,
-    "keepon",
-    { command: "cloudflared", runAsync: true },
+    "nohup bash -lc 'cloudflared' >/dev/null 2>&1 &",
+    undefined,
+    undefined,
+    600,
   );
 });
 

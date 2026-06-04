@@ -28,12 +28,6 @@ interface DaytonaProcess {
     env?: Record<string, string>,
     timeout?: number,
   ): Promise<{ exitCode: number; result: string }>;
-  createSession(sessionId: string): Promise<void>;
-  executeSessionCommand(
-    sessionId: string,
-    req: { command: string; runAsync: boolean },
-    timeout?: number,
-  ): Promise<unknown>;
 }
 
 interface DaytonaFileSystem {
@@ -59,7 +53,6 @@ type DaytonaCreateParams =
 
 const COMMAND_TIMEOUT_SECONDS = 600;
 const PATH_UPLOAD_TIMEOUT_SECONDS = 3600;
-const SESSION_ID = "keepon";
 
 const DAYTONA_INSTALL_HINT =
   "The 'daytona' provider needs @daytonaio/sdk. Run: npm i @daytonaio/sdk";
@@ -85,13 +78,11 @@ class DaytonaSandboxAdapter implements Sandbox {
   readonly id: string;
   readonly sandbox: DaytonaSandboxInstance;
   readonly timeoutSeconds: number;
-  hasSession: boolean;
 
   constructor(sandbox: DaytonaSandboxInstance, timeoutSecondsValue: number) {
     this.sandbox = sandbox;
     this.timeoutSeconds = timeoutSecondsValue;
     this.id = sandbox.id;
-    this.hasSession = false;
   }
 
   async uploadFile(path: string, data: Uint8Array | string): Promise<void> {
@@ -121,14 +112,12 @@ class DaytonaSandboxAdapter implements Sandbox {
   }
 
   async spawn(cmd: string): Promise<void> {
-    if (!this.hasSession) {
-      await this.sandbox.process.createSession(SESSION_ID);
-      this.hasSession = true;
-    }
-    await this.sandbox.process.executeSessionCommand(SESSION_ID, {
-      command: cmd,
-      runAsync: true,
-    });
+    await this.sandbox.process.executeCommand(
+      `nohup bash -lc ${shellQuote(cmd)} >/dev/null 2>&1 &`,
+      undefined,
+      undefined,
+      this.timeoutSeconds,
+    );
   }
 
   async exposePort(port: number): Promise<ExposedPort> {
