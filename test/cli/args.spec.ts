@@ -37,9 +37,12 @@ test("parseArgs validates provider values", () => {
   expect(
     parseArgs(["push", "--provider", "daytona"], "/workspace/project"),
   ).toMatchObject({ provider: "daytona" });
+  expect(
+    parseArgs(["push", "--provider", "vercel"], "/workspace/project"),
+  ).toMatchObject({ provider: "vercel" });
   expect(() =>
     parseArgs(["push", "--provider", "bogus"], "/workspace/project"),
-  ).toThrow("--provider must be one of: e2b, modal, daytona");
+  ).toThrow("--provider must be one of: e2b, modal, daytona, vercel");
 });
 
 test("parseArgs validates tunnel values", () => {

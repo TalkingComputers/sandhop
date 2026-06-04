@@ -11,3 +11,14 @@ export class NotSupportedError extends KeeponError {
     this.name = "NotSupportedError";
   }
 }
+
+interface ErrorWithCause {
+  cause?: unknown;
+}
+
+export const formatErrorText = (error: unknown): string => {
+  if (!(error instanceof Error)) return String(error);
+  const cause = (error as ErrorWithCause).cause;
+  if (cause === undefined) return error.message;
+  return `${error.message}\n${formatErrorText(cause)}`;
+};

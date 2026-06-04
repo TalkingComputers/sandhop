@@ -25,7 +25,8 @@ export type EnrichmentStepResult =
 
 const ARCH_SETUP =
   'ARCH=$(uname -m); case "$ARCH" in aarch64|arm64) TTYD_ARCH=aarch64; CF_ARCH=arm64;; *) TTYD_ARCH=x86_64; CF_ARCH=amd64;; esac';
-const ZSTD_INSTALL = "command -v zstd || $SUDO apt-get install -y zstd";
+const ZSTD_INSTALL =
+  "command -v zstd || $SUDO sh -lc 'command -v apt-get >/dev/null && (apt-get update && apt-get install -y zstd) || (command -v dnf >/dev/null && dnf install -y zstd) || (command -v apk >/dev/null && apk add zstd) || (command -v yum >/dev/null && yum install -y zstd)'";
 
 const shellPath = (path: string): string =>
   path.startsWith("$HOME") ? `"${path}"` : path;

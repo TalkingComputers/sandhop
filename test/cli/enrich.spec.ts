@@ -97,7 +97,7 @@ cwd = "/home/local/mcp"
       expect.stringContaining("zstd -T0 -8 --long=27 --check"),
     ]),
   );
-  expect(execLog).toContain("command -v zstd || $SUDO apt-get install -y zstd");
+  expect(execLog).toContain("command -v dnf >/dev/null && dnf install -y zstd");
   expect(execLog).toContain('KEEPON_LOW_PRIORITY="nice -n 19"');
   expect(execLog).toContain("nice -n 19 ionice -c3");
   expect(execLog).toContain(

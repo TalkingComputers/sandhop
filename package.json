@@ -52,6 +52,7 @@
   },
   "optionalDependencies": {
     "@daytonaio/sdk": "^0.184.0",
+    "@vercel/sandbox": "^2.1.0",
     "modal": "^0.7.6"
   }
 }

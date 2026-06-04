@@ -17,6 +17,8 @@ const manifest = buildManifest({
   transcriptName: "session-id.jsonl",
   ts: 1,
 });
+const ZSTD_INSTALL =
+  "command -v zstd || $SUDO sh -lc 'command -v apt-get >/dev/null && (apt-get update && apt-get install -y zstd) || (command -v dnf >/dev/null && dnf install -y zstd) || (command -v apk >/dev/null && apk add zstd) || (command -v yum >/dev/null && yum install -y zstd)'";
 
 test("BootstrapService core installs exact CLI version, places transcript, and skips enrichment without zstd or apt", () => {
   const script = new BootstrapService(CLAUDE_CODE).render(manifest, {});
@@ -133,7 +135,10 @@ test("BootstrapService enrichment installs runtimes and deps, writes rewritten M
   expect(script).toContain(
     'SUDO=""; if [ "$(id -u)" != 0 ] && command -v sudo >/dev/null 2>&1; then SUDO="sudo"; fi',
   );
-  expect(script).toContain("command -v zstd || $SUDO apt-get install -y zstd");
+  expect(script).toContain(ZSTD_INSTALL);
+  expect(script).toContain("command -v dnf >/dev/null && dnf install -y zstd");
+  expect(script).toContain("command -v apk >/dev/null && apk add zstd");
+  expect(script).toContain("command -v yum >/dev/null && yum install -y zstd");
   expect(script).toContain('KEEPON_LOW_PRIORITY="nice -n 19"');
   expect(script).toContain("nice -n 19 ionice -c3");
   expect(script).toContain(
