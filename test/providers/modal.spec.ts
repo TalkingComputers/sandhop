@@ -157,6 +157,20 @@ test("ModalSandboxProvider uploads files, exposes ports, and destroys", async ()
   expect(modalMocks.terminate).toHaveBeenCalled();
 });
 
+test("ModalSandboxProvider setTimeout rejects with NotSupportedError", async () => {
+  const { ModalSandboxProvider } = await loadProvider();
+  const { NotSupportedError } = await import("../../src/core/errors.js");
+  const provider = new ModalSandboxProvider(
+    new FakeHost({
+      home: "/home/local",
+      env: { MODAL_TOKEN_ID: "id", MODAL_TOKEN_SECRET: "secret" },
+    }),
+  );
+  const sandbox = await provider.create({ envs: {}, timeoutMs: 600000 });
+
+  await expect(sandbox.setTimeout(120000)).rejects.toThrow(NotSupportedError);
+});
+
 test("ModalSandboxProvider connect and destroy use SDK lookups", async () => {
   const { ModalSandboxProvider } = await loadProvider();
   const provider = new ModalSandboxProvider(

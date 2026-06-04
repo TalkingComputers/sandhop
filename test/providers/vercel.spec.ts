@@ -205,6 +205,26 @@ test("VercelSandboxProvider lists and destroys sandboxes by name", async () => {
   expect(vercelMocks.stop).toHaveBeenCalled();
 });
 
+test("VercelSandboxProvider destroy returns false when sandbox is missing", async () => {
+  const { VercelSandboxProvider } = await loadProvider();
+  const provider = new VercelSandboxProvider(
+    new FakeHost({ home: "/home/local", env }),
+  );
+  vercelMocks.get.mockRejectedValueOnce(
+    Object.assign(new Error("not found"), { statusCode: 404 }),
+  );
+
+  await expect(provider.destroy("missing")).resolves.toBe(false);
+
+  expect(vercelMocks.get).toHaveBeenCalledWith({
+    token: "token",
+    teamId: "team",
+    projectId: "project",
+    name: "missing",
+  });
+  expect(vercelMocks.stop).not.toHaveBeenCalled();
+});
+
 test("VercelSandboxProvider missing package throws install hint", async () => {
   vi.resetModules();
   vi.doMock("@vercel/sandbox", () => {

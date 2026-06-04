@@ -25,12 +25,23 @@ interface VercelCredentials {
   projectId: string;
 }
 
+interface VercelHttpError extends Error {
+  status?: number;
+  statusCode?: number;
+}
+
 const VERCEL_INSTALL_HINT =
   "The 'vercel' provider needs @vercel/sandbox. Run: npm i @vercel/sandbox";
 const VERCEL_PACKAGE = "@vercel/sandbox";
 const LIST_LIMIT = 100;
 
 const sandboxName = (): string => `keepon-${randomUUID()}`;
+
+const isNotFoundError = (error: unknown): boolean => {
+  if (!(error instanceof Error)) return false;
+  const httpError = error as VercelHttpError;
+  return httpError.status === 404 || httpError.statusCode === 404;
+};
 
 class VercelSandboxAdapter implements Sandbox {
   readonly id: string;
@@ -110,6 +121,7 @@ export class VercelSandboxProvider implements SandboxProvider {
     "extend-timeout",
   ]);
   readonly host: Pick<HostDeps, "env" | "readBytes">;
+  private sdkModule: Promise<VercelModule> | undefined;
 
   constructor(host: Pick<HostDeps, "env" | "readBytes">) {
     this.host = host;
@@ -117,10 +129,7 @@ export class VercelSandboxProvider implements SandboxProvider {
 
   async create(opts: CreateOptions): Promise<Sandbox> {
     const credentials = this.credentials();
-    const { Sandbox } = await lazyImport<VercelModule>(
-      VERCEL_PACKAGE,
-      VERCEL_INSTALL_HINT,
-    );
+    const { Sandbox } = await this.sdk();
     const name = sandboxName();
     const sandbox = await Sandbox.create({
       ...credentials,
@@ -134,10 +143,7 @@ export class VercelSandboxProvider implements SandboxProvider {
 
   async connect(id: string): Promise<Sandbox> {
     const credentials = this.credentials();
-    const { Sandbox } = await lazyImport<VercelModule>(
-      VERCEL_PACKAGE,
-      VERCEL_INSTALL_HINT,
-    );
+    const { Sandbox } = await this.sdk();
     return new VercelSandboxAdapter(
       id,
       await Sandbox.get({ ...credentials, name: id, resume: true }),
@@ -147,10 +153,7 @@ export class VercelSandboxProvider implements SandboxProvider {
 
   async list(): Promise<SandboxInfo[]> {
     const credentials = this.credentials();
-    const { Sandbox } = await lazyImport<VercelModule>(
-      VERCEL_PACKAGE,
-      VERCEL_INSTALL_HINT,
-    );
+    const { Sandbox } = await this.sdk();
     const sandboxes: SandboxInfo[] = [];
     for await (const sandbox of await Sandbox.list({
       ...credentials,
@@ -165,24 +168,35 @@ export class VercelSandboxProvider implements SandboxProvider {
 
   async destroy(id: string): Promise<boolean> {
     const credentials = this.credentials();
-    const { Sandbox } = await lazyImport<VercelModule>(
-      VERCEL_PACKAGE,
-      VERCEL_INSTALL_HINT,
-    );
-    await (await Sandbox.get({ ...credentials, name: id })).stop();
-    return true;
+    const { Sandbox } = await this.sdk();
+    try {
+      await (await Sandbox.get({ ...credentials, name: id })).stop();
+      return true;
+    } catch (error: unknown) {
+      if (isNotFoundError(error)) return false;
+      throw error;
+    }
   }
 
   private credentials(): VercelCredentials {
-    const token = this.host.env.VERCEL_TOKEN;
+    const token = this.host.env["VERCEL_TOKEN"];
     if (token === undefined)
       throw new Error("VERCEL_TOKEN is required for vercel provider");
-    const teamId = this.host.env.VERCEL_TEAM_ID;
+    const teamId = this.host.env["VERCEL_TEAM_ID"];
     if (teamId === undefined)
       throw new Error("VERCEL_TEAM_ID is required for vercel provider");
-    const projectId = this.host.env.VERCEL_PROJECT_ID;
+    const projectId = this.host.env["VERCEL_PROJECT_ID"];
     if (projectId === undefined)
       throw new Error("VERCEL_PROJECT_ID is required for vercel provider");
     return { token, teamId, projectId };
+  }
+
+  private sdk(): Promise<VercelModule> {
+    if (this.sdkModule === undefined)
+      this.sdkModule = lazyImport<VercelModule>(
+        VERCEL_PACKAGE,
+        VERCEL_INSTALL_HINT,
+      );
+    return this.sdkModule;
   }
 }

@@ -4,15 +4,9 @@ import type { HostDeps } from "../core/ports/host.js";
 import type { Sandbox } from "../core/ports/provider.js";
 import type { EnrichmentStepResult } from "../core/services/bootstrap.js";
 import { EnrichmentService } from "../core/services/enrichment.js";
-import { NodeHost } from "../host/node.js";
 import { buildProvider } from "../providers/index.js";
 import { parseEnrichArgs, type EnrichArgs } from "./args.js";
-
-const buildHost = (): NodeHost => {
-  const home = process.env["HOME"];
-  if (home === undefined) throw new Error("HOME is required");
-  return new NodeHost(process.env, home);
-};
+import { buildHost } from "./host.js";
 
 interface EnrichRunResult {
   strict: boolean;

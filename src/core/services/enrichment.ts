@@ -1,4 +1,5 @@
 import { safeRemoteProj } from "../encode.js";
+import { formatErrorStack } from "../errors.js";
 import { makeTempPath, sandboxExpandHome } from "../paths.js";
 import type { Agent } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
@@ -23,9 +24,6 @@ const appendLog = async (sandbox: Sandbox, text: string): Promise<void> => {
   );
 };
 
-const errorText = (error: unknown): string =>
-  error instanceof Error ? (error.stack ?? error.message) : String(error);
-
 const runLogged = async (
   sandbox: Sandbox,
   script: string,
@@ -48,7 +46,7 @@ const recordStep = async (
       () => undefined,
     );
   } catch (error: unknown) {
-    const text = errorText(error);
+    const text = formatErrorStack(error);
     steps.push({ name, ok: false, error: text });
     await appendLog(sandbox, `[keepon] step failed: ${name}\n${text}`).catch(
       () => undefined,
@@ -220,11 +218,15 @@ export class EnrichmentService {
         this.sandbox,
         this.bootstrap.renderEnrichmentCompletion(steps),
       ).catch(async (error: unknown): Promise<void> => {
-        await appendLog(this.sandbox, errorText(error)).catch(() => undefined);
+        await appendLog(this.sandbox, formatErrorStack(error)).catch(
+          () => undefined,
+        );
       });
       return steps;
     } catch (error: unknown) {
-      await appendLog(this.sandbox, errorText(error)).catch(() => undefined);
+      await appendLog(this.sandbox, formatErrorStack(error)).catch(
+        () => undefined,
+      );
       throw error;
     }
   }

@@ -11,7 +11,7 @@ import { SessionService } from "../core/services/session.js";
 import { SnapshotService } from "../core/services/snapshot.js";
 import { TeleportService } from "../core/services/teleport.js";
 import { VersionService } from "../core/services/version.js";
-import { NodeHost } from "../host/node.js";
+import type { NodeHost } from "../host/node.js";
 import { buildProvider, type ProviderId } from "../providers/index.js";
 import {
   buildTransport,
@@ -25,17 +25,12 @@ import {
   loadConfig,
   type KeeponTransport,
 } from "./config.js";
+import { buildHost } from "./host.js";
 import { runSetup } from "./setup.js";
 
 type RuntimeArgs = Omit<ParsedArgs, "provider" | "transport"> & {
   provider: ProviderId;
   transport: KeeponTransport;
-};
-
-const buildHost = (): NodeHost => {
-  const home = process.env.HOME;
-  if (home === undefined) throw new Error("HOME is required");
-  return new NodeHost(process.env, home);
 };
 
 const withRuntimeDefaults = (args: ParsedArgs, host: NodeHost): RuntimeArgs => {

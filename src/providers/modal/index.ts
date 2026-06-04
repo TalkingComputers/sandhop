@@ -2,6 +2,7 @@ import type {
   ModalClient as ModalClientType,
   Sandbox as ModalSandboxInstance,
 } from "modal";
+import { NotSupportedError } from "../../core/errors.js";
 import type { HostDeps } from "../../core/ports/host.js";
 import type {
   Capability,
@@ -82,7 +83,7 @@ class ModalSandboxAdapter implements Sandbox {
   }
 
   async setTimeout(timeoutMs: number): Promise<void> {
-    timeoutMs;
+    throw new NotSupportedError("extend-timeout not supported on modal");
   }
 
   async destroy(): Promise<void> {

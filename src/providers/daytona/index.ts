@@ -4,6 +4,7 @@ import type {
   CreateSandboxFromImageParams,
   DaytonaConfig,
 } from "@daytonaio/sdk";
+import { NotSupportedError } from "../../core/errors.js";
 import type { HostDeps } from "../../core/ports/host.js";
 import type {
   Capability,
@@ -140,7 +141,7 @@ class DaytonaSandboxAdapter implements Sandbox {
   }
 
   async setTimeout(timeoutMs: number): Promise<void> {
-    timeoutMs;
+    throw new NotSupportedError("extend-timeout not supported on daytona");
   }
 
   async destroy(): Promise<void> {
