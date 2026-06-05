@@ -34,6 +34,7 @@ const VERCEL_INSTALL_HINT =
 const VERCEL_PACKAGE = "@vercel/sandbox";
 const COMMAND_TIMEOUT_MS = 600000;
 const VERCEL_NODE_MAJORS = [22, 24, 26] as const;
+const VERCEL_SANDBOX_VCPUS = 2;
 type VercelNodeRuntime = `node${(typeof VERCEL_NODE_MAJORS)[number]}`;
 
 const sandboxName = (): string => `sandhop-${randomUUID()}`;
@@ -143,6 +144,7 @@ export class VercelSandboxProvider implements SandboxProvider {
       name,
       timeout: opts.timeoutMs,
       ports: opts.ports,
+      resources: { vcpus: VERCEL_SANDBOX_VCPUS },
       runtime: vercelRuntime(),
     });
     try {

@@ -1,4 +1,8 @@
-import type { CreateSandboxBaseParams, DaytonaConfig } from "@daytonaio/sdk";
+import type {
+  CreateSandboxBaseParams,
+  DaytonaConfig,
+  Resources,
+} from "@daytonaio/sdk";
 import type { HostDeps } from "../../core/ports/host.js";
 import type {
   CreateOptions,
@@ -17,6 +21,9 @@ import { lazyImport, lazyOnce } from "../lazy-import.js";
 
 type DaytonaModule = typeof import("@daytonaio/sdk");
 type DaytonaClient = InstanceType<DaytonaModule["Daytona"]>;
+type DaytonaCreateParams = CreateSandboxBaseParams & {
+  resources: Pick<Resources, "cpu" | "memory">;
+};
 
 interface DaytonaProcess {
   executeCommand(
@@ -52,6 +59,8 @@ interface DaytonaCredentials {
 
 const COMMAND_TIMEOUT_SECONDS = 600;
 const PATH_UPLOAD_TIMEOUT_SECONDS = 3600;
+const DAYTONA_SANDBOX_CPU_CORES = 4;
+const DAYTONA_SANDBOX_MEMORY_GIB = 4;
 
 const DAYTONA_INSTALL_HINT =
   "The 'daytona' provider needs @daytonaio/sdk. Run: npm i @daytonaio/sdk";
@@ -63,10 +72,14 @@ const timeoutSeconds = (timeoutMs: number): number =>
 const autoStopMinutes = (timeoutMs: number): number =>
   Math.max(1, Math.ceil(timeoutMs / 60000));
 
-const buildCreateParams = (opts: CreateOptions): CreateSandboxBaseParams => ({
+const buildCreateParams = (opts: CreateOptions): DaytonaCreateParams => ({
   autoStopInterval: autoStopMinutes(opts.timeoutMs),
   envVars: opts.envs,
   ephemeral: true,
+  resources: {
+    cpu: DAYTONA_SANDBOX_CPU_CORES,
+    memory: DAYTONA_SANDBOX_MEMORY_GIB,
+  },
 });
 
 class DaytonaSandboxAdapter implements Sandbox {

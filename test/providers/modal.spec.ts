@@ -109,8 +109,10 @@ test("ModalSandboxProvider creates a sandhop sandbox and maps exec results", asy
     { image: NODE_IMAGE },
     {
       command: ["sleep", "infinity"],
+      cpu: 4,
       encryptedPorts: [7681],
       env: { A: "1" },
+      memoryMiB: 4096,
       timeoutMs: 600000,
     },
   );

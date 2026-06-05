@@ -94,6 +94,7 @@ test("DaytonaSandboxProvider creates a sandbox and maps combined exec output", a
       envVars: { A: "1" },
       autoStopInterval: 10,
       ephemeral: true,
+      resources: { cpu: 4, memory: 4 },
     },
     { timeout: 600 },
   );

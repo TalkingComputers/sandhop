@@ -120,6 +120,7 @@ test("VercelSandboxProvider creates a named sandbox with creds and maps exec res
     name: expect.stringMatching(/^sandhop-/),
     timeout: 3_600_000,
     ports: [3000, 7681],
+    resources: { vcpus: 2 },
     runtime: VERCEL_RUNTIME,
   });
   expect(sandbox.id).toBe(

@@ -26,6 +26,8 @@ interface ModalSandboxListItem {
 
 const COMMAND_TIMEOUT_MS = 600000;
 const TUNNEL_TIMEOUT_MS = 60000;
+const MODAL_SANDBOX_CPU_CORES = 4;
+const MODAL_SANDBOX_MEMORY_MIB = 4096;
 
 const MODAL_INSTALL_HINT =
   "The 'modal' provider needs the 'modal' package. Run: npm i modal";
@@ -124,8 +126,10 @@ export class ModalSandboxProvider implements SandboxProvider {
     const image = client.images.fromRegistry(nodeImage());
     const sandbox = await client.sandboxes.create(app, image, {
       command: ["sleep", "infinity"],
+      cpu: MODAL_SANDBOX_CPU_CORES,
       encryptedPorts: opts.ports,
       env: opts.envs,
+      memoryMiB: MODAL_SANDBOX_MEMORY_MIB,
       timeoutMs: opts.timeoutMs,
     });
     try {
