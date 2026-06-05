@@ -1,5 +1,5 @@
 import { formatErrorStack } from "../errors.js";
-import { makeTempPath, sandboxExpandHome } from "../paths.js";
+import { expandHome, makeTempPath } from "../paths.js";
 import type { Agent } from "../ports/agent.js";
 import type { RunResult, Sandbox } from "../ports/provider.js";
 import type { BootstrapService, EnrichmentStepResult } from "./bootstrap.js";
@@ -8,11 +8,7 @@ import type { McpCodeService } from "./mcp-code.js";
 import type { ProfileService } from "./profile.js";
 import type { ReinstallService } from "./reinstall.js";
 import type { SecretsService } from "./secrets.js";
-import {
-  LOCAL_PATH_EXCLUDES,
-  type ScriptCaptureService,
-  type ScriptCapturePlan,
-} from "./scripts.js";
+import type { ScriptCaptureService, ScriptCapturePlan } from "./scripts.js";
 import type { TransferService } from "./transfer.js";
 
 const appendLog = async (sandbox: Sandbox, text: string): Promise<void> => {
@@ -168,7 +164,7 @@ export class EnrichmentService {
   private async sendProfile(): Promise<void> {
     const profileTree = await this.profile.build(makeTempPath("profile"));
     if (profileTree !== null)
-      await this.transfer.send(profileTree, "/home/user", "profile", {
+      await this.transfer.send(profileTree, this.sandbox.home, "profile", {
         codec: "zstd",
         lowPriority: true,
       });
@@ -177,7 +173,7 @@ export class EnrichmentService {
   private async sendScripts(cwd: string): Promise<ScriptCapturePlan> {
     if (!this.agent.supportsSettingsScripts())
       return { mappings: [], rewrites: [], installCmds: [] };
-    const scriptPlan = this.scripts.plan(cwd);
+    const scriptPlan = this.scripts.plan(cwd, this.sandbox.home);
     if (scriptPlan.mappings.length === 0 && scriptPlan.rewrites.length === 0)
       return scriptPlan;
     await Promise.all(
@@ -189,7 +185,7 @@ export class EnrichmentService {
           {
             codec: "zstd",
             lowPriority: true,
-            excludes: LOCAL_PATH_EXCLUDES,
+            excludes: ["node_modules", ".venv", ".git"],
           },
         ),
       ),
@@ -200,7 +196,7 @@ export class EnrichmentService {
   }
 
   private async sendMcpCode(cwd: string): Promise<CodePlan | null> {
-    const codePlan = await this.mcpCode.build(cwd);
+    const codePlan = await this.mcpCode.build(cwd, this.sandbox.home);
     if (codePlan === null) return null;
     await Promise.all(
       codePlan.mappings.map((mapping, index) =>
@@ -220,7 +216,10 @@ export class EnrichmentService {
       referencedFiles: codePlan.referencedFiles,
     });
     for (const file of bundle.files)
-      await this.sandbox.uploadFile(sandboxExpandHome(file.path), file.content);
+      await this.sandbox.uploadFile(
+        expandHome(file.path, this.sandbox.home),
+        file.content,
+      );
     const result = await runLogged(
       this.sandbox,
       this.bootstrap.renderEnrichmentConfig(cwd, { codePlan }),

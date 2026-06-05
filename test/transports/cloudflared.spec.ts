@@ -3,7 +3,7 @@ import { CloudflaredTransport } from "../../src/transports/cloudflared.js";
 import { FakeSandbox } from "../fakes/provider.js";
 
 test("CloudflaredTransport quick mode returns the trycloudflare URL", async () => {
-  const sandbox = new FakeSandbox("sbx-1");
+  const sandbox = new FakeSandbox("sbx-1", "/home/user");
   sandbox.execResults.push({
     exitCode: 0,
     stdout: "https://fresh-pond.trycloudflare.com\n",
@@ -31,7 +31,7 @@ test("CloudflaredTransport quick mode returns the trycloudflare URL", async () =
 });
 
 test("CloudflaredTransport named mode returns the configured hostname", async () => {
-  const sandbox = new FakeSandbox("sbx-1");
+  const sandbox = new FakeSandbox("sbx-1", "/home/user");
   sandbox.execResults.push({ exitCode: 0, stdout: "", stderr: "" });
   const transport = new CloudflaredTransport({
     token: "cloudflare-token",
@@ -51,7 +51,7 @@ test("CloudflaredTransport named mode returns the configured hostname", async ()
 });
 
 test("CloudflaredTransport named mode requires a hostname", async () => {
-  const sandbox = new FakeSandbox("sbx-1");
+  const sandbox = new FakeSandbox("sbx-1", "/home/user");
   const transport = new CloudflaredTransport({ token: "cloudflare-token" });
 
   await expect(

@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import { CLAUDE_CODE } from "../../../src/agents/claude-code.js";
+import { SANDHOP_AUTH_USER, TTYD_PORT } from "../../../src/core/constants.js";
 import type { AuthBundle, SessionRef } from "../../../src/core/ports/agent.js";
 import type { Transport } from "../../../src/core/ports/transport.js";
 import { BootstrapService } from "../../../src/core/services/bootstrap.js";
@@ -73,7 +74,7 @@ test("TeleportService fast core fans out collection, uploads one gzip bundle, st
     {
       envs: { MCP_TOKEN: "mcp-token", ANTHROPIC_API_KEY: "sk-ant-api03-test" },
       timeoutMs: 3_600_000,
-      ports: [7681],
+      ports: [TTYD_PORT],
     },
   ]);
   expect(provider.sandbox.pathUploads).toEqual([]);
@@ -98,7 +99,9 @@ test("TeleportService fast core fans out collection, uploads one gzip bundle, st
   expect(provider.sandbox.execs[0]).toContain(
     'tar -xzf /tmp/bundle.tgz -C "/workspace/project"',
   );
-  expect(provider.sandbox.spawns[0]).toContain("ttyd -p 7681 -W -c sandhop:");
+  expect(provider.sandbox.spawns[0]).toContain(
+    `ttyd -p ${TTYD_PORT} -W -c ${SANDHOP_AUTH_USER}:`,
+  );
   expect(provider.sandbox.spawns[0]).not.toContain("-i 127.0.0.1");
   expect(provider.sandbox.spawns[0]).toContain(
     "bash -lc 'cd \"/workspace/project\" && MCP_TIMEOUT=120000 claude --resume session-id'",
@@ -107,9 +110,9 @@ test("TeleportService fast core fans out collection, uploads one gzip bundle, st
   expect(provider.sandbox.execs).toHaveLength(1);
   expect(provider.sandbox.execs[0]).not.toContain("profile");
   expect(provider.sandbox.execs[0]).not.toContain("mcp");
-  expect(provider.sandbox.exposedPorts).toEqual([7681]);
-  expect(result.url).toBe("https://sandbox-sbx-1-7681.example");
-  expect(result.user).toBe("sandhop");
+  expect(provider.sandbox.exposedPorts).toEqual([TTYD_PORT]);
+  expect(result.url).toBe(`https://sandbox-sbx-1-${TTYD_PORT}.example`);
+  expect(result.user).toBe(SANDHOP_AUTH_USER);
   expect(result.pass).toMatch(/^[A-Za-z0-9_-]{24}$/);
 });
 
@@ -159,7 +162,7 @@ test("TeleportService injects transport bootstrap steps and loopback ttyd bind",
   });
   expect(provider.sandbox.execs[0]).toContain("install cloudflared");
   expect(provider.sandbox.spawns[0]).toContain(
-    "ttyd -i 127.0.0.1 -p 7681 -W -c sandhop:",
+    `ttyd -i 127.0.0.1 -p ${TTYD_PORT} -W -c ${SANDHOP_AUTH_USER}:`,
   );
   expect(provider.sandbox.exposedPorts).toEqual([]);
   expect(result.url).toBe("https://cloudflared-sbx-1");

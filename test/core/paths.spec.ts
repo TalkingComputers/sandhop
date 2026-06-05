@@ -5,7 +5,6 @@ import {
   listSkillNames,
   makeTempPath,
   normalizePath,
-  sandboxExpandHome,
 } from "../../src/core/paths.js";
 import { FakeHost } from "../fakes/host.js";
 
@@ -17,14 +16,14 @@ test("dirname handles paths without slash and absolute parents", () => {
   expect(dirname("/")).toBe("/");
 });
 
-test("home path functions expand host and sandbox homes", () => {
+test("home path functions expand provided homes", () => {
   expect(expandHome("$HOME/.codex/auth.json", "/Users/parsa")).toBe(
     "/Users/parsa/.codex/auth.json",
   );
   expect(expandHome("~/.codex/auth.json", "/Users/parsa")).toBe(
     "/Users/parsa/.codex/auth.json",
   );
-  expect(sandboxExpandHome("$HOME/.codex/auth.json")).toBe(
+  expect(expandHome("$HOME/.codex/auth.json", "/home/user")).toBe(
     "/home/user/.codex/auth.json",
   );
   expect(makeTempPath("profile")).toMatch(/^\/tmp\/sandhop-\d+-profile$/);

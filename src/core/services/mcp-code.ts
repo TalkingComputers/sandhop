@@ -13,12 +13,7 @@ import {
   installCmd,
   rewriteServer,
 } from "./mcp-classify.js";
-import {
-  LOCAL_PATH_EXCLUDES,
-  type PathMapping,
-  nearestRoot,
-  sandboxPath,
-} from "./mcp-paths.js";
+import { type PathMapping, nearestRoot, sandboxPath } from "./mcp-paths.js";
 
 export interface CodePlan {
   mappings: PathMapping[];
@@ -40,7 +35,7 @@ export class McpCodeService {
     this.agent = agent;
   }
 
-  plan(cwd: string): CodePlan {
+  plan(cwd: string, sandboxHome: string): CodePlan {
     const servers = this.agent.parseMcpServers(this.host, cwd);
     const mappings: PathMapping[] = [];
     const roots = new Set<string>();
@@ -68,7 +63,7 @@ export class McpCodeService {
         const root = nearestRoot(this.host, paths[0]!);
         if (!roots.has(root)) {
           roots.add(root);
-          const mapped = sandboxPath(this.host, root);
+          const mapped = sandboxPath(this.host, sandboxHome, root);
           mappings.push({ localPath: root, sandboxPath: mapped });
           installCmds.push(...installCmd(this.host, root, mapped));
         }
@@ -80,7 +75,7 @@ export class McpCodeService {
     }
 
     const localRewrites = localServers.map((localServer) =>
-      rewriteServer(this.host, localServer.server, mappings),
+      rewriteServer(this.host, localServer.server, sandboxHome, mappings),
     );
 
     return {
@@ -95,8 +90,12 @@ export class McpCodeService {
     };
   }
 
-  async build(cwd: string, outPath?: string): Promise<CodePlan | null> {
-    const plan = this.plan(cwd);
+  async build(
+    cwd: string,
+    sandboxHome: string,
+    outPath?: string,
+  ): Promise<CodePlan | null> {
+    const plan = this.plan(cwd, sandboxHome);
     if (plan.classifications.length === 0) return null;
     if (outPath !== undefined && plan.mappings.length > 0) {
       const entries = plan.mappings.map((mapping) => {
@@ -107,7 +106,7 @@ export class McpCodeService {
         return mapping.localPath.slice(this.host.home.length + 1);
       });
       await this.host.tarGz(this.host.home, entries, outPath, {
-        excludes: LOCAL_PATH_EXCLUDES,
+        excludes: ["node_modules", ".venv", ".git"],
       });
     }
     return plan;

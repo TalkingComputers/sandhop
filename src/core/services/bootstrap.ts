@@ -17,6 +17,7 @@ import type { CodePlan } from "./mcp-code.js";
 import type { ScriptCapturePlan } from "./scripts.js";
 
 export interface BootstrapOptions {
+  home: string;
   transportSteps?: string[];
 }
 
@@ -98,6 +99,7 @@ export class BootstrapService {
   render(manifest: Manifest, opts: BootstrapOptions): string {
     const installCmd = this.agent.installCmd(manifest.cliVersion);
     const dest = this.agent.remoteTranscriptPath(
+      opts.home,
       manifest.remoteEnc,
       manifest.transcriptName,
     );

@@ -7,8 +7,6 @@ import type { Agent } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
 import { listSkillNames } from "../paths.js";
 
-const CLAUDE_SKILL_SIZE_LIMIT = 5 * 1024 * 1024;
-
 const joinHome = (home: string, path: string): string => `${home}/${path}`;
 
 const hasPathSegment = (path: string, segment: string): boolean =>
@@ -42,7 +40,6 @@ export class ProfileService {
           )
       )
         continue;
-      if (this.host.dirSizeBytes(skillDir) >= CLAUDE_SKILL_SIZE_LIMIT) continue;
       entries.push(`${CLAUDE_SKILLS_PATH}/${name}`);
     }
     return entries;

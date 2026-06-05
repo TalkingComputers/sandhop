@@ -14,7 +14,6 @@ export const CLAUDE_KNOWN_MARKETPLACES_PATH =
 export const CLAUDE_INSTALLED_PLUGINS_PATH =
   ".claude/plugins/installed_plugins.json";
 export const CLAUDE_JSON_HOME_PATH = "$HOME/.claude.json";
-export const CLAUDE_SETTINGS_SANDBOX_PATH = "/home/user/.claude/settings.json";
 
 export const CLAUDE_PROFILE_PATHS = [
   CLAUDE_SETTINGS_PATH,

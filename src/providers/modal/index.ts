@@ -2,6 +2,7 @@ import type {
   ModalClient as ModalClientType,
   Sandbox as ModalSandboxInstance,
 } from "modal";
+import { TTYD_PORT } from "../../core/constants.js";
 import type { HostDeps } from "../../core/ports/host.js";
 import type {
   CreateOptions,
@@ -27,13 +28,19 @@ const MODAL_PACKAGE = "modal";
 
 class ModalSandboxAdapter implements Sandbox {
   readonly id: string;
+  readonly home: string;
   readonly sandbox: ModalSandboxInstance;
   readonly host: Pick<HostDeps, "openBlob">;
 
-  constructor(sandbox: ModalSandboxInstance, host: Pick<HostDeps, "openBlob">) {
+  constructor(
+    sandbox: ModalSandboxInstance,
+    host: Pick<HostDeps, "openBlob">,
+    home: string,
+  ) {
     this.sandbox = sandbox;
     this.host = host;
     this.id = sandbox.sandboxId;
+    this.home = home;
   }
 
   async uploadFile(path: string, data: Uint8Array | string): Promise<void> {
@@ -101,17 +108,23 @@ export class ModalSandboxProvider implements SandboxProvider {
     const image = client.images.fromRegistry("node:22");
     const sandbox = await client.sandboxes.create(app, image, {
       command: ["sleep", "infinity"],
-      encryptedPorts: opts.ports ?? [7681],
+      encryptedPorts: opts.ports ?? [TTYD_PORT],
       env: opts.envs,
       timeoutMs: opts.timeoutMs,
     });
-    return new ModalSandboxAdapter(sandbox, this.host);
+    return new ModalSandboxAdapter(
+      sandbox,
+      this.host,
+      await this.readHome(sandbox),
+    );
   }
 
   async connect(id: string): Promise<Sandbox> {
+    const sandbox = await (await this.client()).sandboxes.fromId(id);
     return new ModalSandboxAdapter(
-      await (await this.client()).sandboxes.fromId(id),
+      sandbox,
       this.host,
+      await this.readHome(sandbox),
     );
   }
 
@@ -145,5 +158,19 @@ export class ModalSandboxProvider implements SandboxProvider {
       tokenId: credentials.tokenId,
       tokenSecret: credentials.tokenSecret,
     });
+  }
+
+  private async readHome(sandbox: ModalSandboxInstance): Promise<string> {
+    const process = await sandbox.exec(["bash", "-lc", 'printf %s "$HOME"'], {
+      timeoutMs: COMMAND_TIMEOUT_MS,
+    });
+    const [stdout, stderr, exitCode] = await Promise.all([
+      process.stdout.readText(),
+      process.stderr.readText(),
+      process.wait(),
+    ]);
+    if (exitCode !== 0)
+      throw new Error(`Home lookup failed: ${stderr || stdout}`);
+    return stdout.trim();
   }
 }

@@ -3,10 +3,17 @@ import { expect, test, vi } from "vitest";
 import { FakeHost } from "../fakes/host.js";
 
 const daytonaMocks = vi.hoisted(() => {
-  const executeCommand = vi.fn(async () => ({
-    exitCode: 3,
-    result: "combined",
-  }));
+  const executeCommand = vi.fn(async (command: string) =>
+    command === "bash -lc 'printf %s \"$HOME\"'"
+      ? {
+          exitCode: 0,
+          result: "/home/daytona",
+        }
+      : {
+          exitCode: 3,
+          result: "combined",
+        },
+  );
   const uploadFile = vi.fn(async () => undefined);
   const getPreviewLink = vi.fn(async () => ({
     url: "https://daytona-preview.example",
@@ -61,6 +68,7 @@ test("DaytonaSandboxProvider creates a sandbox and maps combined exec output", a
     timeoutMs: 600000,
     ports: [7681],
   });
+  expect(sandbox.home).toBe("/home/daytona");
 
   await expect(sandbox.exec("echo ok")).resolves.toEqual({
     exitCode: 3,
@@ -97,6 +105,7 @@ test("DaytonaSandboxProvider spawn backgrounds commands without a session", asyn
     }),
   );
   const sandbox = await provider.create({ envs: {}, timeoutMs: 600000 });
+  daytonaMocks.executeCommand.mockClear();
 
   await sandbox.spawn("ttyd");
   await sandbox.spawn("cloudflared");
@@ -168,6 +177,7 @@ test("DaytonaSandboxProvider connect and destroy use SDK lookups", async () => {
   await expect(provider.destroy("daytona-sbx")).resolves.toBe(true);
 
   expect(connected).not.toBe(created);
+  expect(connected.home).toBe("/home/daytona");
   expect(daytonaMocks.get).toHaveBeenCalledTimes(2);
   expect(daytonaMocks.get).toHaveBeenNthCalledWith(1, "daytona-sbx");
   expect(daytonaMocks.get).toHaveBeenNthCalledWith(2, "daytona-sbx");

@@ -1,13 +1,11 @@
 import { projectDirName } from "../encode.js";
-import { dirname, expandHome, joinPath, SANDBOX_HOME } from "../paths.js";
+import { dirname, expandHome, joinPath } from "../paths.js";
 import type { HostDeps } from "../ports/host.js";
 
 export interface PathMapping {
   localPath: string;
   sandboxPath: string;
 }
-
-export const LOCAL_PATH_EXCLUDES = ["node_modules", ".venv", ".git"];
 
 const MARKERS = [
   "package.json",
@@ -37,11 +35,15 @@ export const nearestRoot = (host: HostDeps, path: string): string => {
   }
 };
 
-export const sandboxPath = (host: HostDeps, localPath: string): string => {
-  if (localPath === host.home) return SANDBOX_HOME;
+export const sandboxPath = (
+  host: HostDeps,
+  sandboxHome: string,
+  localPath: string,
+): string => {
+  if (localPath === host.home) return sandboxHome;
   if (localPath.startsWith(`${host.home}/`))
-    return `${SANDBOX_HOME}${localPath.slice(host.home.length)}`;
-  return `${SANDBOX_HOME}/.sandhop/mcp-roots/${projectDirName(localPath)}`;
+    return `${sandboxHome}${localPath.slice(host.home.length)}`;
+  return `${sandboxHome}/.sandhop/mcp-roots/${projectDirName(localPath)}`;
 };
 
 const replaceAll = (value: string, from: string, to: string): string =>
@@ -50,6 +52,7 @@ const replaceAll = (value: string, from: string, to: string): string =>
 export const remapValue = (
   value: string,
   host: HostDeps,
+  sandboxHome: string,
   mappings: PathMapping[],
 ): string => {
   let next = expandHome(value, host.home);
@@ -57,5 +60,5 @@ export const remapValue = (
     (a, b) => b.localPath.length - a.localPath.length,
   ))
     next = replaceAll(next, mapping.localPath, mapping.sandboxPath);
-  return replaceAll(next, host.home, SANDBOX_HOME);
+  return replaceAll(next, host.home, sandboxHome);
 };

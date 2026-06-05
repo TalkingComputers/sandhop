@@ -19,6 +19,20 @@ test("declarative agents install exact versions and compose native resume comman
   expect(CODEX.resumeCmd("session-id", "/home/user/project")).toBe(
     'cd "/home/user/project" && codex resume session-id',
   );
+  expect(
+    CLAUDE_CODE.remoteTranscriptPath(
+      "/root",
+      "-workspace-project",
+      "session-id.jsonl",
+    ),
+  ).toBe("/root/.claude/projects/-workspace-project/session-id.jsonl");
+  expect(
+    CODEX.remoteTranscriptPath(
+      "/home/vercel-sandbox",
+      "-workspace-project",
+      "session-id.jsonl",
+    ),
+  ).toBe("/home/vercel-sandbox/.codex/sessions/restored/session-id.jsonl");
 });
 
 test("Codex MCP config writes startup timeouts for every server", () => {

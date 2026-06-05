@@ -21,7 +21,9 @@ const ZSTD_INSTALL =
   "command -v zstd || $SUDO sh -lc 'command -v apt-get >/dev/null && (apt-get update && apt-get install -y zstd) || (command -v dnf >/dev/null && dnf install -y zstd) || (command -v apk >/dev/null && apk add zstd) || (command -v yum >/dev/null && yum install -y zstd)'";
 
 test("BootstrapService core installs exact CLI version, places transcript, and skips enrichment without zstd or apt", () => {
-  const script = new BootstrapService(CLAUDE_CODE).render(manifest, {});
+  const script = new BootstrapService(CLAUDE_CODE).render(manifest, {
+    home: "/home/user",
+  });
 
   expect(script).toContain(
     'npm i -g @anthropic-ai/claude-code@2.1.160 || $SUDO env PATH="$PATH" npm i -g @anthropic-ai/claude-code@2.1.160',
@@ -88,7 +90,9 @@ test("BootstrapService quotes remote project shell paths with spaces", () => {
     transcriptName: "session-id.jsonl",
     ts: 1,
   });
-  const script = new BootstrapService(CLAUDE_CODE).render(spacedManifest, {});
+  const script = new BootstrapService(CLAUDE_CODE).render(spacedManifest, {
+    home: "/home/user",
+  });
 
   expect(script).toContain('$SUDO mkdir -p "/Users/alice/My Project"');
   expect(script).toContain(
@@ -98,6 +102,7 @@ test("BootstrapService quotes remote project shell paths with spaces", () => {
 
 test("BootstrapService injects transport steps before agent install", () => {
   const script = new BootstrapService(CLAUDE_CODE).render(manifest, {
+    home: "/home/user",
     transportSteps: ["install cloudflared"],
   });
 

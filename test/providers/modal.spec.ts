@@ -5,11 +5,19 @@ const modalMocks = vi.hoisted(() => {
   const stdoutReadText = vi.fn(async () => "stdout");
   const stderrReadText = vi.fn(async () => "stderr");
   const wait = vi.fn(async () => 7);
-  const exec = vi.fn(async () => ({
-    stdout: { readText: stdoutReadText },
-    stderr: { readText: stderrReadText },
-    wait,
-  }));
+  const exec = vi.fn(async (command: string[]) =>
+    command[2] === 'printf %s "$HOME"'
+      ? {
+          stdout: { readText: vi.fn(async () => "/root") },
+          stderr: { readText: vi.fn(async () => "") },
+          wait: vi.fn(async () => 0),
+        }
+      : {
+          stdout: { readText: stdoutReadText },
+          stderr: { readText: stderrReadText },
+          wait,
+        },
+  );
   const write = vi.fn(async () => undefined);
   const close = vi.fn(async () => undefined);
   const open = vi.fn(async () => ({ write, close }));
@@ -79,6 +87,7 @@ test("ModalSandboxProvider creates a sandhop sandbox and maps exec results", asy
     timeoutMs: 600000,
     ports: [7681],
   });
+  expect(sandbox.home).toBe("/root");
 
   await expect(sandbox.exec("echo ok")).resolves.toEqual({
     exitCode: 7,
@@ -117,6 +126,8 @@ test("ModalSandboxProvider spawn starts without awaiting process completion", as
     }),
   );
   const sandbox = await provider.create({ envs: {}, timeoutMs: 600000 });
+  modalMocks.exec.mockClear();
+  modalMocks.wait.mockClear();
 
   await sandbox.spawn("ttyd");
 
@@ -170,6 +181,7 @@ test("ModalSandboxProvider connect and destroy use SDK lookups", async () => {
   await expect(provider.destroy("modal-sbx")).resolves.toBe(true);
 
   expect(connected).not.toBe(created);
+  expect(connected.home).toBe("/root");
   expect(modalMocks.fromId).toHaveBeenCalledTimes(2);
   expect(modalMocks.fromId).toHaveBeenNthCalledWith(1, "modal-sbx");
   expect(modalMocks.fromId).toHaveBeenNthCalledWith(2, "modal-sbx");

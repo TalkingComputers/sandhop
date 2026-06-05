@@ -22,7 +22,6 @@ import {
   CLAUDE_PROJECTS_PATH,
   CLAUDE_SETTINGS_LOCAL_PATH,
   CLAUDE_SETTINGS_PATH,
-  joinClaudeHomePath,
   joinClaudeLocalPath,
 } from "./claude-paths.js";
 
@@ -200,10 +199,8 @@ export const CLAUDE_CODE: Agent = {
   preSeed: (remoteProj) => [
     `node -e ${JSON.stringify(buildClaudePreSeedScript(remoteProj))}`,
   ],
-  remoteTranscriptPath: (remoteEnc, transcriptName) =>
-    `${joinClaudeHomePath(
-      CLAUDE_PROJECTS_PATH,
-    )}/${remoteEnc}/${transcriptName}`,
+  remoteTranscriptPath: (home, remoteEnc, transcriptName) =>
+    `${home}/${CLAUDE_PROJECTS_PATH}/${remoteEnc}/${transcriptName}`,
   resumeCmd: (sessionId, remoteProj) =>
     `cd "${remoteProj}" && MCP_TIMEOUT=${MCP_TIMEOUT_MS} claude --resume ${sessionId}`,
 };

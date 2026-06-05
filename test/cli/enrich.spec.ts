@@ -38,7 +38,7 @@ const loadRunEnrichCli = async (steps: EnrichmentStepResult[]) => {
   vi.doMock("../../src/providers/index.js", () => ({
     PROVIDER_IDS: ["e2b", "modal", "daytona", "vercel"],
     buildProvider: () => ({
-      connect: async () => new FakeSandbox("sbx-1"),
+      connect: async () => new FakeSandbox("sbx-1", "/home/user"),
     }),
   }));
   vi.doMock("../../src/core/services/enrichment.js", () => ({
@@ -189,7 +189,7 @@ test("runEnrichment re-applies Codex preseed after profile transfer", async () =
       "/home/local/.codex/config.toml": 'model = "gpt-5.4"\n',
     },
   });
-  const sandbox = new FakeSandbox("sbx-1");
+  const sandbox = new FakeSandbox("sbx-1", "/home/user");
 
   await runEnrichment(
     {
@@ -238,7 +238,7 @@ test("runEnrichment finishes profile and marker after MCP transfer failure", asy
       "/home/local/mcp/server.js": "",
     },
   });
-  const sandbox = new FailingMcpSandbox("sbx-1");
+  const sandbox = new FailingMcpSandbox("sbx-1", "/home/user");
 
   await runEnrichment(
     {
@@ -297,7 +297,7 @@ test("runEnrichment runs reinstall commands nice, HTTPS-preferred, fault-isolate
       }),
     },
   });
-  const sandbox = new FakeSandbox("sbx-1");
+  const sandbox = new FakeSandbox("sbx-1", "/home/user");
 
   await runEnrichment(
     {
@@ -374,7 +374,7 @@ test("runEnrichment ships Claude settings scripts and uploads rewritten settings
       "/home/local/work/scripts/project-hook.py": "#!/usr/bin/env python\n",
     },
   });
-  const sandbox = new FakeSandbox("sbx-1");
+  const sandbox = new FakeSandbox("sbx-1", "/home/user");
 
   await runEnrichment(
     {

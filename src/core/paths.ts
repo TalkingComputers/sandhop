@@ -1,8 +1,6 @@
 import { posix } from "node:path";
 import type { HostDeps } from "./ports/host.js";
 
-export const SANDBOX_HOME = "/home/user";
-
 export const dirname = posix.dirname;
 export const basename = posix.basename;
 
@@ -33,9 +31,6 @@ export const expandHome = (path: string, home: string): string =>
     .replace(/^~/, home)
     .replaceAll("${HOME}", home)
     .replaceAll("$HOME", home);
-
-export const sandboxExpandHome = (path: string): string =>
-  expandHome(path, SANDBOX_HOME);
 
 export const expandEnv = (
   value: string,

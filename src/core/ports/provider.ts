@@ -16,6 +16,7 @@ export interface ExposedPort {
 
 export interface Sandbox {
   readonly id: string;
+  readonly home: string;
   uploadFile(path: string, data: Uint8Array | string): Promise<void>;
   uploadPath(remotePath: string, localPath: string): Promise<void>;
   exec(cmd: string): Promise<RunResult>;

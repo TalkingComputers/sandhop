@@ -276,28 +276,33 @@ export const classify = (
 export const rewriteServer = (
   host: HostDeps,
   server: McpServer,
+  sandboxHome: string,
   mappings: PathMapping[],
 ): McpServer => ({
   name: server.name,
   transport: server.transport,
   ...(server.command === undefined
     ? {}
-    : { command: remapValue(server.command, host, mappings) }),
+    : { command: remapValue(server.command, host, sandboxHome, mappings) }),
   ...(server.args === undefined
     ? {}
-    : { args: server.args.map((arg) => remapValue(arg, host, mappings)) }),
+    : {
+        args: server.args.map((arg) =>
+          remapValue(arg, host, sandboxHome, mappings),
+        ),
+      }),
   ...(server.env === undefined
     ? {}
     : {
         env: Object.fromEntries(
           Object.entries(server.env).map(([key, value]) => [
             key,
-            remapValue(value, host, mappings),
+            remapValue(value, host, sandboxHome, mappings),
           ]),
         ),
       }),
   ...(server.cwd === undefined
     ? {}
-    : { cwd: remapValue(server.cwd, host, mappings) }),
+    : { cwd: remapValue(server.cwd, host, sandboxHome, mappings) }),
   ...(server.url === undefined ? {} : { url: server.url }),
 });

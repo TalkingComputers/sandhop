@@ -1,5 +1,6 @@
 export * from "./agents/index.js";
 export * from "./core/encode.js";
+export * from "./core/constants.js";
 export * from "./core/errors.js";
 export * from "./core/manifest.js";
 export * from "./core/ports/agent.js";

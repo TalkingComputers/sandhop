@@ -31,17 +31,10 @@ test("ProfileService ships portable Codex config without auth, caches, sessions,
   ]);
 });
 
-test("ProfileService ships Claude manifests and only small non-reproducible skill dirs", async () => {
+test("ProfileService ships Claude manifests and non-reproducible skill dirs", async () => {
   const host = new FakeHost({
     home: "/home/local",
     env: {},
-    directorySizes: {
-      "/home/local/.claude/skills/local": 1024,
-      "/home/local/.claude/skills/big": 6 * 1024 * 1024,
-      "/home/local/.claude/skills/git": 1024,
-      "/home/local/.claude/skills/node": 1024,
-      "/home/local/.claude/skills/linked": 1024,
-    },
     symlinks: {
       "/home/local/.claude/skills/linked":
         "/home/local/.claude/skills/git/skills/linked",
@@ -78,6 +71,7 @@ test("ProfileService ships Claude manifests and only small non-reproducible skil
     ".claude/commands",
     ".claude/plugins/known_marketplaces.json",
     ".claude/plugins/installed_plugins.json",
+    ".claude/skills/big",
     ".claude/skills/local",
   ]);
 });

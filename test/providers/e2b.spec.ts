@@ -41,6 +41,12 @@ vi.mock("e2b", () => ({
 const env = { E2B_API_KEY: "e2b-key" };
 
 test("E2bSandboxProvider creates sandboxes, uploads octet-stream bytes and paths, runs commands, exposes HTTPS URLs, and destroys", async () => {
+  e2bMocks.commandsRun.mockReset();
+  e2bMocks.commandsRun.mockResolvedValueOnce({
+    exitCode: 0,
+    stdout: "/home/e2b",
+    stderr: "",
+  });
   e2bMocks.commandsRun.mockResolvedValue({
     exitCode: 0,
     stdout: "ok",
@@ -58,6 +64,7 @@ test("E2bSandboxProvider creates sandboxes, uploads octet-stream bytes and paths
     envs: { A: "1" },
     timeoutMs: 600000,
   });
+  expect(sandbox.home).toBe("/home/e2b");
   await sandbox.uploadFile("/tmp/a", new Uint8Array([1, 2]));
   await sandbox.uploadPath("/tmp/large", localPath);
   await expect(sandbox.exec("echo ok")).resolves.toEqual({
@@ -99,7 +106,13 @@ test("E2bSandboxProvider creates sandboxes, uploads octet-stream bytes and paths
 });
 
 test("E2bSandboxProvider returns non-zero command exits as RunResult data", async () => {
-  e2bMocks.commandsRun.mockRejectedValue(
+  e2bMocks.commandsRun.mockReset();
+  e2bMocks.commandsRun.mockResolvedValueOnce({
+    exitCode: 0,
+    stdout: "/home/e2b",
+    stderr: "",
+  });
+  e2bMocks.commandsRun.mockRejectedValueOnce(
     new e2bMocks.CommandExitError({
       exitCode: 42,
       stdout: "partial",
@@ -122,6 +135,12 @@ test("E2bSandboxProvider returns non-zero command exits as RunResult data", asyn
 });
 
 test("E2bSandboxProvider reconnects after adapter destroy", async () => {
+  e2bMocks.commandsRun.mockReset();
+  e2bMocks.commandsRun.mockResolvedValue({
+    exitCode: 0,
+    stdout: "/home/e2b",
+    stderr: "",
+  });
   e2bMocks.Sandbox.connect.mockClear();
   const provider = new E2bSandboxProvider(
     new FakeHost({ home: "/home/local", env }),

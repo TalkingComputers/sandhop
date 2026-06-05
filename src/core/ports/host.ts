@@ -10,7 +10,6 @@ export interface HostDeps {
   readlink(path: string): string;
   walk(dir: string): string[];
   fileSize(path: string): number;
-  dirSizeBytes(path: string): number;
   statMtimeMs(path: string): number;
   keychain(service: string, account: string | null): string | null;
   realpath(path: string): string;

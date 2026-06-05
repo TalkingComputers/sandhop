@@ -32,30 +32,6 @@ const listFiles = (dir: string): string[] => {
   return paths;
 };
 
-const sizeDir = (dir: string): number => {
-  let entries: Dirent[];
-  try {
-    entries = readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return 0;
-  }
-  let size = 0;
-  for (const entry of entries) {
-    const path = `${dir}/${entry.name}`;
-    const stat = lstatSync(path);
-    if (stat.isSymbolicLink()) {
-      size += stat.size;
-      continue;
-    }
-    if (stat.isDirectory()) {
-      size += sizeDir(path);
-      continue;
-    }
-    size += stat.size;
-  }
-  return size;
-};
-
 const hasExcludedSegment = (path: string, excludes: string[]): boolean => {
   const segments = path.split("/");
   return excludes.some((exclude) => segments.includes(exclude));
@@ -108,10 +84,6 @@ export class NodeHost implements HostDeps {
 
   fileSize(path: string): number {
     return statSync(path).size;
-  }
-
-  dirSizeBytes(path: string): number {
-    return sizeDir(path);
   }
 
   statMtimeMs(path: string): number {

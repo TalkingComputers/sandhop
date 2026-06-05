@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { TTYD_PORT } from "../../core/constants.js";
 import { dirname } from "../../core/paths.js";
 import type { HostDeps } from "../../core/ports/host.js";
 import type {
@@ -31,7 +32,6 @@ interface VercelHttpError extends Error {
 const VERCEL_INSTALL_HINT =
   "The 'vercel' provider needs @vercel/sandbox. Run: npm i @vercel/sandbox";
 const VERCEL_PACKAGE = "@vercel/sandbox";
-const LIST_LIMIT = 100;
 
 const sandboxName = (): string => `sandhop-${randomUUID()}`;
 
@@ -43,6 +43,7 @@ const isNotFoundError = (error: unknown): boolean => {
 
 class VercelSandboxAdapter implements Sandbox {
   readonly id: string;
+  readonly home: string;
   readonly sandbox: VercelSandboxInstance;
   readonly host: Pick<HostDeps, "readBytes">;
 
@@ -50,10 +51,12 @@ class VercelSandboxAdapter implements Sandbox {
     id: string,
     sandbox: VercelSandboxInstance,
     host: Pick<HostDeps, "readBytes">,
+    home: string,
   ) {
     this.id = id;
     this.sandbox = sandbox;
     this.host = host;
+    this.home = home;
   }
 
   async uploadFile(path: string, data: Uint8Array | string): Promise<void> {
@@ -122,19 +125,30 @@ export class VercelSandboxProvider implements SandboxProvider {
       ...credentials,
       name,
       timeout: opts.timeoutMs,
-      ports: opts.ports ?? [7681],
+      ports: opts.ports ?? [TTYD_PORT],
       runtime: "node22",
     });
-    return new VercelSandboxAdapter(name, sandbox, this.host);
+    return new VercelSandboxAdapter(
+      name,
+      sandbox,
+      this.host,
+      await this.readHome(sandbox),
+    );
   }
 
   async connect(id: string): Promise<Sandbox> {
     const credentials = this.credentials();
     const { Sandbox } = await this.sdk();
+    const sandbox = await Sandbox.get({
+      ...credentials,
+      name: id,
+      resume: true,
+    });
     return new VercelSandboxAdapter(
       id,
-      await Sandbox.get({ ...credentials, name: id, resume: true }),
+      sandbox,
       this.host,
+      await this.readHome(sandbox),
     );
   }
 
@@ -142,10 +156,7 @@ export class VercelSandboxProvider implements SandboxProvider {
     const credentials = this.credentials();
     const { Sandbox } = await this.sdk();
     const sandboxes: SandboxInfo[] = [];
-    for await (const sandbox of await Sandbox.list({
-      ...credentials,
-      limit: LIST_LIMIT,
-    }))
+    for await (const sandbox of await Sandbox.list(credentials))
       sandboxes.push({
         id: sandbox.name,
         startedAt: new Date(sandbox.createdAt),
@@ -167,5 +178,19 @@ export class VercelSandboxProvider implements SandboxProvider {
       teamId: requireCred(this.host, "vercel", "VERCEL_TEAM_ID"),
       projectId: requireCred(this.host, "vercel", "VERCEL_PROJECT_ID"),
     };
+  }
+
+  private async readHome(sandbox: VercelSandboxInstance): Promise<string> {
+    const result = await sandbox.runCommand("bash", [
+      "-lc",
+      'printf %s "$HOME"',
+    ]);
+    const [stdout, stderr] = await Promise.all([
+      result.stdout(),
+      result.stderr(),
+    ]);
+    if (result.exitCode !== 0)
+      throw new Error(`Home lookup failed: ${stderr || stdout}`);
+    return stdout.trim();
   }
 }

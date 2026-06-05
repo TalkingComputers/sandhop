@@ -5,7 +5,16 @@ import { FakeHost } from "../fakes/host.js";
 const vercelMocks = vi.hoisted(() => {
   const stdout = vi.fn(async () => "stdout");
   const stderr = vi.fn(async () => "stderr");
-  const runCommand = vi.fn(async () => ({ exitCode: 5, stdout, stderr }));
+  const runCommand = vi.fn(
+    async (cmd: string | { cmd: string }, args?: string[]) =>
+      cmd === "bash" && args?.[1] === 'printf %s "$HOME"'
+        ? {
+            exitCode: 0,
+            stdout: vi.fn(async () => "/home/vercel-sandbox"),
+            stderr: vi.fn(async () => ""),
+          }
+        : { exitCode: 5, stdout, stderr },
+  );
   const mkDir = vi.fn(async () => undefined);
   const writeFiles = vi.fn(async () => undefined);
   const domain = vi.fn((port: number) => `https://vercel-${port}.example`);
@@ -66,6 +75,7 @@ test("VercelSandboxProvider creates a named sandbox with creds and maps exec res
     timeoutMs: 3_600_000,
     ports: [3000, 7681],
   });
+  expect(sandbox.home).toBe("/home/vercel-sandbox");
 
   await expect(sandbox.exec("echo ok")).resolves.toEqual({
     exitCode: 5,
@@ -144,7 +154,9 @@ test("VercelSandboxProvider connects and destroys by SDK lookup", async () => {
   await expect(provider.destroy(created.id)).resolves.toBe(true);
 
   expect(connectedCreated).not.toBe(created);
+  expect(connectedCreated.home).toBe("/home/vercel-sandbox");
   expect(connected.id).toBe("sandhop-existing");
+  expect(connected.home).toBe("/home/vercel-sandbox");
   expect(vercelMocks.get).toHaveBeenNthCalledWith(1, {
     token: "token",
     teamId: "team",
@@ -183,7 +195,6 @@ test("VercelSandboxProvider lists and destroys sandboxes by name", async () => {
     token: "token",
     teamId: "team",
     projectId: "project",
-    limit: 100,
   });
   expect(vercelMocks.get).toHaveBeenCalledWith({
     token: "token",

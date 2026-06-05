@@ -22,13 +22,19 @@ const PATH_UPLOAD_TIMEOUT_MS = 3_600_000;
 
 class E2bSandboxAdapter implements Sandbox {
   readonly id: string;
+  readonly home: string;
   readonly sandbox: E2bSandboxInstance;
   readonly host: Pick<HostDeps, "openBlob">;
 
-  constructor(sandbox: E2bSandboxInstance, host: Pick<HostDeps, "openBlob">) {
+  constructor(
+    sandbox: E2bSandboxInstance,
+    host: Pick<HostDeps, "openBlob">,
+    home: string,
+  ) {
     this.sandbox = sandbox;
     this.host = host;
     this.id = sandbox.sandboxId;
+    this.home = home;
   }
 
   async uploadFile(path: string, data: Uint8Array | string): Promise<void> {
@@ -99,13 +105,19 @@ export class E2bSandboxProvider implements SandboxProvider {
       envs: opts.envs,
       timeoutMs: opts.timeoutMs,
     });
-    return new E2bSandboxAdapter(sandbox, this.host);
+    return new E2bSandboxAdapter(
+      sandbox,
+      this.host,
+      await this.readHome(sandbox),
+    );
   }
 
   async connect(id: string): Promise<Sandbox> {
+    const sandbox = await E2bSandbox.connect(id, this.credentials());
     return new E2bSandboxAdapter(
-      await E2bSandbox.connect(id, this.credentials()),
+      sandbox,
       this.host,
+      await this.readHome(sandbox),
     );
   }
 
@@ -126,5 +138,13 @@ export class E2bSandboxProvider implements SandboxProvider {
 
   private credentials(): E2bCredentials {
     return { apiKey: requireCred(this.host, "e2b", "E2B_API_KEY") };
+  }
+
+  private async readHome(sandbox: E2bSandboxInstance): Promise<string> {
+    const result = await sandbox.commands.run('printf %s "$HOME"', {
+      timeoutMs: UPLOAD_TIMEOUT_MS,
+      requestTimeoutMs: UPLOAD_TIMEOUT_MS,
+    });
+    return result.stdout.trim();
   }
 }

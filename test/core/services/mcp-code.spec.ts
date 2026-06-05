@@ -32,7 +32,10 @@ command = "/Applications/Foo.app/Contents/MacOS/foo"
     },
   });
 
-  const plan = new McpCodeService(host, CODEX).plan("/workspace/project");
+  const plan = new McpCodeService(host, CODEX).plan(
+    "/workspace/project",
+    "/home/user",
+  );
 
   expect(plan.classifications).toEqual([
     { name: "local", kind: "local-path" },
@@ -97,7 +100,10 @@ cwd = "/home/local/py"
     },
   });
 
-  const plan = new McpCodeService(host, CODEX).plan("/workspace/project");
+  const plan = new McpCodeService(host, CODEX).plan(
+    "/workspace/project",
+    "/home/user",
+  );
 
   expect([...plan.runtimes].sort()).toEqual(["bun", "uv"]);
   expect(plan.installCmds).toEqual([
@@ -132,6 +138,7 @@ cwd = "/home/local/mcp"
   await expect(
     new McpCodeService(host, CODEX).build(
       "/workspace/project",
+      "/home/user",
       "/tmp/mcp-code.tgz",
     ),
   ).resolves.toMatchObject({ mappings: [{ localPath: "/home/local/mcp" }] });

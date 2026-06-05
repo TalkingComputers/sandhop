@@ -9,7 +9,6 @@ export class FakeHost implements HostDeps {
   files: Record<string, string>;
   bytes: Record<string, Uint8Array>;
   symlinks: Record<string, string>;
-  directorySizes: Record<string, number>;
   mtimes: Record<string, number>;
   keychainValues: Record<string, string>;
   execValues: Record<string, string>;
@@ -39,7 +38,6 @@ export class FakeHost implements HostDeps {
     files?: Record<string, string>;
     bytes?: Record<string, Uint8Array>;
     symlinks?: Record<string, string>;
-    directorySizes?: Record<string, number>;
     mtimes?: Record<string, number>;
     keychainValues?: Record<string, string>;
     execValues?: Record<string, string>;
@@ -49,7 +47,6 @@ export class FakeHost implements HostDeps {
     this.files = args.files ?? {};
     this.bytes = args.bytes ?? {};
     this.symlinks = args.symlinks ?? {};
-    this.directorySizes = args.directorySizes ?? {};
     this.mtimes = args.mtimes ?? {};
     this.keychainValues = args.keychainValues ?? {};
     this.execValues = args.execValues ?? {};
@@ -142,15 +139,6 @@ export class FakeHost implements HostDeps {
 
   fileSize(path: string): number {
     return this.readBytes(path).byteLength;
-  }
-
-  dirSizeBytes(path: string): number {
-    if (Object.hasOwn(this.directorySizes, path))
-      return this.directorySizes[path]!;
-    const prefix = `${path}/`;
-    return [...Object.keys(this.files), ...Object.keys(this.bytes)]
-      .filter((filePath) => filePath.startsWith(prefix))
-      .reduce((size, filePath) => size + this.fileSize(filePath), 0);
   }
 
   statMtimeMs(path: string): number {

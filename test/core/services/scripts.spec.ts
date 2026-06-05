@@ -50,7 +50,10 @@ test("ScriptCaptureService maps local scripts from Claude settings and rewrites 
     },
   });
 
-  const plan = new ScriptCaptureService(host).plan("/home/local/work");
+  const plan = new ScriptCaptureService(host).plan(
+    "/home/local/work",
+    "/home/user",
+  );
 
   expect(plan.mappings).toEqual([
     {

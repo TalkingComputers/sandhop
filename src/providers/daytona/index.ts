@@ -70,13 +70,19 @@ const buildCreateParams = (opts: CreateOptions): CreateSandboxBaseParams => ({
 
 class DaytonaSandboxAdapter implements Sandbox {
   readonly id: string;
+  readonly home: string;
   readonly sandbox: DaytonaSandboxInstance;
   readonly timeoutSeconds: number;
 
-  constructor(sandbox: DaytonaSandboxInstance, timeoutSecondsValue: number) {
+  constructor(
+    sandbox: DaytonaSandboxInstance,
+    timeoutSecondsValue: number,
+    home: string,
+  ) {
     this.sandbox = sandbox;
     this.timeoutSeconds = timeoutSecondsValue;
     this.id = sandbox.id;
+    this.home = home;
   }
 
   async uploadFile(path: string, data: Uint8Array | string): Promise<void> {
@@ -135,14 +141,22 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     const sandbox = (await (
       await this.client()
     ).create(buildCreateParams(opts), { timeout })) as DaytonaSandboxInstance;
-    return new DaytonaSandboxAdapter(sandbox, timeout);
+    return new DaytonaSandboxAdapter(
+      sandbox,
+      timeout,
+      await this.readHome(sandbox, timeout),
+    );
   }
 
   async connect(id: string): Promise<Sandbox> {
     const sandbox = (await (
       await this.client()
     ).get(id)) as DaytonaSandboxInstance;
-    return new DaytonaSandboxAdapter(sandbox, COMMAND_TIMEOUT_SECONDS);
+    return new DaytonaSandboxAdapter(
+      sandbox,
+      COMMAND_TIMEOUT_SECONDS,
+      await this.readHome(sandbox, COMMAND_TIMEOUT_SECONDS),
+    );
   }
 
   async list(): Promise<SandboxInfo[]> {
@@ -187,5 +201,20 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     if (credentials.apiUrl !== undefined) config.apiUrl = credentials.apiUrl;
     if (credentials.target !== undefined) config.target = credentials.target;
     return new Daytona(config);
+  }
+
+  private async readHome(
+    sandbox: DaytonaSandboxInstance,
+    timeout: number,
+  ): Promise<string> {
+    const result = await sandbox.process.executeCommand(
+      `bash -lc ${shellQuote('printf %s "$HOME"')}`,
+      undefined,
+      undefined,
+      timeout,
+    );
+    if (result.exitCode !== 0)
+      throw new Error(`Home lookup failed: ${result.result}`);
+    return result.result.trim();
   }
 }

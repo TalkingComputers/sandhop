@@ -1,5 +1,6 @@
 import { buildManifest } from "../manifest.js";
-import { makeTempPath, sandboxExpandHome } from "../paths.js";
+import { SANDHOP_AUTH_USER, TTYD_PORT } from "../constants.js";
+import { expandHome, makeTempPath } from "../paths.js";
 import type { Agent } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
 import type { SandboxProvider } from "../ports/provider.js";
@@ -52,7 +53,7 @@ export class TeleportService {
   }
 
   async run(cwd: string, opts: TeleportOptions): Promise<TeleportResult> {
-    const user = "sandhop";
+    const user = SANDHOP_AUTH_USER;
     const pass = randomToken(24);
     opts.onProgress?.("snapshotting");
     const [bundle, session, baseSecrets, auth, cliVersion] = await Promise.all([
@@ -77,7 +78,7 @@ export class TeleportService {
     const sandbox = await this.provider.create({
       envs,
       timeoutMs: opts.timeoutMs,
-      ports: [7681],
+      ports: [TTYD_PORT],
     });
     opts.onProgress?.("uploading bundle");
     const bundlePath = makeTempPath("bundle.tgz");
@@ -91,14 +92,21 @@ export class TeleportService {
       this.services.host.readBytes(session.transcriptPath),
     );
     for (const file of baseSecrets.files)
-      await sandbox.uploadFile(sandboxExpandHome(file.path), file.content);
+      await sandbox.uploadFile(
+        expandHome(file.path, sandbox.home),
+        file.content,
+      );
     for (const file of auth.files)
-      await sandbox.uploadFile(sandboxExpandHome(file.path), file.content);
+      await sandbox.uploadFile(
+        expandHome(file.path, sandbox.home),
+        file.content,
+      );
     opts.onProgress?.(
       `installing ${this.agent.pkg}@${manifest.cliVersion} + ttyd`,
     );
     const restore = await sandbox.exec(
       this.services.bootstrap.render(manifest, {
+        home: sandbox.home,
         transportSteps: opts.transport.bootstrapSteps(),
       }),
     );
@@ -112,11 +120,11 @@ export class TeleportService {
     const bind = opts.transport.ttydBindAddress();
     const bindFlag = bind === "0.0.0.0" ? "" : `-i ${bind} `;
     await sandbox.spawn(
-      `ttyd ${bindFlag}-p 7681 -W -c ${user}:${pass} bash -lc ${shellQuote(resume)}`,
+      `ttyd ${bindFlag}-p ${TTYD_PORT} -W -c ${user}:${pass} bash -lc ${shellQuote(resume)}`,
     );
     const { url } = await opts.transport.expose({
       sandbox,
-      localPort: 7681,
+      localPort: TTYD_PORT,
     });
     opts.onProgress?.("ready");
     return { url, sandboxId: sandbox.id, user, pass };

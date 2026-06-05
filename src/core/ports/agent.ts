@@ -66,6 +66,10 @@ export interface Agent {
   supportsSettingsScripts(): boolean;
   supportsReinstall(): boolean;
   preSeed(remoteProj: string): string[];
-  remoteTranscriptPath(remoteEnc: string, transcriptName: string): string;
+  remoteTranscriptPath(
+    home: string,
+    remoteEnc: string,
+    transcriptName: string,
+  ): string;
   resumeCmd(sessionId: string, remoteProj: string): string;
 }

@@ -1,6 +1,5 @@
 import {
   CLAUDE_SETTINGS_PATH,
-  CLAUDE_SETTINGS_SANDBOX_PATH,
   joinClaudeLocalPath,
 } from "../../agents/claude-paths.js";
 import { isRecord } from "../json.js";
@@ -9,7 +8,6 @@ import type { HostDeps } from "../ports/host.js";
 import { installCmd } from "./mcp-classify.js";
 import {
   hasRootMarker,
-  LOCAL_PATH_EXCLUDES,
   maybeRealpath,
   nearestRoot,
   remapValue,
@@ -44,10 +42,9 @@ interface ScriptToken {
 interface RewriteContext {
   host: HostDeps;
   cwd: string;
+  sandboxHome: string;
   roots: Set<string>;
 }
-
-export { LOCAL_PATH_EXCLUDES };
 
 const PATH_TOKEN =
   /(?:^|[\s"'(=;&|])((?:~\/|\$HOME\/|\$\{HOME\}\/|\/|\.\/|\.\.\/)[^"'`\s;&|)<>]*)/g;
@@ -84,12 +81,16 @@ const readScriptTokens = (
   return scripts;
 };
 
-const mapScriptPath = (host: HostDeps, token: ScriptToken): string => {
+const mapScriptPath = (
+  host: HostDeps,
+  sandboxHome: string,
+  token: ScriptToken,
+): string => {
   const mapping = {
     localPath: token.root,
-    sandboxPath: sandboxPath(host, token.root),
+    sandboxPath: sandboxPath(host, sandboxHome, token.root),
   };
-  return remapValue(token.localPath, host, [mapping]);
+  return remapValue(token.localPath, host, sandboxHome, [mapping]);
 };
 
 const rewriteCommand = (
@@ -100,7 +101,9 @@ const rewriteCommand = (
   let changed = false;
   for (const token of readScriptTokens(ctx.host, command, ctx.cwd)) {
     ctx.roots.add(token.root);
-    next = next.split(token.token).join(mapScriptPath(ctx.host, token));
+    next = next
+      .split(token.token)
+      .join(mapScriptPath(ctx.host, ctx.sandboxHome, token));
     changed = true;
   }
   return { command: next, changed };
@@ -148,10 +151,11 @@ const rewriteApiKeyHelper = (
 const rewriteSettings = (
   host: HostDeps,
   cwd: string,
+  sandboxHome: string,
   settings: Record<string, unknown>,
   roots: Set<string>,
 ): boolean => {
-  const ctx: RewriteContext = { host, cwd, roots };
+  const ctx: RewriteContext = { host, cwd, sandboxHome, roots };
   let changed = false;
   if (rewriteHookGroups(ctx, settings.hooks)) changed = true;
   if (
@@ -163,10 +167,14 @@ const rewriteSettings = (
   return changed;
 };
 
-const settingsFiles = (host: HostDeps, cwd: string): SettingsFile[] => [
+const settingsFiles = (
+  host: HostDeps,
+  cwd: string,
+  sandboxHome: string,
+): SettingsFile[] => [
   {
     localPath: joinClaudeLocalPath(host.home, CLAUDE_SETTINGS_PATH),
-    sandboxPath: CLAUDE_SETTINGS_SANDBOX_PATH,
+    sandboxPath: `${sandboxHome}/${CLAUDE_SETTINGS_PATH}`,
     cwd,
   },
   {
@@ -183,16 +191,17 @@ export class ScriptCaptureService {
     this.host = host;
   }
 
-  plan(cwd: string): ScriptCapturePlan {
+  plan(cwd: string, sandboxHome: string): ScriptCapturePlan {
     const roots = new Set<string>();
     const rewrites: SettingsRewrite[] = [];
-    for (const file of settingsFiles(this.host, cwd)) {
+    for (const file of settingsFiles(this.host, cwd, sandboxHome)) {
       const text = this.host.readFile(file.localPath);
       if (text === null) continue;
       const settings = JSON.parse(text) as unknown;
       if (!isRecord(settings))
         throw new Error(`Expected settings object at ${file.localPath}`);
-      if (!rewriteSettings(this.host, file.cwd, settings, roots)) continue;
+      if (!rewriteSettings(this.host, file.cwd, sandboxHome, settings, roots))
+        continue;
       rewrites.push({
         localPath: file.localPath,
         sandboxPath: file.sandboxPath,
@@ -201,7 +210,7 @@ export class ScriptCaptureService {
     }
     const mappings = [...roots].sort().map((localPath) => ({
       localPath,
-      sandboxPath: sandboxPath(this.host, localPath),
+      sandboxPath: sandboxPath(this.host, sandboxHome, localPath),
     }));
     const installCmds = mappings.flatMap((mapping) =>
       this.host.isDirectory(mapping.localPath) &&

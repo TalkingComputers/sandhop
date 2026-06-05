@@ -249,8 +249,8 @@ export const CODEX: Agent = {
     "mkdir -p $HOME/.codex",
     `node -e ${JSON.stringify(buildCodexPreSeedScript(remoteProj))}`,
   ],
-  remoteTranscriptPath: (remoteEnc, transcriptName) =>
-    `$HOME/.codex/sessions/restored/${transcriptName}`,
+  remoteTranscriptPath: (home, remoteEnc, transcriptName) =>
+    `${home}/.codex/sessions/restored/${transcriptName}`,
   resumeCmd: (sessionId, remoteProj) =>
     `cd "${remoteProj}" && codex resume ${sessionId}`,
 };
