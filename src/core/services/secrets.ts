@@ -24,15 +24,6 @@ const remotePath = (home: string, path: string): string => {
   return path;
 };
 
-const readBaselineEnvNames = (host: HostDeps): Set<string> => {
-  const names = new Set<string>();
-  for (const line of host.exec("sh", ["-lc", "env"]).split(/\r?\n/)) {
-    const index = line.indexOf("=");
-    if (index > 0) names.add(line.slice(0, index));
-  }
-  return names;
-};
-
 export class SecretsService implements SecretsCollector {
   readonly host: HostDeps;
   readonly agent: Agent;
@@ -52,10 +43,8 @@ export class SecretsService implements SecretsCollector {
     if (inputs !== undefined) {
       for (const name of inputs.envRefs) names.add(name);
     }
-    const baselineEnvNames = readBaselineEnvNames(this.host);
     const envs: Record<string, string> = {};
     for (const name of [...names].sort()) {
-      if (baselineEnvNames.has(name)) continue;
       const value = this.host.env[name];
       if (value !== undefined) envs[name] = value;
     }

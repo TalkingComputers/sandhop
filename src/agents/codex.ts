@@ -128,6 +128,17 @@ const readTomlEnvRefs = (text: string): string[] => {
       if (server === undefined) throw new Error(`Expected mcp_servers.${name}`);
       const env = toTomlTable(server.env, `mcp_servers.${name}.env`);
       if (env !== undefined) for (const key of Object.keys(env)) refs.add(key);
+      const bearerTokenEnvVar = toTomlString(
+        server.bearer_token_env_var,
+        `mcp_servers.${name}.bearer_token_env_var`,
+      );
+      if (bearerTokenEnvVar !== undefined) refs.add(bearerTokenEnvVar);
+      const envHttpHeaders = toTomlStringRecord(
+        server.env_http_headers,
+        `mcp_servers.${name}.env_http_headers`,
+      );
+      if (envHttpHeaders !== undefined)
+        for (const value of Object.values(envHttpHeaders)) refs.add(value);
     }
   for (const value of Object.values(parsed))
     collectEnvRefsFromValue(refs, value);
@@ -142,6 +153,18 @@ const toMcpServer = (name: string, value: TomlValue): McpServer => {
   const cwd = toTomlString(table.cwd, `mcp_servers.${name}.cwd`);
   const url = toTomlString(table.url, `mcp_servers.${name}.url`);
   const env = toTomlStringRecord(table.env, `mcp_servers.${name}.env`);
+  const bearerTokenEnvVar = toTomlString(
+    table.bearer_token_env_var,
+    `mcp_servers.${name}.bearer_token_env_var`,
+  );
+  const httpHeaders = toTomlStringRecord(
+    table.http_headers,
+    `mcp_servers.${name}.http_headers`,
+  );
+  const envHttpHeaders = toTomlStringRecord(
+    table.env_http_headers,
+    `mcp_servers.${name}.env_http_headers`,
+  );
   const startupTimeoutSec = toTomlNumber(
     table.startup_timeout_sec,
     `mcp_servers.${name}.startup_timeout_sec`,
@@ -154,6 +177,9 @@ const toMcpServer = (name: string, value: TomlValue): McpServer => {
     ...(cwd === undefined ? {} : { cwd }),
     ...(url === undefined ? {} : { url }),
     ...(env === undefined ? {} : { env }),
+    ...(bearerTokenEnvVar === undefined ? {} : { bearerTokenEnvVar }),
+    ...(httpHeaders === undefined ? {} : { httpHeaders }),
+    ...(envHttpHeaders === undefined ? {} : { envHttpHeaders }),
     ...(startupTimeoutSec === undefined ? {} : { startupTimeoutSec }),
   };
 };
@@ -193,6 +219,12 @@ const formatMcpConfig = (servers: McpServer[]): McpConfigWrite => {
     if (server.args !== undefined) table.args = server.args;
     if (server.cwd !== undefined) table.cwd = server.cwd;
     if (server.url !== undefined) table.url = server.url;
+    if (server.bearerTokenEnvVar !== undefined)
+      table.bearer_token_env_var = server.bearerTokenEnvVar;
+    if (server.httpHeaders !== undefined)
+      table.http_headers = server.httpHeaders;
+    if (server.envHttpHeaders !== undefined)
+      table.env_http_headers = server.envHttpHeaders;
     if (server.env !== undefined) table.env = server.env;
     mcpServers[server.name] = table;
   }
@@ -219,7 +251,7 @@ const authEnv = (deps: AgentHostDeps): AuthBundle => {
     return {
       envs,
       files: [
-        { path: "$HOME/.codex/auth.json", content: authJson },
+        { path: "$HOME/.codex/auth.json", content: authJson, mode: "600" },
         ...configFiles,
       ],
     };
@@ -231,7 +263,11 @@ const authEnv = (deps: AgentHostDeps): AuthBundle => {
       return {
         envs,
         files: [
-          { path: "$HOME/.codex/auth.json", content: keychainJson },
+          {
+            path: "$HOME/.codex/auth.json",
+            content: keychainJson,
+            mode: "600",
+          },
           ...configFiles,
         ],
       };

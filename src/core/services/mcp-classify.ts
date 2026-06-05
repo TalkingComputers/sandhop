@@ -143,6 +143,15 @@ export const collectReferencedInputs = (
       refs.add(key);
       addEnvRefs(refs, value);
     }
+  if (server.headers !== undefined)
+    for (const value of Object.values(server.headers)) addEnvRefs(refs, value);
+  if (server.bearerTokenEnvVar !== undefined)
+    refs.add(server.bearerTokenEnvVar);
+  if (server.httpHeaders !== undefined)
+    for (const value of Object.values(server.httpHeaders))
+      addEnvRefs(refs, value);
+  if (server.envHttpHeaders !== undefined)
+    for (const value of Object.values(server.envHttpHeaders)) refs.add(value);
   for (const text of bashCommandTexts(server))
     files.push(...readSourceFiles(host, refs, text));
   return { envRefs: uniqueSorted(refs), referencedFiles: uniqueSorted(files) };
@@ -316,6 +325,16 @@ export const rewriteServer = (
     ? {}
     : { cwd: remapValue(server.cwd, host, sandboxHome, mappings) }),
   ...(server.url === undefined ? {} : { url: server.url }),
+  ...(server.headers === undefined ? {} : { headers: server.headers }),
+  ...(server.bearerTokenEnvVar === undefined
+    ? {}
+    : { bearerTokenEnvVar: server.bearerTokenEnvVar }),
+  ...(server.httpHeaders === undefined
+    ? {}
+    : { httpHeaders: server.httpHeaders }),
+  ...(server.envHttpHeaders === undefined
+    ? {}
+    : { envHttpHeaders: server.envHttpHeaders }),
   ...(server.startupTimeoutSec === undefined
     ? {}
     : { startupTimeoutSec: server.startupTimeoutSec }),

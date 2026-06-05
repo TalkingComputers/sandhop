@@ -232,7 +232,13 @@ test("TeleportService uploads core secret and auth files but leaves MCP code to 
     auth: {
       extract: async () => ({
         envs: { ANTHROPIC_API_KEY: "sk-ant-api03-test" },
-        files: [],
+        files: [
+          {
+            path: "$HOME/.claude/.credentials.json",
+            content: '{"mcpOAuth":{}}',
+            mode: "600",
+          },
+        ],
       }),
     },
     version: { detect: async () => "2.1.160" },
@@ -265,7 +271,14 @@ test("TeleportService uploads core secret and auth files but leaves MCP code to 
     path: "/home/user/.env.d/mcp.env",
     data: "MCP_TOKEN=token\n",
   });
-  expect(provider.sandbox.execs[2]).not.toContain("mcp-code");
+  expect(provider.sandbox.uploads).toContainEqual({
+    path: "/home/user/.claude/.credentials.json",
+    data: '{"mcpOAuth":{}}',
+  });
+  expect(provider.sandbox.execs[2]).toBe(
+    "chmod '600' '/home/user/.claude/.credentials.json'",
+  );
+  expect(provider.sandbox.execs[3]).not.toContain("mcp-code");
 });
 
 test("TeleportService restore failure surfaces stdout when stderr is empty", async () => {

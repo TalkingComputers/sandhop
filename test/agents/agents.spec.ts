@@ -87,6 +87,9 @@ test("Codex MCP config only writes startup timeouts captured from user config", 
       transport: "http",
       url: "https://example.com/mcp",
       startupTimeoutSec: 45,
+      bearerTokenEnvVar: "REMOTE_TOKEN",
+      httpHeaders: { "X-Static": "static", "X-Ref": "${HEADER_TOKEN}" },
+      envHttpHeaders: { Authorization: "AUTH_TOKEN" },
     },
   ]);
 
@@ -100,6 +103,14 @@ test("Codex MCP config only writes startup timeouts captured from user config", 
       "[mcp_servers.remote]",
       "startup_timeout_sec = 45",
       'url = "https://example.com/mcp"',
+      'bearer_token_env_var = "REMOTE_TOKEN"',
+      "",
+      "[mcp_servers.remote.http_headers]",
+      'X-Static = "static"',
+      'X-Ref = "${HEADER_TOKEN}"',
+      "",
+      "[mcp_servers.remote.env_http_headers]",
+      'Authorization = "AUTH_TOKEN"',
       "",
       "",
     ].join("\n"),
@@ -144,12 +155,19 @@ test("Claude agent parses user, project, and cwd MCP server configs", () => {
         },
       }),
       "/workspace/project/.mcp.json": JSON.stringify({
-        mcpServers: { cwd: { url: "https://example.com/mcp" } },
+        mcpServers: {
+          cwd: {
+            url: "https://example.com/mcp",
+            headers: { Authorization: "Bearer ${MCP_TOKEN}" },
+          },
+        },
       }),
     },
   });
 
-  expect(CLAUDE_CODE.parseMcpServers(host, "/workspace/project")).toEqual([
+  const servers = CLAUDE_CODE.parseMcpServers(host, "/workspace/project");
+
+  expect(servers).toEqual([
     { name: "user", transport: "stdio", command: "npx", args: ["user"] },
     {
       name: "project",
@@ -157,8 +175,34 @@ test("Claude agent parses user, project, and cwd MCP server configs", () => {
       command: "node",
       args: ["project.js"],
     },
-    { name: "cwd", transport: "http", url: "https://example.com/mcp" },
+    {
+      name: "cwd",
+      transport: "http",
+      url: "https://example.com/mcp",
+      headers: { Authorization: "Bearer ${MCP_TOKEN}" },
+    },
   ]);
+  expect(CLAUDE_CODE.formatMcpConfig(servers)).toEqual({
+    path: "$HOME/.claude.json",
+    content: `${JSON.stringify(
+      {
+        user: { transport: "stdio", command: "npx", args: ["user"] },
+        project: {
+          transport: "stdio",
+          command: "node",
+          args: ["project.js"],
+        },
+        cwd: {
+          transport: "http",
+          url: "https://example.com/mcp",
+          headers: { Authorization: "Bearer ${MCP_TOKEN}" },
+        },
+      },
+      null,
+      2,
+    )}\n`,
+    mode: "merge-claude-json",
+  });
 });
 
 test("Codex agent parses mcp_servers TOML tables", () => {
@@ -178,6 +222,9 @@ TOKEN = "${"${TOKEN}"}"
 
 [mcp_servers.remote]
 url = "https://example.com/mcp"
+bearer_token_env_var = "REMOTE_TOKEN"
+http_headers = { "X-Static" = "static", "X-Ref" = "${"${HEADER_TOKEN}"}" }
+env_http_headers = { Authorization = "AUTH_TOKEN" }
 `,
     },
   });
@@ -192,8 +239,27 @@ url = "https://example.com/mcp"
       env: { TOKEN: "${TOKEN}" },
       startupTimeoutSec: 45,
     },
-    { name: "remote", transport: "http", url: "https://example.com/mcp" },
+    {
+      name: "remote",
+      transport: "http",
+      url: "https://example.com/mcp",
+      bearerTokenEnvVar: "REMOTE_TOKEN",
+      httpHeaders: { "X-Static": "static", "X-Ref": "${HEADER_TOKEN}" },
+      envHttpHeaders: { Authorization: "AUTH_TOKEN" },
+    },
   ]);
+});
+
+test("Codex env refs include MCP bearer and env header names", () => {
+  expect(
+    CODEX.mcpEnvRefs(`
+[mcp_servers.remote]
+url = "https://example.com/mcp"
+bearer_token_env_var = "REMOTE_TOKEN"
+http_headers = { "X-Ref" = "${"${HEADER_TOKEN}"}" }
+env_http_headers = { Authorization = "AUTH_TOKEN" }
+`),
+  ).toEqual(["AUTH_TOKEN", "HEADER_TOKEN", "REMOTE_TOKEN"]);
 });
 
 test("Codex env refs return raw refs when TOML parsing fails", () => {

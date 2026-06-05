@@ -10,7 +10,7 @@ export interface SessionRef {
 
 export interface AuthBundle {
   envs: Record<string, string>;
-  files: { path: string; content: string }[];
+  files: { path: string; content: string; mode?: string }[];
 }
 
 export type McpTransport = "stdio" | "http" | "sse";
@@ -23,6 +23,10 @@ export interface McpServer {
   env?: Record<string, string>;
   cwd?: string;
   url?: string;
+  headers?: Record<string, string>;
+  bearerTokenEnvVar?: string;
+  httpHeaders?: Record<string, string>;
+  envHttpHeaders?: Record<string, string>;
   startupTimeoutSec?: number;
 }
 
@@ -33,14 +37,7 @@ export type McpConfigWrite =
 
 export type AgentHostDeps = Pick<
   HostDeps,
-  | "env"
-  | "home"
-  | "readFile"
-  | "exists"
-  | "keychain"
-  | "realpath"
-  | "sha256Hex"
-  | "exec"
+  "env" | "home" | "readFile" | "exists" | "keychain" | "realpath" | "sha256Hex"
 >;
 
 export type AgentSessionDeps = Pick<

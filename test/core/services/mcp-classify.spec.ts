@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import type { McpServer } from "../../../src/core/ports/agent.js";
 import {
   classify,
+  collectReferencedInputs,
   installCmd,
 } from "../../../src/core/services/mcp-classify.js";
 import { FakeHost } from "../../fakes/host.js";
@@ -59,6 +60,20 @@ test("classify keeps plain npx MCP servers remote-installable", () => {
 
   expect(classification).toEqual({ kind: "remote-installable" });
   expect("reason" in classification).toBe(false);
+});
+
+test("collectReferencedInputs includes MCP header env refs", () => {
+  expect(
+    collectReferencedInputs(host, {
+      name: "remote",
+      transport: "http",
+      url: "https://example.com/mcp",
+      headers: { Authorization: "Bearer ${CLAUDE_HEADER_TOKEN}" },
+    }),
+  ).toEqual({
+    envRefs: ["CLAUDE_HEADER_TOKEN"],
+    referencedFiles: [],
+  });
 });
 
 test("installCmd chooses JavaScript install command from the root lockfile", () => {

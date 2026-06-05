@@ -21,6 +21,9 @@ args = ["-y", "@modelcontextprotocol/server-filesystem"]
 
 [mcp_servers.remote]
 url = "https://example.com/mcp"
+bearer_token_env_var = "REMOTE_TOKEN"
+http_headers = { "X-Ref" = "${"${HEADER_TOKEN}"}" }
+env_http_headers = { Authorization = "AUTH_TOKEN" }
 
 [mcp_servers.binary]
 command = "/Applications/Foo.app/Contents/MacOS/foo"
@@ -68,10 +71,18 @@ command = "/Applications/Foo.app/Contents/MacOS/foo"
       name: "remote",
       transport: "http",
       url: "https://example.com/mcp",
+      bearerTokenEnvVar: "REMOTE_TOKEN",
+      httpHeaders: { "X-Ref": "${HEADER_TOKEN}" },
+      envHttpHeaders: { Authorization: "AUTH_TOKEN" },
     },
   ]);
   expect(plan.installCmds).toEqual(["cd '/home/user/mcp' && npm ci"]);
-  expect(plan.envRefs).toEqual(["API_TOKEN"]);
+  expect(plan.envRefs).toEqual([
+    "API_TOKEN",
+    "AUTH_TOKEN",
+    "HEADER_TOKEN",
+    "REMOTE_TOKEN",
+  ]);
   expect(plan.excluded).toEqual([
     { name: "binary", reason: "path inside an app bundle" },
   ]);

@@ -1,7 +1,7 @@
 import { buildManifest } from "../manifest.js";
 import { TTYD_PORT } from "../constants.js";
 import { dirname, expandHome } from "../paths.js";
-import type { Agent } from "../ports/agent.js";
+import type { Agent, AuthBundle } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
 import type { Sandbox, SandboxProvider } from "../ports/provider.js";
 import type { Transport } from "../ports/transport.js";
@@ -89,6 +89,18 @@ const chmodSshBundle = async (
   );
 };
 
+const chmodAuthFiles = async (
+  sandbox: Sandbox,
+  files: AuthBundle["files"],
+): Promise<void> => {
+  for (const file of files) {
+    if (file.mode === undefined) continue;
+    await sandbox.exec(
+      `chmod ${shellQuote(file.mode)} ${shellQuote(expandHome(file.path, sandbox.home))}`,
+    );
+  }
+};
+
 export class TeleportService {
   readonly provider: SandboxProvider;
   readonly agent: Agent;
@@ -173,6 +185,7 @@ export class TeleportService {
           expandHome(file.path, sandbox.home),
           file.content,
         );
+      await chmodAuthFiles(sandbox, auth.files);
       await chmodSshBundle(sandbox, sshBundle);
       opts.onProgress?.(
         `installing ${this.agent.pkg}@${manifest.cliVersion} + ttyd`,

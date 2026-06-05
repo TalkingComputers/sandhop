@@ -179,7 +179,6 @@ export class FakeHost implements HostDeps {
     this.execCalls.push({ bin, args });
     const key = [bin, ...args].join(" ");
     if (Object.hasOwn(this.execValues, key)) return this.execValues[key]!;
-    if (key === "sh -lc env") return "";
     throw new Error(`missing exec ${key}`);
   }
 
