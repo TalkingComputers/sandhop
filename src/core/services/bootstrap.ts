@@ -36,6 +36,7 @@ const ARCH_SETUP =
   'ARCH=$(uname -m); case "$ARCH" in aarch64|arm64) TTYD_ARCH=aarch64; CF_ARCH=arm64;; *) TTYD_ARCH=x86_64; CF_ARCH=amd64;; esac';
 const ZSTD_INSTALL =
   "command -v zstd || $SUDO sh -lc 'command -v apt-get >/dev/null && (apt-get update && apt-get install -y zstd) || (command -v dnf >/dev/null && dnf install -y zstd) || (command -v apk >/dev/null && apk add zstd) || (command -v yum >/dev/null && yum install -y zstd)'";
+const REINSTALL_CMD_TIMEOUT_SECONDS = 180;
 
 const renderMcpConfig = (agent: Agent, codePlan: CodePlan): string[] => {
   if (codePlan.rewrites.length === 0) return [];
@@ -184,7 +185,7 @@ export class BootstrapService {
       "export CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1",
       ...commands.map(
         (command) =>
-          `${runLowPriority(command)} || { echo "[sandhop] reinstall step failed: ${shellLog(command)}" >&2; true; }`,
+          `$SANDHOP_LOW_PRIORITY timeout ${REINSTALL_CMD_TIMEOUT_SECONDS} sh -lc ${shellQuote(command)} || { echo "[sandhop] reinstall step failed: ${shellLog(command)}" >&2; true; }`,
       ),
     ].join("\n");
   }

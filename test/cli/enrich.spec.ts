@@ -1,22 +1,23 @@
 import { tmpdir } from "node:os";
 import { afterEach, expect, test, vi } from "vitest";
-import type { RunResult } from "../../src/core/ports/provider.js";
+import type { ExecOptions, RunResult } from "../../src/core/ports/provider.js";
 import type { EnrichmentStepResult } from "../../src/core/services/bootstrap.js";
 import { runEnrichCli, runEnrichment } from "../../src/cli/enrich.js";
 import { FakeHost } from "../fakes/host.js";
 import { FakeProvider, FakeSandbox } from "../fakes/provider.js";
 
 class FailingMcpSandbox extends FakeSandbox {
-  async exec(cmd: string): Promise<RunResult> {
+  async exec(cmd: string, opts?: ExecOptions): Promise<RunResult> {
     if (cmd.includes("/tmp/sandhop-mcp-0-") && cmd.includes("zstd -d")) {
       this.execs.push(cmd);
+      this.execOptions.push(opts);
       return {
         exitCode: 1,
         stdout: "",
         stderr: "npm run build failed",
       };
     }
-    return super.exec(cmd);
+    return super.exec(cmd, opts);
   }
 }
 
@@ -345,16 +346,98 @@ test("runEnrichment runs reinstall commands nice, HTTPS-preferred, fault-isolate
 
   expect(log).toContain("CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1");
   expect(log).toContain(
-    "$SANDHOP_LOW_PRIORITY sh -lc 'claude plugin marketplace add '\\''anthropics/claude-plugins'\\'''",
+    "$SANDHOP_LOW_PRIORITY timeout 180 sh -lc 'claude plugin marketplace add '\\''anthropics/claude-plugins'\\'''",
   );
   expect(log).toContain(
-    "$SANDHOP_LOW_PRIORITY sh -lc 'claude plugin install '\\''serena@official'\\'' --scope user'",
+    "$SANDHOP_LOW_PRIORITY timeout 180 sh -lc 'claude plugin install '\\''serena@official'\\'' --scope user'",
   );
   expect(log).toContain(
-    "$SANDHOP_LOW_PRIORITY sh -lc 'claude plugin disable '\\''serena@official'\\'''",
+    "$SANDHOP_LOW_PRIORITY timeout 180 sh -lc 'claude plugin disable '\\''serena@official'\\'''",
   );
   expect(log).toContain("[sandhop] reinstall step failed:");
   expect(log).toContain("touch /tmp/sandhop-enriched");
+});
+
+test("runEnrichment gives dependency and reinstall steps a generous exec timeout", async () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: {
+      "/home/local/.claude/settings.json": JSON.stringify({
+        hooks: {
+          PreToolUse: [
+            {
+              hooks: [
+                {
+                  type: "command",
+                  command: "/home/local/hook/bin/hook.sh",
+                },
+              ],
+            },
+          ],
+        },
+      }),
+      "/home/local/.claude.json": JSON.stringify({
+        mcpServers: {
+          local: {
+            command: "node",
+            args: ["/home/local/mcp/server.js"],
+            cwd: "/home/local/mcp",
+          },
+        },
+      }),
+      "/home/local/.claude/plugins/installed_plugins.json": JSON.stringify({
+        version: 2,
+        plugins: { "serena@official": [{ scope: "user" }] },
+      }),
+      "/home/local/hook/.git/config": "",
+      "/home/local/hook/package.json": "{}",
+      "/home/local/hook/package-lock.json": "",
+      "/home/local/hook/bin/hook.sh": "#!/bin/sh\n",
+      "/home/local/mcp/package.json": "{}",
+      "/home/local/mcp/package-lock.json": "{}",
+      "/home/local/mcp/server.js": "",
+    },
+    execValues: {
+      "git -C /home/local/hook/bin rev-parse --show-toplevel":
+        "/home/local/hook\n",
+      "git -C /home/local/hook rev-parse --show-toplevel": "/home/local/hook\n",
+    },
+  });
+  const sandbox = new FakeSandbox("sbx-1", "/home/user");
+
+  await runEnrichment(
+    {
+      sandboxId: "sbx-1",
+      agent: "claude-code",
+      cwd: "/workspace/project",
+      excludes: [],
+      profile: true,
+    },
+    host,
+    sandbox,
+  );
+
+  const calls = sandbox.execs.map((cmd, index) => ({
+    cmd,
+    opts: sandbox.execOptions[index],
+  }));
+  const heavyCalls = calls.filter(
+    (call) =>
+      call.cmd.includes("cd '\\''/home/user/hook'\\'' && npm ci") ||
+      call.cmd.includes("cd '\\''/home/user/mcp'\\'' && npm ci") ||
+      call.cmd.includes("claude plugin install"),
+  );
+
+  expect(heavyCalls).toHaveLength(3);
+  expect(heavyCalls.map((call) => call.opts)).toEqual([
+    { timeoutMs: 1_800_000 },
+    { timeoutMs: 1_800_000 },
+    { timeoutMs: 1_800_000 },
+  ]);
+  expect(
+    calls.find((call) => call.cmd.includes("/tmp/sandhop-profile-"))!.opts,
+  ).toBeUndefined();
 });
 
 test("runEnrichment ships Claude settings scripts and uploads rewritten settings", async () => {

@@ -12,6 +12,8 @@ import type { SecretsService } from "./secrets.js";
 import type { ScriptCaptureService, ScriptCapturePlan } from "./scripts.js";
 import type { TransferService } from "./transfer.js";
 
+const ENRICHMENT_EXEC_TIMEOUT_MS = 1_800_000;
+
 const appendLog = async (sandbox: Sandbox, text: string): Promise<void> => {
   const marker = `SANDHOP_ENRICH_LOG_${Date.now()}`;
   await sandbox.exec(
@@ -22,8 +24,12 @@ const appendLog = async (sandbox: Sandbox, text: string): Promise<void> => {
 const runLogged = async (
   sandbox: Sandbox,
   script: string,
+  opts?: { timeoutMs?: number },
 ): Promise<RunResult> =>
-  sandbox.exec(["{", script, "} >> /tmp/sandhop-enrich.log 2>&1"].join("\n"));
+  sandbox.exec(
+    ["{", script, "} >> /tmp/sandhop-enrich.log 2>&1"].join("\n"),
+    opts,
+  );
 
 const recordStep = async <T>(
   sandbox: Sandbox,
@@ -56,9 +62,10 @@ const recordScriptStep = async (
   steps: EnrichmentStepResult[],
   name: string,
   script: string,
+  opts?: { timeoutMs?: number },
 ): Promise<void> => {
   await recordStep(sandbox, steps, name, async (): Promise<void> => {
-    const result = await runLogged(sandbox, script);
+    const result = await runLogged(sandbox, script, opts);
     if (result.exitCode !== 0)
       throw new Error(`${name} failed: ${result.stderr}`);
   });
@@ -124,6 +131,7 @@ export class EnrichmentService {
         steps,
         "settings script dependency installs",
         this.bootstrap.renderSettingsScriptInstalls(scriptPlan),
+        { timeoutMs: ENRICHMENT_EXEC_TIMEOUT_MS },
       );
       const codePlan = await recordStep(
         this.sandbox,
@@ -136,12 +144,14 @@ export class EnrichmentService {
         steps,
         "per-MCP dependency installs",
         this.bootstrap.renderEnrichmentInstalls({ codePlan }),
+        { timeoutMs: ENRICHMENT_EXEC_TIMEOUT_MS },
       );
       await recordScriptStep(
         this.sandbox,
         steps,
         "plugin and git skill reinstall",
         this.bootstrap.renderReinstall(this.reinstall.plan().commands),
+        { timeoutMs: ENRICHMENT_EXEC_TIMEOUT_MS },
       );
       await runLogged(
         this.sandbox,

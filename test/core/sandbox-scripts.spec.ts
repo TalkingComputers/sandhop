@@ -65,10 +65,33 @@ test("buildClaudePreSeedScript merges onboarding and trust while preserving Clau
     hasCompletedProjectOnboarding: true,
   });
   expect(parsed.customApiKeyResponses).toEqual({
-    approved: ["real"],
+    approved: ["real", "proxy-key"],
     rejected: ["old"],
   });
   expect(parsed.mcpServers).toEqual({ keep: { command: "node" } });
+});
+
+test("buildClaudePreSeedScript does not duplicate approved API key suffixes", () => {
+  const home = mkdtempSync(join(tmpdir(), "sandhop-claude-preseed-"));
+  writeFileSync(
+    join(home, ".claude.json"),
+    JSON.stringify({
+      customApiKeyResponses: { approved: ["12345678901234567890"] },
+    }),
+  );
+
+  runNodeScript(buildClaudePreSeedScript("/workspace/project"), {
+    ANTHROPIC_API_KEY: "prefix-12345678901234567890",
+    HOME: home,
+  });
+
+  const parsed = JSON.parse(
+    readFileSync(join(home, ".claude.json"), "utf8"),
+  ) as ClaudeJson;
+  expect(parsed.customApiKeyResponses).toEqual({
+    approved: ["12345678901234567890"],
+    rejected: [],
+  });
 });
 
 test("buildCodexPreSeedScript writes auth store and trust while preserving user policy", () => {

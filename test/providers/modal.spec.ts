@@ -95,6 +95,7 @@ test("ModalSandboxProvider creates a sandhop sandbox and maps exec results", asy
     stdout: "stdout",
     stderr: "stderr",
   });
+  await sandbox.exec("echo slow", { timeoutMs: 123000 });
   expect(modalMocks.ModalClient).toHaveBeenCalledWith({
     tokenId: "id",
     tokenSecret: "secret",
@@ -115,6 +116,9 @@ test("ModalSandboxProvider creates a sandhop sandbox and maps exec results", asy
   );
   expect(modalMocks.exec).toHaveBeenCalledWith(["bash", "-lc", "echo ok"], {
     timeoutMs: 600000,
+  });
+  expect(modalMocks.exec).toHaveBeenCalledWith(["bash", "-lc", "echo slow"], {
+    timeoutMs: 123000,
   });
 });
 

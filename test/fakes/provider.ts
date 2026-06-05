@@ -1,5 +1,6 @@
 import type {
   CreateOptions,
+  ExecOptions,
   ExposedPort,
   RunResult,
   Sandbox,
@@ -13,6 +14,7 @@ export class FakeSandbox implements Sandbox {
   uploads: { path: string; data: Uint8Array | string }[];
   pathUploads: { remotePath: string; localPath: string }[];
   execs: string[];
+  execOptions: (ExecOptions | undefined)[];
   execResults: RunResult[];
   spawns: string[];
   exposedPorts: number[];
@@ -24,6 +26,7 @@ export class FakeSandbox implements Sandbox {
     this.uploads = [];
     this.pathUploads = [];
     this.execs = [];
+    this.execOptions = [];
     this.execResults = [];
     this.spawns = [];
     this.exposedPorts = [];
@@ -38,8 +41,9 @@ export class FakeSandbox implements Sandbox {
     this.pathUploads.push({ remotePath, localPath });
   }
 
-  async exec(cmd: string): Promise<RunResult> {
+  async exec(cmd: string, opts?: ExecOptions): Promise<RunResult> {
     this.execs.push(cmd);
+    this.execOptions.push(opts);
     const result = this.execResults.shift();
     if (result !== undefined) return result;
     return { exitCode: 0, stdout: "SANDHOP_RESTORE_OK\n", stderr: "" };

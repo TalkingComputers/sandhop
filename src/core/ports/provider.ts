@@ -4,6 +4,10 @@ export interface RunResult {
   stderr: string;
 }
 
+export interface ExecOptions {
+  timeoutMs?: number;
+}
+
 export interface CreateOptions {
   envs: Record<string, string>;
   timeoutMs: number;
@@ -19,7 +23,7 @@ export interface Sandbox {
   readonly home: string;
   uploadFile(path: string, data: Uint8Array | string): Promise<void>;
   uploadPath(remotePath: string, localPath: string): Promise<void>;
-  exec(cmd: string): Promise<RunResult>;
+  exec(cmd: string, opts?: ExecOptions): Promise<RunResult>;
   spawn(cmd: string): Promise<void>;
   exposePort(port: number): Promise<ExposedPort>;
   destroy(): Promise<void>;

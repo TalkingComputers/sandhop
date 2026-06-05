@@ -83,6 +83,7 @@ test("DaytonaSandboxProvider creates a sandbox and maps combined exec output", a
     stdout: "combined",
     stderr: "combined",
   });
+  await sandbox.exec("echo slow", { timeoutMs: 123000 });
   expect(daytonaMocks.Daytona).toHaveBeenCalledWith({
     apiKey: "api-key",
     apiUrl: "https://api.daytona.example",
@@ -101,6 +102,12 @@ test("DaytonaSandboxProvider creates a sandbox and maps combined exec output", a
     undefined,
     undefined,
     600,
+  );
+  expect(daytonaMocks.executeCommand).toHaveBeenCalledWith(
+    "bash -lc 'echo slow'",
+    undefined,
+    undefined,
+    123,
   );
 });
 

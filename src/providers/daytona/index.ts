@@ -2,6 +2,7 @@ import type { CreateSandboxBaseParams, DaytonaConfig } from "@daytonaio/sdk";
 import type { HostDeps } from "../../core/ports/host.js";
 import type {
   CreateOptions,
+  ExecOptions,
   ExposedPort,
   RunResult,
   Sandbox,
@@ -97,12 +98,14 @@ class DaytonaSandboxAdapter implements Sandbox {
     );
   }
 
-  async exec(cmd: string): Promise<RunResult> {
+  async exec(cmd: string, opts?: ExecOptions): Promise<RunResult> {
     const result = await this.sandbox.process.executeCommand(
       `bash -lc ${shellQuote(cmd)}`,
       undefined,
       undefined,
-      COMMAND_TIMEOUT_SECONDS,
+      opts?.timeoutMs === undefined
+        ? COMMAND_TIMEOUT_SECONDS
+        : timeoutSeconds(opts.timeoutMs),
     );
     return {
       exitCode: result.exitCode,

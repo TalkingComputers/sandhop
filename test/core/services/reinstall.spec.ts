@@ -56,15 +56,15 @@ test("ReinstallService plans marketplace, plugin, disable, git skill, and symlin
 
   expect(new ReinstallService(host, CLAUDE_CODE).plan()).toEqual({
     commands: [
+      "git clone 'https://github.com/acme/gstack.git' \"$HOME/.claude/skills/gstack\" && git -C \"$HOME/.claude/skills/gstack\" checkout '0123456789abcdef0123456789abcdef01234567'",
+      'cd "$HOME/.claude/skills/gstack" && npm ci',
+      'cd "$HOME/.claude/skills/gstack" && npm run build',
+      'mkdir -p "$HOME/.claude/skills/office-hours" && ln -sf "$HOME/.claude/skills/gstack/skills/office-hours/SKILL.md" "$HOME/.claude/skills/office-hours/SKILL.md"',
       "claude plugin marketplace add 'anthropics/claude-plugins'",
       "claude plugin marketplace add 'https://example.com/plugins.git'",
       "claude plugin install 'frontend-design@official' --scope user",
       "claude plugin install 'internal-tool@internal' --scope user",
       "claude plugin disable 'serena@official'",
-      "git clone 'https://github.com/acme/gstack.git' \"$HOME/.claude/skills/gstack\" && git -C \"$HOME/.claude/skills/gstack\" checkout '0123456789abcdef0123456789abcdef01234567'",
-      'cd "$HOME/.claude/skills/gstack" && npm ci',
-      'cd "$HOME/.claude/skills/gstack" && npm run build',
-      'mkdir -p "$HOME/.claude/skills/office-hours" && ln -sf "$HOME/.claude/skills/gstack/skills/office-hours/SKILL.md" "$HOME/.claude/skills/office-hours/SKILL.md"',
     ],
   });
   expect(host.execCalls).toEqual([

@@ -8,6 +8,7 @@ export const buildClaudePreSeedScript = (remoteProj: string): string =>
     "j.hasCompletedOnboarding=true",
     'if(!Object.hasOwn(j,"projects"))j.projects={}',
     `j.projects[${JSON.stringify(remoteProj)}]={hasTrustDialogAccepted:true,hasCompletedProjectOnboarding:true}`,
+    'if(process.env.ANTHROPIC_API_KEY){if(!j.customApiKeyResponses||typeof j.customApiKeyResponses!=="object")j.customApiKeyResponses={};if(!Array.isArray(j.customApiKeyResponses.approved))j.customApiKeyResponses.approved=[];if(!Array.isArray(j.customApiKeyResponses.rejected))j.customApiKeyResponses.rejected=[];const suffix=process.env.ANTHROPIC_API_KEY.slice(-20);if(!j.customApiKeyResponses.approved.includes(suffix))j.customApiKeyResponses.approved.push(suffix)}',
     'const t=f+".sandhop.tmp"',
     "fs.writeFileSync(t,JSON.stringify(j))",
     "fs.renameSync(t,f)",

@@ -319,12 +319,12 @@ export class ReinstallService {
     const gitSkillPlan = this.listGitSkillCommands();
     return {
       commands: [
-        ...this.listMarketplaceCommands(),
-        ...this.listPluginCommands(),
-        ...this.listDisableCommands(),
         ...gitSkillPlan.commands,
         ...this.listLocalSkillCommands(),
         ...this.listSymlinkSkillCommands(gitSkillPlan.gitSkills),
+        ...this.listMarketplaceCommands(),
+        ...this.listPluginCommands(),
+        ...this.listDisableCommands(),
       ],
     };
   }

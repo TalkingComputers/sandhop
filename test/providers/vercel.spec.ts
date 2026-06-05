@@ -112,6 +112,7 @@ test("VercelSandboxProvider creates a named sandbox with creds and maps exec res
     stdout: "stdout",
     stderr: "stderr",
   });
+  await sandbox.exec("echo slow", { timeoutMs: 123000 });
   expect(vercelMocks.create).toHaveBeenCalledWith({
     token: "token",
     teamId: "team",
@@ -129,6 +130,13 @@ test("VercelSandboxProvider creates a named sandbox with creds and maps exec res
     ["-lc", "echo ok"],
     {
       timeoutMs: 600000,
+    },
+  );
+  expect(vercelMocks.runCommand).toHaveBeenCalledWith(
+    "bash",
+    ["-lc", "echo slow"],
+    {
+      timeoutMs: 123000,
     },
   );
   expect(vercelMocks.stdout).toHaveBeenCalled();

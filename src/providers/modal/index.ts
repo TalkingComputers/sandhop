@@ -5,6 +5,7 @@ import type {
 import type { HostDeps } from "../../core/ports/host.js";
 import type {
   CreateOptions,
+  ExecOptions,
   ExposedPort,
   RunResult,
   Sandbox,
@@ -73,9 +74,9 @@ class ModalSandboxAdapter implements Sandbox {
     }
   }
 
-  async exec(cmd: string): Promise<RunResult> {
+  async exec(cmd: string, opts?: ExecOptions): Promise<RunResult> {
     const process = await this.sandbox.exec(["bash", "-lc", cmd], {
-      timeoutMs: COMMAND_TIMEOUT_MS,
+      timeoutMs: opts?.timeoutMs ?? COMMAND_TIMEOUT_MS,
     });
     const [stdout, stderr, exitCode] = await Promise.all([
       process.stdout.readText(),

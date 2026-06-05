@@ -2,6 +2,7 @@ import { CommandExitError, Sandbox as E2bSandbox } from "e2b";
 import type { HostDeps } from "../../core/ports/host.js";
 import type {
   CreateOptions,
+  ExecOptions,
   ExposedPort,
   RunResult,
   Sandbox,
@@ -55,11 +56,12 @@ class E2bSandboxAdapter implements Sandbox {
     );
   }
 
-  async exec(cmd: string): Promise<RunResult> {
+  async exec(cmd: string, opts?: ExecOptions): Promise<RunResult> {
+    const timeoutMs = opts?.timeoutMs ?? UPLOAD_TIMEOUT_MS;
     try {
       const result = await this.sandbox.commands.run(cmd, {
-        timeoutMs: UPLOAD_TIMEOUT_MS,
-        requestTimeoutMs: UPLOAD_TIMEOUT_MS,
+        timeoutMs,
+        requestTimeoutMs: timeoutMs,
       });
       return {
         exitCode: result.exitCode,

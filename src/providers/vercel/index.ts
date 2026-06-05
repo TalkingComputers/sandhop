@@ -3,6 +3,7 @@ import { dirname } from "../../core/paths.js";
 import type { HostDeps } from "../../core/ports/host.js";
 import type {
   CreateOptions,
+  ExecOptions,
   ExposedPort,
   RunResult,
   Sandbox,
@@ -92,9 +93,9 @@ class VercelSandboxAdapter implements Sandbox {
     ]);
   }
 
-  async exec(cmd: string): Promise<RunResult> {
+  async exec(cmd: string, opts?: ExecOptions): Promise<RunResult> {
     const result = await this.sandbox.runCommand("bash", ["-lc", cmd], {
-      timeoutMs: COMMAND_TIMEOUT_MS,
+      timeoutMs: opts?.timeoutMs ?? COMMAND_TIMEOUT_MS,
     });
     return {
       exitCode: result.exitCode,

@@ -211,6 +211,19 @@ test("BootstrapService enrichment installs runtimes and deps, writes rewritten M
   expect(script).not.toContain("mcp-code.tgz");
 });
 
+test("BootstrapService wraps each reinstall command with a bounded timeout", () => {
+  const script = new BootstrapService(CLAUDE_CODE).renderReinstall([
+    "echo one",
+    "echo 'two'",
+  ]);
+
+  expect(script).toContain(
+    "$SANDHOP_LOW_PRIORITY timeout 180 sh -lc 'echo one' || { echo \"[sandhop] reinstall step failed: echo one\" >&2; true; }",
+  );
+  expect(script).toContain("timeout 180 sh -lc 'echo '\\''two'\\'''");
+  expect(script).toContain("export CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1");
+});
+
 test("BootstrapService MCP node eval commands single-quote scripts", () => {
   const home = mkdtempSync(join(tmpdir(), "sandhop-mcp-eval-"));
   const pwned = join(home, "PWNED");

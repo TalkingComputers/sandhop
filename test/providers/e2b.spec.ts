@@ -92,6 +92,7 @@ test("E2bSandboxProvider creates sandboxes, uploads octet-stream bytes and paths
     stdout: "ok",
     stderr: "",
   });
+  await sandbox.exec("echo slow", { timeoutMs: 123000 });
   await sandbox.spawn("ttyd");
   await expect(sandbox.exposePort(7681)).resolves.toEqual({
     url: "https://sbx-created-7681.e2b.app",
@@ -122,6 +123,10 @@ test("E2bSandboxProvider creates sandboxes, uploads octet-stream bytes and paths
   expect(e2bMocks.commandsRun).toHaveBeenCalledWith("ttyd", {
     background: true,
     timeoutMs: 0,
+  });
+  expect(e2bMocks.commandsRun).toHaveBeenCalledWith("echo slow", {
+    timeoutMs: 123000,
+    requestTimeoutMs: 123000,
   });
 });
 
