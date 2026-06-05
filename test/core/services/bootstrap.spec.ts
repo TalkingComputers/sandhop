@@ -7,7 +7,21 @@ import { CODEX } from "../../../src/agents/codex.js";
 import { CLAUDE_CODE } from "../../../src/agents/claude-code.js";
 import { BootstrapService } from "../../../src/core/services/bootstrap.js";
 import { buildManifest } from "../../../src/core/manifest.js";
+import type { Agent } from "../../../src/core/ports/agent.js";
 import type { CodePlan } from "../../../src/core/services/mcp-code.js";
+
+const tmuxMultiplexer = {
+  id: "tmux",
+  install: (): string[] => [
+    "$SUDO bash -lc 'DEBIAN_FRONTEND=noninteractive apt-get install -y tmux'",
+    `printf '%s\\n' 'set -g status off' 'set -g window-size latest' > "$HOME/.tmux.conf"`,
+  ],
+  attach: (session: string, command: string): string =>
+    `tmux new -A -s ${session} ${command}`,
+};
+
+const createBootstrap = (agent: Agent): BootstrapService =>
+  new BootstrapService(agent, tmuxMultiplexer);
 
 const manifest = buildManifest({
   agent: "claude-code",
@@ -21,7 +35,7 @@ const ZSTD_INSTALL =
   "command -v zstd || $SUDO sh -lc 'command -v apt-get >/dev/null && (apt-get update && apt-get install -y zstd) || (command -v dnf >/dev/null && dnf install -y zstd) || (command -v apk >/dev/null && apk add zstd) || (command -v yum >/dev/null && yum install -y zstd)'";
 
 test("BootstrapService project prep sudo-creates and owns remote project before transfer", () => {
-  const bootstrap = new BootstrapService(CLAUDE_CODE);
+  const bootstrap = createBootstrap(CLAUDE_CODE);
   const script = bootstrap.renderPathPrep(manifest.remoteProj);
 
   expect(script.split("\n")).toEqual([
@@ -33,8 +47,8 @@ test("BootstrapService project prep sudo-creates and owns remote project before 
   expect(bootstrap.renderProjectPrep(manifest)).toBe(script);
 });
 
-test("BootstrapService core installs exact CLI version, places transcript, and skips project prep, enrichment, zstd, and apt", () => {
-  const script = new BootstrapService(CLAUDE_CODE).render(manifest, {
+test("BootstrapService core installs exact CLI version, places transcript, and installs tmux after ttyd before project prep, enrichment, and zstd", () => {
+  const script = createBootstrap(CLAUDE_CODE).render(manifest, {
     home: "/home/user",
   });
 
@@ -42,7 +56,6 @@ test("BootstrapService core installs exact CLI version, places transcript, and s
     'npm i -g @anthropic-ai/claude-code@2.1.160 || $SUDO env PATH="$PATH" npm i -g @anthropic-ai/claude-code@2.1.160',
   );
   expect(script).not.toContain("zstd");
-  expect(script).not.toContain("apt-get");
   expect(script).toContain(
     'SUDO=""; if [ "$(id -u)" != 0 ] && command -v sudo >/dev/null 2>&1; then SUDO="sudo"; fi',
   );
@@ -52,6 +65,12 @@ test("BootstrapService core installs exact CLI version, places transcript, and s
   expect(script).toContain(
     "curl -fsSL https://github.com/tsl0922/ttyd/releases/latest/download/ttyd.${TTYD_ARCH} -o /usr/local/bin/ttyd",
   );
+  expect(script.split("\n").slice(3, 7)).toEqual([
+    "$SUDO curl -fsSL https://github.com/tsl0922/ttyd/releases/latest/download/ttyd.${TTYD_ARCH} -o /usr/local/bin/ttyd",
+    "$SUDO chmod +x /usr/local/bin/ttyd",
+    "$SUDO bash -lc 'DEBIAN_FRONTEND=noninteractive apt-get install -y tmux'",
+    `printf '%s\\n' 'set -g status off' 'set -g window-size latest' > "$HOME/.tmux.conf"`,
+  ]);
   expect(script).toContain(
     "git config --global --add safe.directory '/private/tmp/sandhop-codex2'",
   );
@@ -80,7 +99,7 @@ test("BootstrapService quotes remote project shell paths with metacharacters", (
     transcriptName: "session-id.jsonl",
     ts: 1,
   });
-  const bootstrap = new BootstrapService(CLAUDE_CODE);
+  const bootstrap = createBootstrap(CLAUDE_CODE);
   const prep = bootstrap.renderProjectPrep(spacedManifest);
   const script = bootstrap.render(spacedManifest, {
     home: "/home/user",
@@ -101,7 +120,7 @@ test("BootstrapService quotes remote project shell paths with metacharacters", (
 });
 
 test("BootstrapService emits quoted git identity after safe directory when supplied", () => {
-  const script = new BootstrapService(CLAUDE_CODE).render(manifest, {
+  const script = createBootstrap(CLAUDE_CODE).render(manifest, {
     home: "/home/user",
     gitUserName: "Alice O'Connor",
     gitUserEmail: "alice+test@example.com",
@@ -123,7 +142,7 @@ test("BootstrapService emits quoted git identity after safe directory when suppl
 });
 
 test("BootstrapService injects transport steps before agent install", () => {
-  const script = new BootstrapService(CLAUDE_CODE).render(manifest, {
+  const script = createBootstrap(CLAUDE_CODE).render(manifest, {
     home: "/home/user",
     transportSteps: ["install cloudflared"],
   });
@@ -159,7 +178,7 @@ test("BootstrapService enrichment installs runtimes and deps, writes rewritten M
     classifications: [{ name: "local", kind: "local-path" }],
   };
 
-  const bootstrap = new BootstrapService(CLAUDE_CODE);
+  const bootstrap = createBootstrap(CLAUDE_CODE);
   const script = [
     bootstrap.renderEnrichmentInstalls({ codePlan }),
     bootstrap.renderEnrichmentConfig({ codePlan }),
@@ -212,7 +231,7 @@ test("BootstrapService enrichment installs runtimes and deps, writes rewritten M
 });
 
 test("BootstrapService wraps each reinstall command with a bounded timeout", () => {
-  const script = new BootstrapService(CLAUDE_CODE).renderReinstall([
+  const script = createBootstrap(CLAUDE_CODE).renderReinstall([
     "echo one",
     "echo 'two'",
   ]);
@@ -244,10 +263,10 @@ test("BootstrapService MCP node eval commands single-quote scripts", () => {
     excluded: [],
     classifications: [{ name: "local", kind: "local-path" }],
   };
-  const claudeScript = new BootstrapService(CLAUDE_CODE).renderEnrichmentConfig(
-    { codePlan },
-  );
-  const codexScript = new BootstrapService(CODEX).renderEnrichmentConfig({
+  const claudeScript = createBootstrap(CLAUDE_CODE).renderEnrichmentConfig({
+    codePlan,
+  });
+  const codexScript = createBootstrap(CODEX).renderEnrichmentConfig({
     codePlan,
   });
   const evalCommands = [
@@ -301,7 +320,7 @@ test("BootstrapService merges Claude MCP servers into existing claude.json witho
     }),
   );
 
-  const script = new BootstrapService(CLAUDE_CODE).renderEnrichmentConfig({
+  const script = createBootstrap(CLAUDE_CODE).renderEnrichmentConfig({
     codePlan,
   });
 
@@ -360,7 +379,7 @@ test("BootstrapService prunes stale Codex MCP tables before appending rewritten 
     classifications: [{ name: "local", kind: "local-path" }],
   };
 
-  const bootstrap = new BootstrapService(CODEX);
+  const bootstrap = createBootstrap(CODEX);
   const script = [
     bootstrap.renderEnrichmentInstalls({ codePlan }),
     bootstrap.renderEnrichmentConfig({ codePlan }),

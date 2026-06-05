@@ -3,6 +3,7 @@ import { TTYD_PORT } from "../constants.js";
 import { dirname, expandHome } from "../paths.js";
 import type { Agent, AuthBundle } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
+import type { Multiplexer } from "../ports/multiplexer.js";
 import type { Sandbox, SandboxProvider } from "../ports/provider.js";
 import type { Transport } from "../ports/transport.js";
 import { randomToken } from "../rand.js";
@@ -54,7 +55,10 @@ export interface TeleportServices {
   version: VersionDetector;
   bootstrap: BootstrapService;
   gitSsh: SshCollector;
+  multiplexer: Multiplexer;
 }
+
+const TTYD_SESSION = "sandhop";
 
 const mirrorPath = (
   path: string,
@@ -238,8 +242,12 @@ export class TeleportService {
       );
       const bind = opts.transport.ttydBindAddress();
       const bindFlag = bind === "0.0.0.0" ? "" : `-i ${shellQuote(bind)} `;
+      const command = this.services.multiplexer.attach(
+        TTYD_SESSION,
+        `bash -lc ${shellQuote(resume)}`,
+      );
       await sandbox.spawn(
-        `ttyd ${bindFlag}-p ${TTYD_PORT} -W -c ${shellQuote(`${user}:${pass}`)} bash -lc ${shellQuote(resume)}`,
+        `ttyd ${bindFlag}-p ${TTYD_PORT} -W -c ${shellQuote(`${user}:${pass}`)} ${command}`,
       );
       const { url } = await opts.transport.expose({
         sandbox,

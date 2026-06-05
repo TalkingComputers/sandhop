@@ -1,4 +1,4 @@
-import { CommandExitError, Sandbox as E2bSandbox } from "e2b";
+import { CommandExitError, Sandbox as E2bSandbox, Template } from "e2b";
 import type { HostDeps } from "../../core/ports/host.js";
 import type {
   CreateOptions,
@@ -20,6 +20,18 @@ interface E2bCredentials {
 
 const UPLOAD_TIMEOUT_MS = 600000;
 const PATH_UPLOAD_TIMEOUT_MS = 3_600_000;
+const SANDHOP_TEMPLATE = "sandhop";
+const TEMPLATE_MEMORY_MB = 4096;
+const TEMPLATE_CPU = 4;
+
+const buildSandhopTemplate = () =>
+  Template()
+    .fromBaseImage()
+    .aptInstall(["tmux"])
+    .runCmd(
+      "curl -fsSL https://github.com/tsl0922/ttyd/releases/latest/download/ttyd.x86_64 -o /usr/local/bin/ttyd && chmod +x /usr/local/bin/ttyd",
+      { user: "root" },
+    );
 
 class E2bSandboxAdapter implements Sandbox {
   readonly id: string;
@@ -102,7 +114,12 @@ export class E2bSandboxProvider implements SandboxProvider {
 
   async create(opts: CreateOptions): Promise<Sandbox> {
     const credentials = this.credentials();
-    const sandbox = await E2bSandbox.create("base", {
+    if (!(await Template.exists(SANDHOP_TEMPLATE)))
+      await Template.build(buildSandhopTemplate(), SANDHOP_TEMPLATE, {
+        cpuCount: TEMPLATE_CPU,
+        memoryMB: TEMPLATE_MEMORY_MB,
+      });
+    const sandbox = await E2bSandbox.create(SANDHOP_TEMPLATE, {
       ...credentials,
       envs: opts.envs,
       timeoutMs: opts.timeoutMs,

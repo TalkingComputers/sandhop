@@ -42,6 +42,10 @@ const e2bMocks = vi.hoisted(() => {
     }),
     kill: vi.fn(async (id: string) => id === "sbx-created"),
   };
+  const Template = Object.assign(vi.fn(), {
+    exists: vi.fn(async () => true),
+    build: vi.fn(),
+  });
   return {
     CommandExitError,
     filesWrite,
@@ -49,18 +53,22 @@ const e2bMocks = vi.hoisted(() => {
     listItems,
     sandbox,
     Sandbox,
+    Template,
   };
 });
 
 vi.mock("e2b", () => ({
   CommandExitError: e2bMocks.CommandExitError,
   Sandbox: e2bMocks.Sandbox,
+  Template: e2bMocks.Template,
 }));
 
 const env = { E2B_API_KEY: "e2b-key" };
 
 test("E2bSandboxProvider creates sandboxes, uploads octet-stream bytes and paths, runs commands, exposes HTTPS URLs, and destroys", async () => {
   e2bMocks.commandsRun.mockReset();
+  e2bMocks.Template.exists.mockClear();
+  e2bMocks.Template.build.mockClear();
   e2bMocks.commandsRun.mockResolvedValueOnce({
     exitCode: 0,
     stdout: "/home/e2b",
@@ -99,7 +107,9 @@ test("E2bSandboxProvider creates sandboxes, uploads octet-stream bytes and paths
   });
   await expect(provider.destroy("sbx-created")).resolves.toBe(true);
 
-  expect(e2bMocks.Sandbox.create).toHaveBeenCalledWith("base", {
+  expect(e2bMocks.Template.exists).toHaveBeenCalledWith("sandhop");
+  expect(e2bMocks.Template.build).not.toHaveBeenCalled();
+  expect(e2bMocks.Sandbox.create).toHaveBeenCalledWith("sandhop", {
     apiKey: "e2b-key",
     envs: { A: "1" },
     timeoutMs: 600000,

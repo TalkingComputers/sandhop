@@ -17,6 +17,7 @@ import { ReinstallService } from "../core/services/reinstall.js";
 import { SecretsService } from "../core/services/secrets.js";
 import { ScriptCaptureService } from "../core/services/scripts.js";
 import { TransferService } from "../core/services/transfer.js";
+import { TmuxMultiplexer } from "../multiplexers/tmux.js";
 import { buildProvider } from "../providers/index.js";
 import { parseEnrichArgs, type EnrichArgs } from "./args.js";
 import { buildHost } from "./host.js";
@@ -35,17 +36,20 @@ const buildEnrichmentServices = (
   host: HostDeps,
   agent: Agent,
   sandbox: Sandbox,
-): EnrichmentServices => ({
-  host,
-  sandbox,
-  transfer: new TransferService(host, sandbox),
-  profile: new ProfileService(host, agent),
-  mcpCode: new McpCodeService(host, agent),
-  reinstall: new ReinstallService(host, agent),
-  secrets: new SecretsService(host, agent),
-  scripts: new ScriptCaptureService(host),
-  bootstrap: new BootstrapService(agent),
-});
+): EnrichmentServices => {
+  const multiplexer = new TmuxMultiplexer();
+  return {
+    host,
+    sandbox,
+    transfer: new TransferService(host, sandbox),
+    profile: new ProfileService(host, agent),
+    mcpCode: new McpCodeService(host, agent),
+    reinstall: new ReinstallService(host, agent),
+    secrets: new SecretsService(host, agent),
+    scripts: new ScriptCaptureService(host),
+    bootstrap: new BootstrapService(agent, multiplexer),
+  };
+};
 
 export const runEnrichment = async (
   args: EnrichArgs,

@@ -1,6 +1,7 @@
 import type { Manifest } from "../manifest.js";
 import { dirname } from "../paths.js";
 import type { Agent } from "../ports/agent.js";
+import type { Multiplexer } from "../ports/multiplexer.js";
 import {
   buildMergeClaudeMcpScript,
   buildPruneMcpTablesScript,
@@ -93,9 +94,11 @@ const renderSummary = (steps: EnrichmentStepResult[]): string[] => [
 
 export class BootstrapService {
   readonly agent: Agent;
+  readonly multiplexer: Multiplexer;
 
-  constructor(agent: Agent) {
+  constructor(agent: Agent, multiplexer: Multiplexer) {
     this.agent = agent;
+    this.multiplexer = multiplexer;
   }
 
   renderPathPrep(path: string): string {
@@ -124,6 +127,7 @@ export class BootstrapService {
       ARCH_SETUP,
       "$SUDO curl -fsSL https://github.com/tsl0922/ttyd/releases/latest/download/ttyd.${TTYD_ARCH} -o /usr/local/bin/ttyd",
       "$SUDO chmod +x /usr/local/bin/ttyd",
+      ...this.multiplexer.install(),
       ...(opts.transportSteps ?? []),
       `${installCmd} || $SUDO env PATH="$PATH" ${installCmd}`,
       ...this.agent.preSeed(manifest.remoteProj),

@@ -1,8 +1,13 @@
 import { tmpdir } from "node:os";
 import { expect, test } from "vitest";
 import { CLAUDE_CODE } from "../../../src/agents/claude-code.js";
+import { CODEX } from "../../../src/agents/codex.js";
 import { TTYD_PORT } from "../../../src/core/constants.js";
-import type { AuthBundle, SessionRef } from "../../../src/core/ports/agent.js";
+import type {
+  Agent,
+  AuthBundle,
+  SessionRef,
+} from "../../../src/core/ports/agent.js";
 import type { Transport } from "../../../src/core/ports/transport.js";
 import { BootstrapService } from "../../../src/core/services/bootstrap.js";
 import type { SshCollector } from "../../../src/core/services/git-ssh.js";
@@ -12,6 +17,19 @@ import { FakeHost } from "../../fakes/host.js";
 import { FakeProvider } from "../../fakes/provider.js";
 
 const encoder = new TextEncoder();
+
+const tmuxMultiplexer = {
+  id: "tmux",
+  install: (): string[] => [
+    "$SUDO bash -lc 'DEBIAN_FRONTEND=noninteractive apt-get install -y tmux'",
+    `printf '%s\\n' 'set -g status off' 'set -g window-size latest' > "$HOME/.tmux.conf"`,
+  ],
+  attach: (session: string, command: string): string =>
+    `tmux new -A -s ${session} ${command}`,
+};
+
+const createBootstrap = (agent: Agent): BootstrapService =>
+  new BootstrapService(agent, tmuxMultiplexer);
 
 class RealpathHost extends FakeHost {
   realpaths: string[] = [];
@@ -70,8 +88,9 @@ test("TeleportService fast core fans out collection, transfers one gzip bundle, 
     },
     auth: { extract: () => track(auth) },
     version: { detect: () => track("2.1.160") },
-    bootstrap: new BootstrapService(CLAUDE_CODE),
+    bootstrap: createBootstrap(CLAUDE_CODE),
     gitSsh: emptyGitSsh,
+    multiplexer: tmuxMultiplexer,
   });
 
   const result = await service.run("/workspace/project", {
@@ -122,7 +141,6 @@ test("TeleportService fast core fans out collection, transfers one gzip bundle, 
   expect(provider.sandbox.execs[1]).not.toContain("zstd");
   expect(provider.sandbox.execs[1]).not.toContain("apt-get");
   expect(provider.sandbox.execs[2]).not.toContain("zstd");
-  expect(provider.sandbox.execs[2]).not.toContain("apt-get");
   expect(provider.sandbox.uploads.map((upload) => upload.path)).toEqual([
     "/tmp/transcript.jsonl",
   ]);
@@ -144,7 +162,9 @@ test("TeleportService fast core fans out collection, transfers one gzip bundle, 
   );
   expect(provider.sandbox.spawns[0]).toContain("-c 'host-user:");
   expect(provider.sandbox.spawns[0]).not.toContain("-i 127.0.0.1");
-  expect(provider.sandbox.spawns[0]).toContain("bash -lc");
+  expect(provider.sandbox.spawns[0]).toContain(
+    "tmux new -A -s sandhop bash -lc",
+  );
   expect(provider.sandbox.spawns[0]).toContain("claude --resume");
   expect(provider.sandbox.spawns[0]).toContain("'\\''/workspace/project'\\''");
   expect(provider.sandbox.spawns[0]).toContain("'\\''session-id'\\''");
@@ -190,8 +210,9 @@ test("TeleportService transfers Claude project memory after the bundle when pres
       }),
     },
     version: { detect: async () => "2.1.160" },
-    bootstrap: new BootstrapService(CLAUDE_CODE),
+    bootstrap: createBootstrap(CLAUDE_CODE),
     gitSsh: emptyGitSsh,
+    multiplexer: tmuxMultiplexer,
   });
 
   await service.run("/workspace/project", {
@@ -248,8 +269,9 @@ test("TeleportService injects transport bootstrap steps and loopback ttyd bind",
       }),
     },
     version: { detect: async () => "2.1.160" },
-    bootstrap: new BootstrapService(CLAUDE_CODE),
+    bootstrap: createBootstrap(CLAUDE_CODE),
     gitSsh: emptyGitSsh,
+    multiplexer: tmuxMultiplexer,
   });
 
   const result = await service.run("/workspace/project", {
@@ -265,6 +287,9 @@ test("TeleportService injects transport bootstrap steps and loopback ttyd bind",
   expect(provider.sandbox.execs[2]).toContain("install cloudflared");
   expect(provider.sandbox.spawns[0]).toContain(
     `ttyd -i '127.0.0.1' -p ${TTYD_PORT} -W -c 'host-user:`,
+  );
+  expect(provider.sandbox.spawns[0]).toContain(
+    "tmux new -A -s sandhop bash -lc",
   );
   expect(provider.sandbox.spawns[0]).toContain(
     "MCP_TIMEOUT='\\''120000'\\'' claude --resume",
@@ -311,8 +336,9 @@ test("TeleportService uploads core secret and auth files but leaves MCP code to 
       }),
     },
     version: { detect: async () => "2.1.160" },
-    bootstrap: new BootstrapService(CLAUDE_CODE),
+    bootstrap: createBootstrap(CLAUDE_CODE),
     gitSsh: emptyGitSsh,
+    multiplexer: tmuxMultiplexer,
   });
 
   await service.run("/workspace/project", {
@@ -382,8 +408,9 @@ test("TeleportService restore failure surfaces stdout when stderr is empty", asy
       }),
     },
     version: { detect: async () => "2.1.160" },
-    bootstrap: new BootstrapService(CLAUDE_CODE),
+    bootstrap: createBootstrap(CLAUDE_CODE),
     gitSsh: emptyGitSsh,
+    multiplexer: tmuxMultiplexer,
   });
 
   await expect(
@@ -432,7 +459,7 @@ test("TeleportService ships SSH bundle, bundle excludes, and mirrored includes",
       ],
     }),
   };
-  const bootstrap = new BootstrapService(CLAUDE_CODE);
+  const bootstrap = createBootstrap(CLAUDE_CODE);
   const service = new TeleportService(provider, CLAUDE_CODE, {
     host,
     session: { latest: async () => session, byId: async () => session },
@@ -446,6 +473,7 @@ test("TeleportService ships SSH bundle, bundle excludes, and mirrored includes",
     version: { detect: async () => "2.1.160" },
     bootstrap,
     gitSsh,
+    multiplexer: tmuxMultiplexer,
   });
 
   await service.run("/workspace/project", {
@@ -498,4 +526,49 @@ test("TeleportService ships SSH bundle, bundle excludes, and mirrored includes",
   expect(provider.sandbox.execs[6]).toContain(
     "chmod '644' '/home/user/.ssh/known_hosts'",
   );
+});
+
+test("TeleportService wraps Codex resume in the shared tmux ttyd session", async () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    bytes: {
+      "/home/local/.codex/sessions/2026/06/05/rollout-2026-06-05T00-00-00-session-id.jsonl":
+        encoder.encode("transcript"),
+    },
+  });
+  const provider = new FakeProvider();
+  const session: SessionRef = {
+    sessionId: "session-id",
+    transcriptPath:
+      "/home/local/.codex/sessions/2026/06/05/rollout-2026-06-05T00-00-00-session-id.jsonl",
+    transcriptName: "rollout-2026-06-05T00-00-00-session-id.jsonl",
+  };
+  const service = new TeleportService(provider, CODEX, {
+    host,
+    session: { latest: async () => session, byId: async () => session },
+    secrets: { collect: async () => ({ envs: {}, files: [] }) },
+    auth: {
+      extract: async () => ({
+        envs: { OPENAI_API_KEY: "sk-test" },
+        files: [],
+      }),
+    },
+    version: { detect: async () => "0.136.0" },
+    bootstrap: createBootstrap(CODEX),
+    gitSsh: emptyGitSsh,
+    multiplexer: tmuxMultiplexer,
+  });
+
+  await service.run("/workspace/project", {
+    excludes: [],
+    includes: [],
+    transport: new PublicTransport(),
+    timeoutMs: 3_600_000,
+  });
+
+  expect(provider.sandbox.spawns[0]).toContain(
+    "tmux new -A -s sandhop bash -lc",
+  );
+  expect(provider.sandbox.spawns[0]).toContain("codex resume");
 });

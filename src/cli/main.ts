@@ -16,6 +16,7 @@ import { SessionService } from "../core/services/session.js";
 import { TeleportService } from "../core/services/teleport.js";
 import { VersionService } from "../core/services/version.js";
 import type { NodeHost } from "../host/node.js";
+import { TmuxMultiplexer } from "../multiplexers/tmux.js";
 import { buildProvider, type ProviderId } from "../providers/index.js";
 import {
   buildTransport,
@@ -61,6 +62,7 @@ const runPush = async (
   } else {
     agent = pickAgent(args.agent);
   }
+  const multiplexer = new TmuxMultiplexer();
   const sessions = agent.matchSession(host, args.cwd);
   if (sessions.length === 0)
     throw new Error(
@@ -76,8 +78,9 @@ const runPush = async (
     secrets: new SecretsService(host, agent),
     auth: new AuthService(host, agent),
     version: new VersionService(host, agent),
-    bootstrap: new BootstrapService(agent),
+    bootstrap: new BootstrapService(agent, multiplexer),
     gitSsh: new GitSshService(host),
+    multiplexer,
   });
   const result = await service.run(args.cwd, {
     sessionId: args.session,
