@@ -104,10 +104,10 @@ test("TeleportService fast core fans out collection, transfers one gzip bundle, 
   expect(host.spawnPipeCalls[0]).toContain("--no-mac-metadata");
   expect(host.spawnPipeCalls[0]).not.toContain("zstd");
   expect(provider.sandbox.execs[0]).toContain(
-    '$SUDO mkdir -p "/workspace/project"',
+    "$SUDO mkdir -p '/workspace/project'",
   );
   expect(provider.sandbox.execs[0]).toContain(
-    '$SUDO chown -R "$(id -u):$(id -g)" "/workspace/project"',
+    "$SUDO chown -R \"$(id -u):$(id -g)\" '/workspace/project'",
   );
   expect(provider.sandbox.execs[1]).toContain("gzip -t");
   expect(provider.sandbox.execs[1]).toContain("wc -c");
@@ -120,16 +120,18 @@ test("TeleportService fast core fans out collection, transfers one gzip bundle, 
     "/tmp/transcript.jsonl",
   ]);
   expect(provider.sandbox.execs[2]).toContain(
-    'git config --global --add safe.directory "/workspace/project"',
+    "git config --global --add safe.directory '/workspace/project'",
   );
   expect(provider.sandbox.execs[2]).not.toContain("tar -xzf /tmp/bundle.tgz");
   expect(provider.sandbox.spawns[0]).toContain(
-    `ttyd -p ${TTYD_PORT} -W -c host-user:`,
+    `ttyd -p ${TTYD_PORT} -W -c 'host-user:`,
   );
+  expect(provider.sandbox.spawns[0]).toContain("-c 'host-user:");
   expect(provider.sandbox.spawns[0]).not.toContain("-i 127.0.0.1");
-  expect(provider.sandbox.spawns[0]).toContain(
-    "bash -lc 'cd \"/workspace/project\" && claude --resume session-id'",
-  );
+  expect(provider.sandbox.spawns[0]).toContain("bash -lc");
+  expect(provider.sandbox.spawns[0]).toContain("claude --resume");
+  expect(provider.sandbox.spawns[0]).toContain("'\\''/workspace/project'\\''");
+  expect(provider.sandbox.spawns[0]).toContain("'\\''session-id'\\''");
   expect(provider.sandbox.spawns[0]).not.toContain("MCP_TIMEOUT=");
   expect(provider.sandbox.spawns[0]).not.toContain("for f in");
   expect(provider.sandbox.execs).toHaveLength(3);
@@ -190,10 +192,10 @@ test("TeleportService injects transport bootstrap steps and loopback ttyd bind",
   });
   expect(provider.sandbox.execs[2]).toContain("install cloudflared");
   expect(provider.sandbox.spawns[0]).toContain(
-    `ttyd -i 127.0.0.1 -p ${TTYD_PORT} -W -c host-user:`,
+    `ttyd -i '127.0.0.1' -p ${TTYD_PORT} -W -c 'host-user:`,
   );
   expect(provider.sandbox.spawns[0]).toContain(
-    "bash -lc 'cd \"/workspace/project\" && MCP_TIMEOUT=120000 claude --resume session-id'",
+    "MCP_TIMEOUT='\\''120000'\\'' claude --resume",
   );
   expect(provider.sandbox.exposedPorts).toEqual([]);
   expect(result.url).toBe("https://cloudflared-sbx-1");
@@ -307,6 +309,7 @@ test("TeleportService restore failure surfaces stdout when stderr is empty", asy
       timeoutMs: 3_600_000,
     }),
   ).rejects.toThrow("Restore failed: daytona npm EACCES output");
+  expect(provider.sandbox.destroyed).toBe(true);
 });
 
 test("TeleportService ships SSH bundle, bundle excludes, and mirrored includes", async () => {
@@ -390,9 +393,9 @@ test("TeleportService ships SSH bundle, bundle excludes, and mirrored includes",
   expect(provider.sandbox.execs[4]).toContain("mkdir -p '/home/user/.ssh'");
   expect(provider.sandbox.execs[4]).toContain("chmod 700 '/home/user/.ssh'");
   expect(provider.sandbox.execs[4]).toContain(
-    "chmod 600 '/home/user/.ssh/id_git'",
+    "chmod '600' '/home/user/.ssh/id_git'",
   );
   expect(provider.sandbox.execs[4]).toContain(
-    "chmod 644 '/home/user/.ssh/known_hosts'",
+    "chmod '644' '/home/user/.ssh/known_hosts'",
   );
 });

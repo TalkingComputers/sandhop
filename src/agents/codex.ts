@@ -10,6 +10,7 @@ import type {
 import { collectEnvRefs } from "../core/env.js";
 import { buildCodexPreSeedScript } from "../core/sandbox-scripts.js";
 import { basename } from "../core/paths.js";
+import { shellQuote } from "../core/shell.js";
 import { parse, stringify, type TomlTable, type TomlValue } from "smol-toml";
 import { makeVersionParser, sortNewest } from "./shared.js";
 
@@ -274,10 +275,10 @@ export const CODEX: Agent = {
   supportsReinstall: () => false,
   preSeed: (remoteProj) => [
     "mkdir -p $HOME/.codex",
-    `node -e ${JSON.stringify(buildCodexPreSeedScript(remoteProj))}`,
+    `node -e ${shellQuote(buildCodexPreSeedScript(remoteProj))}`,
   ],
   remoteTranscriptPath: (home, remoteEnc, transcriptName) =>
     `${home}/.codex/sessions/restored/${transcriptName}`,
   resumeCmd: (sessionId, remoteProj) =>
-    `cd "${remoteProj}" && codex resume ${sessionId}`,
+    `cd ${shellQuote(remoteProj)} && codex resume ${shellQuote(sessionId)}`,
 };

@@ -15,6 +15,7 @@ import { destroyOrFalse } from "../destroy.js";
 import { toBytes } from "../encode.js";
 import { requireCred } from "../index.js";
 import { lazyImport, lazyOnce } from "../lazy-import.js";
+import { shellQuote } from "../../core/shell.js";
 
 type ModalModule = typeof import("modal");
 
@@ -82,7 +83,11 @@ class ModalSandboxAdapter implements Sandbox {
   }
 
   async spawn(cmd: string): Promise<void> {
-    await this.sandbox.exec(["bash", "-lc", cmd]);
+    await this.sandbox.exec([
+      "bash",
+      "-lc",
+      `nohup bash -lc ${shellQuote(cmd)} >/dev/null 2>&1 &`,
+    ]);
   }
 
   async exposePort(port: number): Promise<ExposedPort> {
@@ -119,11 +124,16 @@ export class ModalSandboxProvider implements SandboxProvider {
       env: opts.envs,
       timeoutMs: opts.timeoutMs,
     });
-    return new ModalSandboxAdapter(
-      sandbox,
-      this.host,
-      await this.readHome(sandbox),
-    );
+    try {
+      return new ModalSandboxAdapter(
+        sandbox,
+        this.host,
+        await this.readHome(sandbox),
+      );
+    } catch (error: unknown) {
+      await sandbox.terminate().catch(() => undefined);
+      throw error;
+    }
   }
 
   async connect(id: string): Promise<Sandbox> {

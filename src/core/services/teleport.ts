@@ -42,6 +42,7 @@ export interface TeleportServices {
     | "cpuCount"
     | "readBytes"
     | "realpath"
+    | "remove"
     | "spawnPipe"
     | "splitFile"
     | "username"
@@ -82,7 +83,7 @@ const chmodSshBundle = async (
       ...(dirs.length === 0 ? [] : [`chmod 700 ${dirs.join(" ")}`]),
       ...bundle.files.map(
         (file) =>
-          `chmod ${file.mode} ${shellQuote(expandHome(file.path, sandbox.home))}`,
+          `chmod ${shellQuote(file.mode)} ${shellQuote(expandHome(file.path, sandbox.home))}`,
       ),
     ].join("; "),
   );
@@ -133,68 +134,73 @@ export class TeleportService {
       timeoutMs: opts.timeoutMs,
       ports: [TTYD_PORT],
     });
-    opts.onProgress?.("uploading bundle");
-    await sandbox.exec(this.services.bootstrap.renderProjectPrep(manifest));
-    const transfer = new TransferService(this.services.host, sandbox);
-    await transfer.send(bundle, manifest.remoteProj, "bundle", {
-      codec: "gzip",
-      excludes: opts.excludes,
-    });
-    for (const [index, include] of opts.includes.entries()) {
-      if (!this.services.host.exists(include)) continue;
-      const realInclude = this.services.host.realpath(include);
-      await transfer.send(
-        realInclude,
-        mirrorPath(realInclude, this.services.host.home, sandbox.home),
-        `include-${index}`,
-        { codec: "gzip", excludes: [] },
+    try {
+      opts.onProgress?.("uploading bundle");
+      await sandbox.exec(this.services.bootstrap.renderProjectPrep(manifest));
+      const transfer = new TransferService(this.services.host, sandbox);
+      await transfer.send(bundle, manifest.remoteProj, "bundle", {
+        codec: "gzip",
+        excludes: opts.excludes,
+      });
+      for (const [index, include] of opts.includes.entries()) {
+        if (!this.services.host.exists(include)) continue;
+        const realInclude = this.services.host.realpath(include);
+        await transfer.send(
+          realInclude,
+          mirrorPath(realInclude, this.services.host.home, sandbox.home),
+          `include-${index}`,
+          { codec: "gzip", excludes: [] },
+        );
+      }
+      await sandbox.uploadFile(
+        "/tmp/transcript.jsonl",
+        this.services.host.readBytes(session.transcriptPath),
       );
+      for (const file of baseSecrets.files)
+        await sandbox.uploadFile(
+          expandHome(file.path, sandbox.home),
+          file.content,
+        );
+      for (const file of auth.files)
+        await sandbox.uploadFile(
+          expandHome(file.path, sandbox.home),
+          file.content,
+        );
+      await chmodSshBundle(sandbox, sshBundle);
+      opts.onProgress?.(
+        `installing ${this.agent.pkg}@${manifest.cliVersion} + ttyd`,
+      );
+      const restore = await sandbox.exec(
+        this.services.bootstrap.render(manifest, {
+          home: sandbox.home,
+          transportSteps: opts.transport.bootstrapSteps(),
+        }),
+      );
+      if (
+        restore.exitCode !== 0 ||
+        !restore.stdout.includes("SANDHOP_RESTORE_OK")
+      )
+        throw new Error(`Restore failed: ${restore.stderr || restore.stdout}`);
+      opts.onProgress?.("restoring session");
+      const resume = this.agent.resumeCmd(
+        session.sessionId,
+        manifest.remoteProj,
+        this.services.host.env.MCP_TIMEOUT,
+      );
+      const bind = opts.transport.ttydBindAddress();
+      const bindFlag = bind === "0.0.0.0" ? "" : `-i ${shellQuote(bind)} `;
+      await sandbox.spawn(
+        `ttyd ${bindFlag}-p ${TTYD_PORT} -W -c ${shellQuote(`${user}:${pass}`)} bash -lc ${shellQuote(resume)}`,
+      );
+      const { url } = await opts.transport.expose({
+        sandbox,
+        localPort: TTYD_PORT,
+      });
+      opts.onProgress?.("ready");
+      return { url, sandboxId: sandbox.id, user, pass };
+    } catch (error: unknown) {
+      await sandbox.destroy().catch(() => undefined);
+      throw error;
     }
-    await sandbox.uploadFile(
-      "/tmp/transcript.jsonl",
-      this.services.host.readBytes(session.transcriptPath),
-    );
-    for (const file of baseSecrets.files)
-      await sandbox.uploadFile(
-        expandHome(file.path, sandbox.home),
-        file.content,
-      );
-    for (const file of auth.files)
-      await sandbox.uploadFile(
-        expandHome(file.path, sandbox.home),
-        file.content,
-      );
-    await chmodSshBundle(sandbox, sshBundle);
-    opts.onProgress?.(
-      `installing ${this.agent.pkg}@${manifest.cliVersion} + ttyd`,
-    );
-    const restore = await sandbox.exec(
-      this.services.bootstrap.render(manifest, {
-        home: sandbox.home,
-        transportSteps: opts.transport.bootstrapSteps(),
-      }),
-    );
-    if (
-      restore.exitCode !== 0 ||
-      !restore.stdout.includes("SANDHOP_RESTORE_OK")
-    )
-      throw new Error(`Restore failed: ${restore.stderr || restore.stdout}`);
-    opts.onProgress?.("restoring session");
-    const resume = this.agent.resumeCmd(
-      session.sessionId,
-      manifest.remoteProj,
-      this.services.host.env.MCP_TIMEOUT,
-    );
-    const bind = opts.transport.ttydBindAddress();
-    const bindFlag = bind === "0.0.0.0" ? "" : `-i ${bind} `;
-    await sandbox.spawn(
-      `ttyd ${bindFlag}-p ${TTYD_PORT} -W -c ${user}:${pass} bash -lc ${shellQuote(resume)}`,
-    );
-    const { url } = await opts.transport.expose({
-      sandbox,
-      localPort: TTYD_PORT,
-    });
-    opts.onProgress?.("ready");
-    return { url, sandboxId: sandbox.id, user, pass };
   }
 }

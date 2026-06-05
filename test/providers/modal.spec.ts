@@ -137,8 +137,37 @@ test("ModalSandboxProvider spawn starts without awaiting process completion", as
 
   await sandbox.spawn("ttyd");
 
-  expect(modalMocks.exec).toHaveBeenCalledWith(["bash", "-lc", "ttyd"]);
+  expect(modalMocks.exec).toHaveBeenCalledWith([
+    "bash",
+    "-lc",
+    "nohup bash -lc 'ttyd' >/dev/null 2>&1 &",
+  ]);
   expect(modalMocks.wait).not.toHaveBeenCalled();
+});
+
+test("ModalSandboxProvider terminates a created sandbox when home lookup fails", async () => {
+  const { ModalSandboxProvider } = await loadProvider();
+  modalMocks.exec.mockResolvedValueOnce({
+    stdout: { readText: vi.fn(async () => "") },
+    stderr: { readText: vi.fn(async () => "home failed") },
+    wait: vi.fn(async () => 1),
+  });
+  const provider = new ModalSandboxProvider(
+    new FakeHost({
+      home: "/home/local",
+      env: { MODAL_TOKEN_ID: "id", MODAL_TOKEN_SECRET: "secret" },
+    }),
+  );
+
+  await expect(
+    provider.create({
+      envs: {},
+      timeoutMs: 600000,
+      ports: [7681],
+    }),
+  ).rejects.toThrow("Home lookup failed: home failed");
+
+  expect(modalMocks.terminate).toHaveBeenCalled();
 });
 
 test("ModalSandboxProvider uploads files, exposes ports, and destroys", async () => {

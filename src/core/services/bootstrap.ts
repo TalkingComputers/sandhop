@@ -12,6 +12,7 @@ import {
   quoteHomePath,
   runLowPriority,
   shellLog,
+  shellQuote,
 } from "../shell.js";
 import type { CodePlan } from "./mcp-code.js";
 import type { ScriptCapturePlan } from "./scripts.js";
@@ -41,13 +42,13 @@ const renderMcpConfig = (agent: Agent, codePlan: CodePlan): string[] => {
   if (config.mode === "merge-claude-json")
     return [
       `mkdir -p ${quoteHomePath(dir)}`,
-      `node -e ${JSON.stringify(buildMergeClaudeMcpScript(config.path, config.content))}`,
+      `node -e ${shellQuote(buildMergeClaudeMcpScript(config.path, config.content))}`,
     ];
   const redirect = config.mode === "append" ? ">>" : ">";
   return [
     `mkdir -p ${quoteHomePath(dir)}`,
     ...(config.mode === "append"
-      ? [`node -e ${JSON.stringify(buildPruneMcpTablesScript(config.path))}`]
+      ? [`node -e ${shellQuote(buildPruneMcpTablesScript(config.path))}`]
       : []),
     `cat ${redirect} ${quoteHomePath(config.path)} <<'SANDHOP_MCP_CONFIG'`,
     config.content.trimEnd(),
@@ -100,8 +101,8 @@ export class BootstrapService {
     return [
       "set -e",
       SUDO_SETUP,
-      `$SUDO mkdir -p "${manifest.remoteProj}"`,
-      `$SUDO chown -R "$(id -u):$(id -g)" "${manifest.remoteProj}"`,
+      `$SUDO mkdir -p ${shellQuote(manifest.remoteProj)}`,
+      `$SUDO chown -R "$(id -u):$(id -g)" ${shellQuote(manifest.remoteProj)}`,
     ].join("\n");
   }
 
@@ -121,8 +122,8 @@ export class BootstrapService {
       ...(opts.transportSteps ?? []),
       `${installCmd} || $SUDO env PATH="$PATH" ${installCmd}`,
       ...this.agent.preSeed(manifest.remoteProj),
-      `git config --global --add safe.directory "${manifest.remoteProj}"`,
-      `dest="${dest}"`,
+      `git config --global --add safe.directory ${shellQuote(manifest.remoteProj)}`,
+      `dest=${shellQuote(dest)}`,
       'mkdir -p "$(dirname "$dest")"',
       'cp /tmp/transcript.jsonl "$dest"',
       "echo SANDHOP_RESTORE_OK",
@@ -133,17 +134,18 @@ export class BootstrapService {
     return ["set -e", SUDO_SETUP, LOW_PRIORITY_SETUP, ZSTD_INSTALL].join("\n");
   }
 
-  renderEnrichmentConfig(
-    remoteProj: string,
-    opts: EnrichmentBootstrapOptions,
-  ): string {
+  renderEnrichmentConfig(opts: EnrichmentBootstrapOptions): string {
     if (opts.codePlan === null || opts.codePlan === undefined)
-      return 'echo "[sandhop] mcp config skipped"';
+      return ["set -e", 'echo "[sandhop] mcp config skipped"'].join("\n");
     const excluded = renderMcpExcluded(opts.codePlan);
     const config = renderMcpConfig(this.agent, opts.codePlan);
     if (config.length === 0)
-      return [...excluded, 'echo "[sandhop] mcp config skipped"'].join("\n");
-    return [...excluded, ...config].join("\n");
+      return [
+        "set -e",
+        ...excluded,
+        'echo "[sandhop] mcp config skipped"',
+      ].join("\n");
+    return ["set -e", ...excluded, ...config].join("\n");
   }
 
   renderEnrichmentInstalls(opts: EnrichmentBootstrapOptions): string {

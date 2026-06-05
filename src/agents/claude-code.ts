@@ -2,6 +2,7 @@ import { projectDirName } from "../core/encode.js";
 import { collectEnvRefs } from "../core/env.js";
 import { isRecord } from "../core/json.js";
 import { basename } from "../core/paths.js";
+import { shellQuote } from "../core/shell.js";
 import { buildClaudePreSeedScript } from "../core/sandbox-scripts.js";
 import type {
   Agent,
@@ -196,12 +197,13 @@ export const CLAUDE_CODE: Agent = {
   supportsSettingsScripts: () => true,
   supportsReinstall: () => true,
   preSeed: (remoteProj) => [
-    `node -e ${JSON.stringify(buildClaudePreSeedScript(remoteProj))}`,
+    `node -e ${shellQuote(buildClaudePreSeedScript(remoteProj))}`,
   ],
   remoteTranscriptPath: (home, remoteEnc, transcriptName) =>
     `${home}/${CLAUDE_PROJECTS_PATH}/${remoteEnc}/${transcriptName}`,
   resumeCmd: (sessionId, remoteProj, mcpTimeout) => {
-    const env = mcpTimeout === undefined ? "" : `MCP_TIMEOUT=${mcpTimeout} `;
-    return `cd "${remoteProj}" && ${env}claude --resume ${sessionId}`;
+    const env =
+      mcpTimeout === undefined ? "" : `MCP_TIMEOUT=${shellQuote(mcpTimeout)} `;
+    return `cd ${shellQuote(remoteProj)} && ${env}claude --resume ${shellQuote(sessionId)}`;
   },
 };

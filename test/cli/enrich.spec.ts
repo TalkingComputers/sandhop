@@ -155,7 +155,7 @@ cwd = "/home/local/mcp"
   expect(execLog).toContain('SANDHOP_LOW_PRIORITY="nice -n 19"');
   expect(execLog).toContain("nice -n 19 ionice -c3");
   expect(execLog).toContain(
-    "$SANDHOP_LOW_PRIORITY sh -lc 'cd /home/user/mcp && npm ci'",
+    "$SANDHOP_LOW_PRIORITY sh -lc 'cd '\\''/home/user/mcp'\\'' && npm ci'",
   );
   expect(execLog).toContain(
     "$SANDHOP_LOW_PRIORITY sh -lc 'zstd -d --long=27 -c",
@@ -165,7 +165,7 @@ cwd = "/home/local/mcp"
   expect(enrichmentExec).toContain("[sandhop] enrichment summary");
 });
 
-test("runEnrichment re-applies Codex preseed after profile transfer", async () => {
+test("runEnrichment does not re-apply Codex preseed after profile transfer", async () => {
   const host = new FakeHost({
     home: "/home/local",
     env: {},
@@ -198,7 +198,7 @@ test("runEnrichment re-applies Codex preseed after profile transfer", async () =
   );
 
   expect(profileIndex).toBeGreaterThan(-1);
-  expect(preseedIndex).toBeGreaterThan(profileIndex);
+  expect(preseedIndex).toBe(-1);
 });
 
 test("runEnrichment finishes profile and marker after MCP transfer failure", async () => {
@@ -257,7 +257,7 @@ test("runEnrichment finishes profile and marker after MCP transfer failure", asy
     "[sandhop] step failed: mcp code transfer + config rewrite",
   );
   expect(log).not.toContain(
-    "$SANDHOP_LOW_PRIORITY sh -lc 'cd /home/user/mcp && npm ci'",
+    "$SANDHOP_LOW_PRIORITY sh -lc 'cd '\\''/home/user/mcp'\\'' && npm ci'",
   );
   expect(log).toContain("[sandhop] enrichment summary");
 });
@@ -298,13 +298,13 @@ test("runEnrichment runs reinstall commands nice, HTTPS-preferred, fault-isolate
 
   expect(log).toContain("CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1");
   expect(log).toContain(
-    "$SANDHOP_LOW_PRIORITY sh -lc 'claude plugin marketplace add anthropics/claude-plugins'",
+    "$SANDHOP_LOW_PRIORITY sh -lc 'claude plugin marketplace add '\\''anthropics/claude-plugins'\\'''",
   );
   expect(log).toContain(
-    "$SANDHOP_LOW_PRIORITY sh -lc 'claude plugin install serena@official --scope user'",
+    "$SANDHOP_LOW_PRIORITY sh -lc 'claude plugin install '\\''serena@official'\\'' --scope user'",
   );
   expect(log).toContain(
-    "$SANDHOP_LOW_PRIORITY sh -lc 'claude plugin disable serena@official'",
+    "$SANDHOP_LOW_PRIORITY sh -lc 'claude plugin disable '\\''serena@official'\\'''",
   );
   expect(log).toContain("[sandhop] reinstall step failed:");
   expect(log).toContain("touch /tmp/sandhop-enriched");

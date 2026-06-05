@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
@@ -26,8 +26,8 @@ test("BootstrapService project prep sudo-creates and owns remote project before 
   expect(script.split("\n")).toEqual([
     "set -e",
     'SUDO=""; if [ "$(id -u)" != 0 ] && command -v sudo >/dev/null 2>&1; then SUDO="sudo"; fi',
-    '$SUDO mkdir -p "/private/tmp/sandhop-codex2"',
-    '$SUDO chown -R "$(id -u):$(id -g)" "/private/tmp/sandhop-codex2"',
+    "$SUDO mkdir -p '/private/tmp/sandhop-codex2'",
+    "$SUDO chown -R \"$(id -u):$(id -g)\" '/private/tmp/sandhop-codex2'",
   ]);
 });
 
@@ -51,16 +51,16 @@ test("BootstrapService core installs exact CLI version, places transcript, and s
     "curl -fsSL https://github.com/tsl0922/ttyd/releases/latest/download/ttyd.${TTYD_ARCH} -o /usr/local/bin/ttyd",
   );
   expect(script).toContain(
-    'git config --global --add safe.directory "/private/tmp/sandhop-codex2"',
+    "git config --global --add safe.directory '/private/tmp/sandhop-codex2'",
   );
-  expect(script).not.toContain('$SUDO mkdir -p "/private/tmp/sandhop-codex2"');
+  expect(script).not.toContain("$SUDO mkdir -p '/private/tmp/sandhop-codex2'");
   expect(
     script.indexOf(
-      'git config --global --add safe.directory "/private/tmp/sandhop-codex2"',
+      "git config --global --add safe.directory '/private/tmp/sandhop-codex2'",
     ),
   ).toBeLessThan(script.indexOf('cp /tmp/transcript.jsonl "$dest"'));
   expect(script).not.toContain(
-    '$SUDO chown -R "$(id -u):$(id -g)" "/private/tmp/sandhop-codex2"',
+    "$SUDO chown -R \"$(id -u):$(id -g)\" '/private/tmp/sandhop-codex2'",
   );
   expect(script).not.toContain("tar -xzf /tmp/bundle.tgz");
   expect(script).toContain('cp /tmp/transcript.jsonl "$dest"');
@@ -69,11 +69,11 @@ test("BootstrapService core installs exact CLI version, places transcript, and s
   expect(script).not.toContain("for f in");
 });
 
-test("BootstrapService quotes remote project shell paths with spaces", () => {
+test("BootstrapService quotes remote project shell paths with metacharacters", () => {
   const spacedManifest = buildManifest({
     agent: "claude-code",
     cliVersion: "2.1.160",
-    cwd: "/Users/alice/My Project",
+    cwd: "/Users/alice/My Project;$(touch pwn)'",
     sessionId: "session-id",
     transcriptName: "session-id.jsonl",
     ts: 1,
@@ -83,13 +83,17 @@ test("BootstrapService quotes remote project shell paths with spaces", () => {
   const script = bootstrap.render(spacedManifest, {
     home: "/home/user",
   });
+  const quotedRemoteProj = "'/Users/alice/My Project;$(touch pwn)'\\'''";
 
-  expect(prep).toContain('$SUDO mkdir -p "/Users/alice/My Project"');
+  expect(prep).toContain(`$SUDO mkdir -p ${quotedRemoteProj}`);
   expect(prep).toContain(
-    '$SUDO chown -R "$(id -u):$(id -g)" "/Users/alice/My Project"',
+    `$SUDO chown -R "$(id -u):$(id -g)" ${quotedRemoteProj}`,
   );
   expect(script).toContain(
-    'git config --global --add safe.directory "/Users/alice/My Project"',
+    `git config --global --add safe.directory ${quotedRemoteProj}`,
+  );
+  expect(script).toContain(
+    "dest='/home/user/.claude/projects/-Users-alice-My-Project---touch-pwn--/session-id.jsonl'",
   );
   expect(script).not.toContain("tar -xzf /tmp/bundle.tgz");
 });
@@ -119,7 +123,7 @@ test("BootstrapService enrichment installs runtimes and deps, writes rewritten M
       },
     ],
     runtimes: new Set(["bun", "uv"]),
-    installCmds: ["cd /home/user/mcp && npm ci"],
+    installCmds: ["cd '/home/user/mcp' && npm ci"],
     referencedFiles: [],
     envRefs: [],
     excluded: [
@@ -134,7 +138,7 @@ test("BootstrapService enrichment installs runtimes and deps, writes rewritten M
   const bootstrap = new BootstrapService(CLAUDE_CODE);
   const script = [
     bootstrap.renderEnrichmentInstalls({ codePlan }),
-    bootstrap.renderEnrichmentConfig(manifest.remoteProj, { codePlan }),
+    bootstrap.renderEnrichmentConfig({ codePlan }),
     bootstrap.renderEnrichmentCompletion([]),
   ].join("\n");
 
@@ -154,9 +158,9 @@ test("BootstrapService enrichment installs runtimes and deps, writes rewritten M
     "$SANDHOP_LOW_PRIORITY sh -lc 'curl -LsSf https://astral.sh/uv/install.sh | sh'",
   );
   expect(script).toContain(
-    "$SANDHOP_LOW_PRIORITY sh -lc 'cd /home/user/mcp && npm ci'",
+    "$SANDHOP_LOW_PRIORITY sh -lc 'cd '\\''/home/user/mcp'\\'' && npm ci'",
   );
-  expect(script).not.toContain("set -e");
+  expect(script).toContain("set -e");
   expect(script).toContain(
     "|| { echo \"[sandhop] step failed: \\$SANDHOP_LOW_PRIORITY sh -lc 'curl -fsSL https://bun.sh/install | bash'\" >&2; true; }",
   );
@@ -164,7 +168,7 @@ test("BootstrapService enrichment installs runtimes and deps, writes rewritten M
     "|| { echo \"[sandhop] step failed: \\$SANDHOP_LOW_PRIORITY sh -lc 'curl -LsSf https://astral.sh/uv/install.sh | sh'\" >&2; true; }",
   );
   expect(script).toContain(
-    "|| { echo \"[sandhop] step failed: \\$SANDHOP_LOW_PRIORITY sh -lc 'cd /home/user/mcp && npm ci'\" >&2; true; }",
+    "[sandhop] step failed: \\$SANDHOP_LOW_PRIORITY sh -lc 'cd '\\\\''/home/user/mcp'\\\\'' && npm ci'",
   );
   expect(script).toContain("node -e");
   expect(script).toContain("$HOME/.claude.json");
@@ -174,13 +178,54 @@ test("BootstrapService enrichment installs runtimes and deps, writes rewritten M
     'echo "[sandhop] mcp skipped: postgres (binds to localhost / loopback (unreachable from sandbox))"',
   );
   expect(script).toContain('echo "[sandhop] enrichment summary"');
-  expect(script.indexOf("cd /home/user/mcp && npm ci")).toBeLessThan(
+  expect(script.indexOf("cd '\\''/home/user/mcp'\\'' && npm ci")).toBeLessThan(
     script.indexOf("$HOME/.claude.json"),
   );
   expect(script.indexOf("$HOME/.claude.json")).toBeLessThan(
     script.indexOf("touch /tmp/sandhop-enriched"),
   );
   expect(script).not.toContain("mcp-code.tgz");
+});
+
+test("BootstrapService MCP node eval commands single-quote scripts", () => {
+  const home = mkdtempSync(join(tmpdir(), "sandhop-mcp-eval-"));
+  const pwned = join(home, "PWNED");
+  const codePlan: CodePlan = {
+    mappings: [],
+    rewrites: [
+      {
+        name: "local",
+        transport: "stdio",
+        command: "node",
+        args: [`x;$(touch ${pwned})'`],
+      },
+    ],
+    runtimes: new Set(),
+    installCmds: [],
+    referencedFiles: [],
+    envRefs: [],
+    excluded: [],
+    classifications: [{ name: "local", kind: "local-path" }],
+  };
+  const claudeScript = new BootstrapService(CLAUDE_CODE).renderEnrichmentConfig(
+    { codePlan },
+  );
+  const codexScript = new BootstrapService(CODEX).renderEnrichmentConfig({
+    codePlan,
+  });
+  const evalCommands = [
+    ...claudeScript.split("\n"),
+    ...codexScript.split("\n"),
+  ].filter((command) => command.startsWith("node -e "));
+
+  expect(evalCommands).toHaveLength(2);
+  expect(evalCommands.every((command) => command.startsWith("node -e '"))).toBe(
+    true,
+  );
+
+  execFileSync("bash", ["-lc", claudeScript], { env: { HOME: home } });
+
+  expect(existsSync(pwned)).toBe(false);
 });
 
 test("BootstrapService merges Claude MCP servers into existing claude.json without clobbering preseed keys", () => {
@@ -219,10 +264,9 @@ test("BootstrapService merges Claude MCP servers into existing claude.json witho
     }),
   );
 
-  const script = new BootstrapService(CLAUDE_CODE).renderEnrichmentConfig(
-    remoteProj,
-    { codePlan },
-  );
+  const script = new BootstrapService(CLAUDE_CODE).renderEnrichmentConfig({
+    codePlan,
+  });
 
   expect(script).not.toContain("cat >");
   execFileSync("bash", ["-lc", script], { env: { HOME: home } });
@@ -282,7 +326,7 @@ test("BootstrapService prunes stale Codex MCP tables before appending rewritten 
   const bootstrap = new BootstrapService(CODEX);
   const script = [
     bootstrap.renderEnrichmentInstalls({ codePlan }),
-    bootstrap.renderEnrichmentConfig(manifest.remoteProj, { codePlan }),
+    bootstrap.renderEnrichmentConfig({ codePlan }),
     bootstrap.renderEnrichmentCompletion([]),
   ].join("\n");
 

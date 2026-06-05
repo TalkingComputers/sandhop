@@ -153,6 +153,10 @@ export class NodeHost implements HostDeps {
     });
   }
 
+  async remove(path: string): Promise<void> {
+    await rm(path, { force: true });
+  }
+
   spawnDetached(
     bin: string,
     args: string[],
@@ -185,9 +189,11 @@ export class NodeHost implements HostDeps {
       while (offset < size) {
         const length = Math.min(chunkBytes, size - offset);
         const buffer = Buffer.allocUnsafe(length);
-        await file.read(buffer, 0, length, offset);
+        const { bytesRead } = await file.read(buffer, 0, length, offset);
+        if (bytesRead !== length)
+          throw new Error(`Short read while splitting ${path}`);
         const chunk = `${outPrefix}${String(index).padStart(6, "0")}`;
-        await writeFile(chunk, buffer);
+        await writeFile(chunk, buffer.subarray(0, bytesRead));
         chunks.push(chunk);
         offset += length;
         index += 1;

@@ -27,6 +27,7 @@ export class FakeHost implements HostDeps {
   }[];
   execCalls: { bin: string; args: string[] }[];
   spawnPipeCalls: string[];
+  removedPaths: string[];
   spawnDetachedCalls: {
     bin: string;
     args: string[];
@@ -55,6 +56,7 @@ export class FakeHost implements HostDeps {
     this.copyCalls = [];
     this.execCalls = [];
     this.spawnPipeCalls = [];
+    this.removedPaths = [];
     this.spawnDetachedCalls = [];
   }
 
@@ -182,6 +184,12 @@ export class FakeHost implements HostDeps {
     const gzipArchive = cmd.match(/ -czf '([^']+)' /)?.[1];
     if (gzipArchive !== undefined)
       this.bytes[gzipArchive] = encoder.encode("archive");
+  }
+
+  async remove(path: string): Promise<void> {
+    this.removedPaths.push(path);
+    delete this.files[path];
+    delete this.bytes[path];
   }
 
   spawnDetached(

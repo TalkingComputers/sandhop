@@ -51,7 +51,10 @@ export class CloudflaredTransport implements Transport {
     const result = await ctx.sandbox.exec(
       `bash -lc 'for i in $(seq 1 120); do grep -q "Registered tunnel connection" ${LOG_PATH} && exit 0; sleep 0.5; done; echo "cloudflared did not connect" >&2; cat ${LOG_PATH} >&2; exit 1'`,
     );
-    if (result.exitCode !== 0) throw new Error(result.stderr);
+    if (result.exitCode !== 0)
+      throw new Error(
+        result.stderr || result.stdout || "cloudflared failed to expose port",
+      );
     return { url: `https://${this.opts.hostname}` };
   }
 
@@ -62,7 +65,10 @@ export class CloudflaredTransport implements Transport {
     const result = await ctx.sandbox.exec(
       `bash -lc 'for i in $(seq 1 120); do u=$(grep -oE "https://[a-z0-9-]+\\.trycloudflare\\.com" ${LOG_PATH} | head -1); [ -n "$u" ] && grep -q "Registered tunnel connection" ${LOG_PATH} && { echo "$u"; exit 0; }; sleep 0.5; done; cat ${LOG_PATH} >&2; exit 1'`,
     );
-    if (result.exitCode !== 0) throw new Error(result.stderr);
+    if (result.exitCode !== 0)
+      throw new Error(
+        result.stderr || result.stdout || "cloudflared failed to expose port",
+      );
     const url = result.stdout.trim();
     if (url.length === 0) throw new Error("cloudflared did not return a URL");
     return { url };

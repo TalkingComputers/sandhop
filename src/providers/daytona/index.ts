@@ -104,7 +104,11 @@ class DaytonaSandboxAdapter implements Sandbox {
       undefined,
       this.timeoutSeconds,
     );
-    return { exitCode: result.exitCode, stdout: result.result, stderr: "" };
+    return {
+      exitCode: result.exitCode,
+      stdout: result.result,
+      stderr: result.result,
+    };
   }
 
   async spawn(cmd: string): Promise<void> {
@@ -141,11 +145,16 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     const sandbox = (await (
       await this.client()
     ).create(buildCreateParams(opts), { timeout })) as DaytonaSandboxInstance;
-    return new DaytonaSandboxAdapter(
-      sandbox,
-      timeout,
-      await this.readHome(sandbox, timeout),
-    );
+    try {
+      return new DaytonaSandboxAdapter(
+        sandbox,
+        timeout,
+        await this.readHome(sandbox, timeout),
+      );
+    } catch (error: unknown) {
+      await sandbox.delete(timeout).catch(() => undefined);
+      throw error;
+    }
   }
 
   async connect(id: string): Promise<Sandbox> {

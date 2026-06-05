@@ -9,7 +9,13 @@ const CHUNK_BYTES = 90 * 1024 * 1024;
 
 type TransferHost = Pick<
   HostDeps,
-  "cpuCount" | "exists" | "fileSize" | "isDirectory" | "spawnPipe" | "splitFile"
+  | "cpuCount"
+  | "exists"
+  | "fileSize"
+  | "isDirectory"
+  | "remove"
+  | "spawnPipe"
+  | "splitFile"
 >;
 
 export type TransferCodec = "gzip" | "zstd";
@@ -95,7 +101,7 @@ const makeCompressionCommand = (
   if (codec === "gzip")
     return makeTarGzipCommand(archive, localPath, { isDirectory, excludes });
   return [
-    makeTarStreamCommand(localPath, isDirectory, excludes),
+    `set -o pipefail; ${makeTarStreamCommand(localPath, isDirectory, excludes)}`,
     `zstd -T0 -8 --long=27 --check -o ${shellQuote(archive)} -f`,
   ].join(" | ");
 };
@@ -150,53 +156,64 @@ export class TransferService {
       : dirname(sandboxDestPath);
     const archive = makeArchivePath(safe, id, codec);
     const prefix = `/tmp/sandhop-${safe}-${id}.part.`;
-    await this.host.spawnPipe(
-      makeCompressionCommand(
-        codec,
-        localPath,
-        archive,
-        isDirectory,
-        opts?.excludes,
-      ),
-    );
-    const chunks = await this.host.splitFile(archive, CHUNK_BYTES, prefix);
-    const chunkSizes = chunks.map((chunk) => this.host.fileSize(chunk));
-    const remoteChunks = chunks.map(
-      (chunk) => `/tmp/sandhop-${safe}-${id}.${basename(chunk)}`,
-    );
-    const limit = pLimit(this.host.cpuCount());
-    await Promise.all(
-      chunks.map((chunk, index) =>
-        limit(
-          async (localChunk: string, remoteChunk: string): Promise<void> => {
-            await this.sandbox.uploadPath(remoteChunk, localChunk);
-          },
-          chunk,
-          remoteChunks[index]!,
-        ),
-      ),
-    );
-    const totalBytes = chunkSizes.reduce((sum, size) => sum + size, 0);
-    const remoteArchive = makeArchivePath(safe, id, codec);
-    const catInputs = remoteChunks.map(shellQuote).join(" ");
-    const cleanup = [remoteArchive, ...remoteChunks].map(shellQuote).join(" ");
-    const lowPriority = opts?.lowPriority === true;
-    const restore = await this.sandbox.exec(
-      [
-        "set -e",
-        ...(lowPriority ? [LOW_PRIORITY_SETUP] : []),
-        `cat ${catInputs} > ${shellQuote(remoteArchive)}`,
-        `test "$(wc -c < ${shellQuote(remoteArchive)} | tr -d ' ')" = ${shellQuote(String(totalBytes))}`,
-        ...makeExtractionCommands(
+    let chunks: string[] = [];
+    try {
+      await this.host.spawnPipe(
+        makeCompressionCommand(
           codec,
-          remoteArchive,
-          sandboxDestDir,
-          lowPriority,
+          localPath,
+          archive,
+          isDirectory,
+          opts?.excludes,
         ),
-        `rm -f ${cleanup}`,
-      ].join("\n"),
-    );
-    if (restore.exitCode !== 0)
-      throw new Error(`Transfer failed for ${label}: ${restore.stderr}`);
+      );
+      chunks = await this.host.splitFile(archive, CHUNK_BYTES, prefix);
+      const chunkSizes = chunks.map((chunk) => this.host.fileSize(chunk));
+      const remoteChunks = chunks.map(
+        (chunk) => `/tmp/sandhop-${safe}-${id}.${basename(chunk)}`,
+      );
+      const limit = pLimit(this.host.cpuCount());
+      await Promise.all(
+        chunks.map((chunk, index) =>
+          limit(
+            async (localChunk: string, remoteChunk: string): Promise<void> => {
+              await this.sandbox.uploadPath(remoteChunk, localChunk);
+            },
+            chunk,
+            remoteChunks[index]!,
+          ),
+        ),
+      );
+      const totalBytes = chunkSizes.reduce((sum, size) => sum + size, 0);
+      const remoteArchive = makeArchivePath(safe, id, codec);
+      const catInputs = remoteChunks.map(shellQuote).join(" ");
+      const cleanup = [remoteArchive, ...remoteChunks]
+        .map(shellQuote)
+        .join(" ");
+      const lowPriority = opts?.lowPriority === true;
+      const restore = await this.sandbox.exec(
+        [
+          "set -e",
+          ...(lowPriority ? [LOW_PRIORITY_SETUP] : []),
+          `cat ${catInputs} > ${shellQuote(remoteArchive)}`,
+          `test "$(wc -c < ${shellQuote(remoteArchive)} | tr -d ' ')" = ${shellQuote(String(totalBytes))}`,
+          ...makeExtractionCommands(
+            codec,
+            remoteArchive,
+            sandboxDestDir,
+            lowPriority,
+          ),
+          `rm -f ${cleanup}`,
+        ].join("\n"),
+      );
+      if (restore.exitCode !== 0)
+        throw new Error(`Transfer failed for ${label}: ${restore.stderr}`);
+    } finally {
+      await Promise.all(
+        [archive, ...chunks].map((path) =>
+          this.host.remove(path).catch(() => undefined),
+        ),
+      );
+    }
   }
 }

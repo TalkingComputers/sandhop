@@ -73,7 +73,7 @@ test("DaytonaSandboxProvider creates a sandbox and maps combined exec output", a
   await expect(sandbox.exec("echo ok")).resolves.toEqual({
     exitCode: 3,
     stdout: "combined",
-    stderr: "",
+    stderr: "combined",
   });
   expect(daytonaMocks.Daytona).toHaveBeenCalledWith({
     apiKey: "api-key",
@@ -94,6 +94,27 @@ test("DaytonaSandboxProvider creates a sandbox and maps combined exec output", a
     undefined,
     600,
   );
+});
+
+test("DaytonaSandboxProvider deletes a created sandbox when home lookup fails", async () => {
+  const { DaytonaSandboxProvider } = await loadProvider();
+  daytonaMocks.executeCommand.mockResolvedValueOnce({
+    exitCode: 1,
+    result: "home failed",
+  });
+  const provider = new DaytonaSandboxProvider(
+    new FakeHost({ home: "/home/local", env: { DAYTONA_API_KEY: "api-key" } }),
+  );
+
+  await expect(
+    provider.create({
+      envs: {},
+      timeoutMs: 600000,
+      ports: [7681],
+    }),
+  ).rejects.toThrow("Home lookup failed: home failed");
+
+  expect(daytonaMocks.deleteSandbox).toHaveBeenCalledWith(600);
 });
 
 test("DaytonaSandboxProvider spawn backgrounds commands without a session", async () => {

@@ -140,12 +140,17 @@ export class VercelSandboxProvider implements SandboxProvider {
       ports: opts.ports,
       runtime: vercelRuntime(),
     });
-    return new VercelSandboxAdapter(
-      name,
-      sandbox,
-      this.host,
-      await this.readHome(sandbox),
-    );
+    try {
+      return new VercelSandboxAdapter(
+        name,
+        sandbox,
+        this.host,
+        await this.readHome(sandbox),
+      );
+    } catch (error: unknown) {
+      await sandbox.stop().catch(() => undefined);
+      throw error;
+    }
   }
 
   async connect(id: string): Promise<Sandbox> {

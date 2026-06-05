@@ -108,12 +108,6 @@ export class EnrichmentService {
           await this.sendProfile();
         },
       );
-      await recordScriptStep(
-        this.sandbox,
-        steps,
-        "re-apply preseed (trust + root config)",
-        this.agent.preSeed(cwd).join("\n"),
-      );
       const scriptPlan = await recordStep(
         this.sandbox,
         steps,
@@ -222,7 +216,7 @@ export class EnrichmentService {
       );
     const result = await runLogged(
       this.sandbox,
-      this.bootstrap.renderEnrichmentConfig(cwd, { codePlan }),
+      this.bootstrap.renderEnrichmentConfig({ codePlan }),
     );
     if (result.exitCode !== 0)
       throw new Error(`MCP config rewrite failed: ${result.stderr}`);

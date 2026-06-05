@@ -136,6 +136,27 @@ test("E2bSandboxProvider returns non-zero command exits as RunResult data", asyn
   });
 });
 
+test("E2bSandboxProvider kills a created sandbox when home lookup fails", async () => {
+  e2bMocks.commandsRun.mockReset();
+  e2bMocks.commandsRun.mockRejectedValueOnce(new Error("home failed"));
+  e2bMocks.Sandbox.kill.mockClear();
+  const provider = new E2bSandboxProvider(
+    new FakeHost({ home: "/home/local", env }),
+  );
+
+  await expect(
+    provider.create({
+      envs: {},
+      timeoutMs: 600000,
+      ports: [7681],
+    }),
+  ).rejects.toThrow("home failed");
+
+  expect(e2bMocks.Sandbox.kill).toHaveBeenCalledWith("sbx-created", {
+    apiKey: "e2b-key",
+  });
+});
+
 test("E2bSandboxProvider reconnects after adapter destroy", async () => {
   e2bMocks.commandsRun.mockReset();
   e2bMocks.commandsRun.mockResolvedValue({

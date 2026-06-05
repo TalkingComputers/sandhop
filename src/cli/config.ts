@@ -33,7 +33,12 @@ export const configPath = (home: string): string =>
 export const loadConfig = (home: string): SandhopConfig | null => {
   const path = configPath(home);
   if (!existsSync(path)) return null;
-  return JSON.parse(readFileSync(path, "utf8")) as SandhopConfig;
+  const text = readFileSync(path, "utf8");
+  try {
+    return JSON.parse(text) as SandhopConfig;
+  } catch {
+    throw new Error(`Invalid sandhop config at ${path}`);
+  }
 };
 
 export const saveConfig = (home: string, cfg: SandhopConfig): void => {

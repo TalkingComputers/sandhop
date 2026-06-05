@@ -1,5 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
@@ -52,6 +58,7 @@ test("buildClaudePreSeedScript merges onboarding and trust while preserving Clau
   const parsed = JSON.parse(
     readFileSync(join(home, ".claude.json"), "utf8"),
   ) as ClaudeJson;
+  expect(existsSync(join(home, ".claude.json.sandhop.tmp"))).toBe(false);
   expect(parsed.hasCompletedOnboarding).toBe(true);
   expect(parsed.projects["/workspace/project"]).toEqual({
     hasTrustDialogAccepted: true,
@@ -83,6 +90,9 @@ test("buildCodexPreSeedScript writes auth store and trust while preserving user 
   runNodeScript(buildCodexPreSeedScript("/workspace/project"), { HOME: home });
 
   const text = readFileSync(join(home, ".codex", "config.toml"), "utf8");
+  expect(existsSync(join(home, ".codex", "config.toml.sandhop.tmp"))).toBe(
+    false,
+  );
   expect(text).toContain('model = "gpt-5.4"');
   expect(text).toContain('approval_policy = "on-request"');
   expect(text).toContain('sandbox_mode = "workspace-write"');
@@ -129,6 +139,7 @@ test("buildPruneMcpTablesScript removes stale Codex MCP tables", () => {
       "",
     ].join("\n"),
   );
+  expect(existsSync(`${config}.sandhop.tmp`)).toBe(false);
 });
 
 test("buildMergeClaudeMcpScript sets mcpServers and preserves existing fields", () => {
@@ -145,6 +156,7 @@ test("buildMergeClaudeMcpScript sets mcpServers and preserves existing fields", 
   );
 
   const parsed = JSON.parse(readFileSync(config, "utf8")) as ClaudeMcpJson;
+  expect(existsSync(`${config}.sandhop.tmp`)).toBe(false);
   expect(parsed.hasCompletedOnboarding).toBe(true);
   expect(parsed.mcpServers).toEqual({
     local: { command: "node", args: ["server.js"] },

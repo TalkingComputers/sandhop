@@ -63,3 +63,33 @@ test("CloudflaredTransport named mode requires a hostname", async () => {
     "CLOUDFLARE_TUNNEL_HOSTNAME is required for a named cloudflared tunnel",
   );
 });
+
+test("CloudflaredTransport surfaces stdout when stderr is empty", async () => {
+  const sandbox = new FakeSandbox("sbx-1", "/home/user");
+  sandbox.execResults.push({
+    exitCode: 1,
+    stdout: "stdout failure",
+    stderr: "",
+  });
+  const transport = new CloudflaredTransport({});
+
+  await expect(
+    transport.expose({
+      sandbox,
+      localPort: 7681,
+    }),
+  ).rejects.toThrow("stdout failure");
+});
+
+test("CloudflaredTransport uses friendly fallback when no output exists", async () => {
+  const sandbox = new FakeSandbox("sbx-1", "/home/user");
+  sandbox.execResults.push({ exitCode: 1, stdout: "", stderr: "" });
+  const transport = new CloudflaredTransport({});
+
+  await expect(
+    transport.expose({
+      sandbox,
+      localPort: 7681,
+    }),
+  ).rejects.toThrow("cloudflared failed to expose port");
+});

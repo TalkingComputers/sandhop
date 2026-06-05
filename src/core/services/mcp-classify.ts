@@ -2,6 +2,7 @@ import { collectEnvRefs } from "../env.js";
 import { basename, expandEnv, joinPath, uniqueSorted } from "../paths.js";
 import type { McpServer } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
+import { shellQuote } from "../shell.js";
 import { type PathMapping, maybeRealpath, remapValue } from "./mcp-paths.js";
 
 export type McpServerClassification =
@@ -229,29 +230,27 @@ export const installCmd = (
   sandboxRoot: string,
 ): string[] => {
   const cmds: string[] = [];
+  const cd = `cd ${shellQuote(sandboxRoot)} &&`;
   if (host.exists(joinPath(root, "package.json"))) {
     if (host.exists(joinPath(root, "pnpm-lock.yaml")))
-      cmds.push(`cd ${sandboxRoot} && pnpm install --frozen-lockfile`);
+      cmds.push(`${cd} pnpm install --frozen-lockfile`);
     else if (host.exists(joinPath(root, "yarn.lock")))
-      cmds.push(`cd ${sandboxRoot} && yarn install --frozen-lockfile`);
+      cmds.push(`${cd} yarn install --frozen-lockfile`);
     else if (host.exists(joinPath(root, "package-lock.json")))
-      cmds.push(`cd ${sandboxRoot} && npm ci`);
+      cmds.push(`${cd} npm ci`);
     else if (
       host.exists(joinPath(root, "bun.lock")) ||
       host.exists(joinPath(root, "bun.lockb"))
     )
-      cmds.push(`cd ${sandboxRoot} && bun install --frozen-lockfile`);
+      cmds.push(`${cd} bun install --frozen-lockfile`);
   }
   if (host.exists(joinPath(root, "poetry.lock")))
-    cmds.push(`cd ${sandboxRoot} && poetry install`);
+    cmds.push(`${cd} poetry install`);
   else if (host.exists(joinPath(root, "pdm.lock")))
-    cmds.push(`cd ${sandboxRoot} && pdm install`);
-  else if (host.exists(joinPath(root, "uv.lock")))
-    cmds.push(`cd ${sandboxRoot} && uv sync`);
+    cmds.push(`${cd} pdm install`);
+  else if (host.exists(joinPath(root, "uv.lock"))) cmds.push(`${cd} uv sync`);
   else if (host.exists(joinPath(root, "requirements.txt")))
-    cmds.push(
-      `cd ${sandboxRoot} && uv pip install -r requirements.txt --system`,
-    );
+    cmds.push(`${cd} uv pip install -r requirements.txt --system`);
   return cmds;
 };
 

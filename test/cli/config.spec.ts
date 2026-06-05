@@ -1,9 +1,16 @@
-import { mkdtempSync, rmSync, statSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import {
   applyConfigToEnv,
+  configPath,
   loadConfig,
   saveConfig,
   type SandhopConfig,
@@ -47,6 +54,15 @@ test("saveConfig writes private dir and file permissions and loadConfig round-tr
 
 test("loadConfig returns null when the config file is missing", () => {
   expect(loadConfig(makeHome())).toBeNull();
+});
+
+test("loadConfig throws a friendly error on invalid JSON", () => {
+  const home = makeHome();
+  const path = configPath(home);
+  mkdirSync(path.slice(0, path.lastIndexOf("/")), { recursive: true });
+  writeFileSync(path, "{");
+
+  expect(() => loadConfig(home)).toThrow(`Invalid sandhop config at ${path}`);
 });
 
 test("applyConfigToEnv sets missing values, preserves existing values, and applies defaults", () => {

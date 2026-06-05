@@ -161,6 +161,28 @@ test("VercelSandboxProvider spawn uses detached bash and upload uses mkdir plus 
   expect(vercelMocks.stop).toHaveBeenCalled();
 });
 
+test("VercelSandboxProvider stops a created sandbox when home lookup fails", async () => {
+  const { VercelSandboxProvider } = await loadProvider();
+  vercelMocks.runCommand.mockResolvedValueOnce({
+    exitCode: 1,
+    stdout: vi.fn(async () => ""),
+    stderr: vi.fn(async () => "home failed"),
+  });
+  const provider = new VercelSandboxProvider(
+    new FakeHost({ home: "/home/local", env }),
+  );
+
+  await expect(
+    provider.create({
+      envs: {},
+      timeoutMs: 600000,
+      ports: [7681],
+    }),
+  ).rejects.toThrow("Home lookup failed: home failed");
+
+  expect(vercelMocks.stop).toHaveBeenCalled();
+});
+
 test("VercelSandboxProvider connects and destroys by SDK lookup", async () => {
   const { VercelSandboxProvider } = await loadProvider();
   const provider = new VercelSandboxProvider(

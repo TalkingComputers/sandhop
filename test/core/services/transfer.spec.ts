@@ -36,6 +36,10 @@ test("TransferService uses required gzip codec, chunks locally, uploads chunks, 
   expect(provider.sandbox.execs[0]).not.toContain("zstd");
   expect(provider.sandbox.execs[0]).not.toContain("apt-get");
   expect(provider.sandbox.execs[0]).not.toContain("sudo");
+  expect(host.removedPaths).toEqual([
+    expect.stringMatching(/\/tmp\/sandhop-bundle-.+\.tar\.gz$/),
+    expect.stringMatching(/\/tmp\/sandhop-bundle-.+\.part\.000000$/),
+  ]);
 });
 
 test("TransferService disables macOS AppleDouble metadata while creating archives", async () => {
@@ -65,6 +69,7 @@ test("TransferService zstd codec keeps multithreaded zstd compression and zstd i
   );
 
   expect(host.spawnPipeCalls).toHaveLength(1);
+  expect(host.spawnPipeCalls[0]).toContain("set -o pipefail; ");
   expect(host.spawnPipeCalls[0]).toContain("-cf - -C '/workspace/project' .");
   expect(host.spawnPipeCalls[0]).toContain("| zstd -T0 -8 --long=27 --check");
   expect(provider.sandbox.pathUploads).toEqual([
@@ -86,6 +91,10 @@ test("TransferService zstd codec keeps multithreaded zstd compression and zstd i
     "tar -xf - -C '/home/user/project'",
   );
   expect(provider.sandbox.execs[0]).not.toContain("apt-get");
+  expect(host.removedPaths).toEqual([
+    expect.stringMatching(/\/tmp\/sandhop-bundle-.+\.tar\.zst$/),
+    expect.stringMatching(/\/tmp\/sandhop-bundle-.+\.part\.000000$/),
+  ]);
 });
 
 test("TransferService can run sandbox extraction under low CPU and IO priority", async () => {
@@ -107,4 +116,28 @@ test("TransferService can run sandbox extraction under low CPU and IO priority",
     "$SANDHOP_LOW_PRIORITY sh -lc 'zstd -d --long=27 -c",
   );
   expect(provider.sandbox.execs[0]).toContain(" | tar -xf - -C ");
+});
+
+test("TransferService deletes host archives and chunks after sandbox extract failure", async () => {
+  const host = new FakeHost({ home: "/home/local", env: {} });
+  const provider = new FakeProvider();
+  provider.sandbox.execResults.push({
+    exitCode: 1,
+    stdout: "",
+    stderr: "extract failed",
+  });
+
+  await expect(
+    new TransferService(host, provider.sandbox).send(
+      "/workspace/project",
+      "/home/user/project",
+      "bundle",
+      { codec: "gzip" },
+    ),
+  ).rejects.toThrow("Transfer failed for bundle: extract failed");
+
+  expect(host.removedPaths).toEqual([
+    expect.stringMatching(/\/tmp\/sandhop-bundle-.+\.tar\.gz$/),
+    expect.stringMatching(/\/tmp\/sandhop-bundle-.+\.part\.000000$/),
+  ]);
 });

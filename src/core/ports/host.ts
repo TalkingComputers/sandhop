@@ -18,6 +18,7 @@ export interface HostDeps {
   sha256Hex(input: string): string;
   exec(bin: string, args: string[]): string;
   spawnPipe(cmd: string): Promise<void>;
+  remove(path: string): Promise<void>;
   spawnDetached(
     bin: string,
     args: string[],

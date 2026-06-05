@@ -8,7 +8,9 @@ export const buildClaudePreSeedScript = (remoteProj: string): string =>
     "j.hasCompletedOnboarding=true",
     'if(!Object.hasOwn(j,"projects"))j.projects={}',
     `j.projects[${JSON.stringify(remoteProj)}]={hasTrustDialogAccepted:true,hasCompletedProjectOnboarding:true}`,
-    "fs.writeFileSync(f,JSON.stringify(j))",
+    'const t=f+".sandhop.tmp"',
+    "fs.writeFileSync(t,JSON.stringify(j))",
+    "fs.renameSync(t,f)",
   ].join(";");
 
 export const buildCodexPreSeedScript = (remoteProj: string): string =>
@@ -36,7 +38,9 @@ export const buildCodexPreSeedScript = (remoteProj: string): string =>
     'if(afterRoot.length>0)out.push("",...afterRoot)',
     'out.push("",projectHeader,"trust_level = \\"trusted\\"")',
     'fs.mkdirSync(process.env.HOME+"/.codex",{recursive:true})',
-    'fs.writeFileSync(f,out.join("\\n")+"\\n")',
+    'const t=f+".sandhop.tmp"',
+    'fs.writeFileSync(t,out.join("\\n")+"\\n")',
+    "fs.renameSync(t,f)",
   ].join(";");
 
 export const buildPruneMcpTablesScript = (path: string): string =>
@@ -47,7 +51,9 @@ export const buildPruneMcpTablesScript = (path: string): string =>
     "const out=[]",
     "let skip=false",
     "for(const line of lines){if(/^\\s*\\[mcp_servers(?:\\.|\\])/.test(line)){skip=true;continue}if(skip&&/^\\s*\\[/.test(line))skip=false;if(!skip)out.push(line)}",
-    'fs.writeFileSync(f,out.join("\\n").replace(/\\n*$/,"\\n"))',
+    'const t=f+".sandhop.tmp"',
+    'fs.writeFileSync(t,out.join("\\n").replace(/\\n*$/,"\\n"))',
+    "fs.renameSync(t,f)",
   ].join(";");
 
 export const buildMergeClaudeMcpScript = (
@@ -60,5 +66,7 @@ export const buildMergeClaudeMcpScript = (
     `const s=JSON.parse(${JSON.stringify(content)})`,
     'const j=fs.existsSync(f)?JSON.parse(fs.readFileSync(f,"utf8")):{}',
     "j.mcpServers=s",
-    'fs.writeFileSync(f,JSON.stringify(j,null,2)+"\\n")',
+    'const t=f+".sandhop.tmp"',
+    'fs.writeFileSync(t,JSON.stringify(j,null,2)+"\\n")',
+    "fs.renameSync(t,f)",
   ].join(";");

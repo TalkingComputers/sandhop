@@ -117,7 +117,7 @@ export class ReinstallService {
     if (record === null) return [];
     return Object.keys(record).map(
       (name) =>
-        `claude plugin marketplace add ${readMarketplaceSource(path, name, record[name])}`,
+        `claude plugin marketplace add ${shellQuote(readMarketplaceSource(path, name, record[name]))}`,
     );
   }
 
@@ -129,7 +129,7 @@ export class ReinstallService {
     const record = readJsonRecord(this.host, path);
     if (record === null) return [];
     return readPluginKeys(path, record).map(
-      (plugin) => `claude plugin install ${plugin} --scope user`,
+      (plugin) => `claude plugin install ${shellQuote(plugin)} --scope user`,
     );
   }
 
@@ -138,7 +138,7 @@ export class ReinstallService {
     const record = readJsonRecord(this.host, path);
     if (record === null) return [];
     return readDisabledPlugins(path, record).map(
-      (plugin) => `claude plugin disable ${plugin}`,
+      (plugin) => `claude plugin disable ${shellQuote(plugin)}`,
     );
   }
 

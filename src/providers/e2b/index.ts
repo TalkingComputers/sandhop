@@ -105,11 +105,18 @@ export class E2bSandboxProvider implements SandboxProvider {
       envs: opts.envs,
       timeoutMs: opts.timeoutMs,
     });
-    return new E2bSandboxAdapter(
-      sandbox,
-      this.host,
-      await this.readHome(sandbox),
-    );
+    try {
+      return new E2bSandboxAdapter(
+        sandbox,
+        this.host,
+        await this.readHome(sandbox),
+      );
+    } catch (error: unknown) {
+      await E2bSandbox.kill(sandbox.sandboxId, credentials).catch(
+        () => undefined,
+      );
+      throw error;
+    }
   }
 
   async connect(id: string): Promise<Sandbox> {
