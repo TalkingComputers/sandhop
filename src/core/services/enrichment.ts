@@ -75,8 +75,9 @@ export class EnrichmentService {
   readonly secrets: SecretsService;
   readonly scripts: ScriptCaptureService;
   readonly bootstrap: BootstrapService;
+  readonly excludes: string[];
 
-  constructor(agent: Agent, services: EnrichmentServices) {
+  constructor(agent: Agent, services: EnrichmentServices, excludes: string[]) {
     this.agent = agent;
     this.host = services.host;
     this.sandbox = services.sandbox;
@@ -87,6 +88,7 @@ export class EnrichmentService {
     this.secrets = services.secrets;
     this.scripts = services.scripts;
     this.bootstrap = services.bootstrap;
+    this.excludes = excludes;
   }
 
   async run(cwd: string, profile: boolean): Promise<EnrichmentStepResult[]> {
@@ -159,7 +161,10 @@ export class EnrichmentService {
   }
 
   private async sendProfile(): Promise<void> {
-    const profileTree = await this.profile.build(makeTempPath("profile"));
+    const profileTree = await this.profile.build(
+      makeTempPath("profile"),
+      this.excludes,
+    );
     if (profileTree !== null)
       await this.transfer.send(profileTree, this.sandbox.home, "profile", {
         codec: this.host.hasZstd() ? "zstd" : "gzip",
@@ -182,7 +187,7 @@ export class EnrichmentService {
           {
             codec: this.host.hasZstd() ? "zstd" : "gzip",
             lowPriority: true,
-            excludes: ["node_modules", ".venv"],
+            excludes: this.excludes,
           },
         ),
       ),
@@ -193,7 +198,11 @@ export class EnrichmentService {
   }
 
   private async sendMcpCode(cwd: string): Promise<CodePlan | null> {
-    const codePlan = await this.mcpCode.build(cwd, this.sandbox.home);
+    const codePlan = await this.mcpCode.build(
+      cwd,
+      this.sandbox.home,
+      this.excludes,
+    );
     if (codePlan === null) return null;
     await Promise.all(
       codePlan.mappings.map((mapping, index) =>
@@ -204,6 +213,7 @@ export class EnrichmentService {
           {
             codec: this.host.hasZstd() ? "zstd" : "gzip",
             lowPriority: true,
+            excludes: this.excludes,
           },
         ),
       ),

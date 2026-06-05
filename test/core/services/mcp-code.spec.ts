@@ -125,7 +125,7 @@ cwd = "/home/local/py"
   ]);
 });
 
-test("McpCodeService builds an archive for local project roots without dependency directories", async () => {
+test("McpCodeService builds an archive for local project roots with supplied excludes", async () => {
   const host = new FakeHost({
     home: "/home/local",
     env: {},
@@ -150,6 +150,7 @@ cwd = "/home/local/mcp"
     new McpCodeService(host, CODEX).build(
       "/workspace/project",
       "/home/user",
+      ["dist"],
       "/tmp/mcp-code.tgz",
     ),
   ).resolves.toMatchObject({ mappings: [{ localPath: "/home/local/mcp" }] });
@@ -159,7 +160,7 @@ cwd = "/home/local/mcp"
       cwd: "/home/local",
       entries: ["mcp"],
       outPath: "/tmp/mcp-code.tgz",
-      excludes: ["node_modules", ".venv"],
+      excludes: ["dist"],
     },
   ]);
 });

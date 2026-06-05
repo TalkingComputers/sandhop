@@ -19,7 +19,7 @@ test("ProfileService ships portable Codex config without auth, caches, sessions,
   });
 
   await expect(
-    new ProfileService(host, CODEX).build("/tmp/profile.tgz"),
+    new ProfileService(host, CODEX).build("/tmp/profile.tgz", []),
   ).resolves.toBe("/tmp/profile.tgz");
 
   expect(host.copyCalls).toEqual([
@@ -27,6 +27,7 @@ test("ProfileService ships portable Codex config without auth, caches, sessions,
       cwd: "/home/local",
       entries: [".codex/config.toml", ".codex/prompts"],
       outPath: "/tmp/profile.tgz",
+      excludes: [],
     },
   ]);
 });
@@ -62,7 +63,9 @@ test("ProfileService ships Claude manifests and non-reproducible skill dirs", as
     },
   });
 
-  await new ProfileService(host, CLAUDE_CODE).build("/tmp/profile.tgz");
+  await new ProfileService(host, CLAUDE_CODE).build("/tmp/profile.tgz", [
+    "dist",
+  ]);
 
   expect(host.copyCalls[0]!.entries).toEqual([
     ".claude/settings.json",
@@ -74,4 +77,5 @@ test("ProfileService ships Claude manifests and non-reproducible skill dirs", as
     ".claude/skills/big",
     ".claude/skills/local",
   ]);
+  expect(host.copyCalls[0]!.excludes).toEqual(["dist"]);
 });

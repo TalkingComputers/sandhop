@@ -21,7 +21,8 @@ const ZSTD_INSTALL =
   "command -v zstd || $SUDO sh -lc 'command -v apt-get >/dev/null && (apt-get update && apt-get install -y zstd) || (command -v dnf >/dev/null && dnf install -y zstd) || (command -v apk >/dev/null && apk add zstd) || (command -v yum >/dev/null && yum install -y zstd)'";
 
 test("BootstrapService project prep sudo-creates and owns remote project before transfer", () => {
-  const script = new BootstrapService(CLAUDE_CODE).renderProjectPrep(manifest);
+  const bootstrap = new BootstrapService(CLAUDE_CODE);
+  const script = bootstrap.renderPathPrep(manifest.remoteProj);
 
   expect(script.split("\n")).toEqual([
     "set -e",
@@ -29,6 +30,7 @@ test("BootstrapService project prep sudo-creates and owns remote project before 
     "$SUDO mkdir -p '/private/tmp/sandhop-codex2'",
     "$SUDO chown -R \"$(id -u):$(id -g)\" '/private/tmp/sandhop-codex2'",
   ]);
+  expect(bootstrap.renderProjectPrep(manifest)).toBe(script);
 });
 
 test("BootstrapService core installs exact CLI version, places transcript, and skips project prep, enrichment, zstd, and apt", () => {

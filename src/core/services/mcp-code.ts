@@ -93,6 +93,7 @@ export class McpCodeService {
   async build(
     cwd: string,
     sandboxHome: string,
+    excludes: string[],
     outPath?: string,
   ): Promise<CodePlan | null> {
     const plan = this.plan(cwd, sandboxHome);
@@ -106,7 +107,7 @@ export class McpCodeService {
         return mapping.localPath.slice(this.host.home.length + 1);
       });
       await this.host.tarGz(this.host.home, entries, outPath, {
-        excludes: ["node_modules", ".venv"],
+        excludes,
       });
     }
     return plan;

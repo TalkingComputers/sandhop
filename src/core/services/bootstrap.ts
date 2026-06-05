@@ -97,13 +97,17 @@ export class BootstrapService {
     this.agent = agent;
   }
 
-  renderProjectPrep(manifest: Manifest): string {
+  renderPathPrep(path: string): string {
     return [
       "set -e",
       SUDO_SETUP,
-      `$SUDO mkdir -p ${shellQuote(manifest.remoteProj)}`,
-      `$SUDO chown -R "$(id -u):$(id -g)" ${shellQuote(manifest.remoteProj)}`,
+      `$SUDO mkdir -p ${shellQuote(path)}`,
+      `$SUDO chown -R "$(id -u):$(id -g)" ${shellQuote(path)}`,
     ].join("\n");
+  }
+
+  renderProjectPrep(manifest: Manifest): string {
+    return this.renderPathPrep(manifest.remoteProj);
   }
 
   render(manifest: Manifest, opts: BootstrapOptions): string {

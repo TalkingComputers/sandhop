@@ -350,6 +350,7 @@ test("TeleportService ships SSH bundle, bundle excludes, and mirrored includes",
       ],
     }),
   };
+  const bootstrap = new BootstrapService(CLAUDE_CODE);
   const service = new TeleportService(provider, CLAUDE_CODE, {
     host,
     session: { latest: async () => session, byId: async () => session },
@@ -361,7 +362,7 @@ test("TeleportService ships SSH bundle, bundle excludes, and mirrored includes",
       }),
     },
     version: { detect: async () => "2.1.160" },
-    bootstrap: new BootstrapService(CLAUDE_CODE),
+    bootstrap,
     gitSsh,
   });
 
@@ -381,14 +382,24 @@ test("TeleportService ships SSH bundle, bundle excludes, and mirrored includes",
   expect(host.spawnPipeCalls[1]).toContain(
     `-czf '${tmpdir()}/sandhop-include-0-`,
   );
+  expect(host.spawnPipeCalls[1]).toContain("--exclude 'node_modules'");
+  expect(host.spawnPipeCalls[1]).toContain("--exclude 'dist'");
   expect(host.spawnPipeCalls[1]).toContain("-C '/home/local' 'external.txt'");
-  expect(provider.sandbox.execs[2]).toContain("tar -xzf");
-  expect(provider.sandbox.execs[2]).toContain("-C '/home/user'");
+  expect(provider.sandbox.execs[2]).toBe(
+    bootstrap.renderPathPrep("/home/user"),
+  );
+  expect(provider.sandbox.execs[3]).toContain("tar -xzf");
+  expect(provider.sandbox.execs[3]).toContain("-C '/home/user'");
   expect(host.spawnPipeCalls[2]).toContain(
     `-czf '${tmpdir()}/sandhop-include-2-`,
   );
+  expect(host.spawnPipeCalls[2]).toContain("--exclude 'node_modules'");
+  expect(host.spawnPipeCalls[2]).toContain("--exclude 'dist'");
   expect(host.spawnPipeCalls[2]).toContain("-C '/opt/shared' 'file.txt'");
-  expect(provider.sandbox.execs[3]).toContain("-C '/opt/shared'");
+  expect(provider.sandbox.execs[4]).toBe(
+    bootstrap.renderPathPrep("/opt/shared"),
+  );
+  expect(provider.sandbox.execs[5]).toContain("-C '/opt/shared'");
   expect(provider.sandbox.uploads).toContainEqual({
     path: "/home/user/.ssh/id_git",
     data: "PRIVATE",
@@ -397,12 +408,12 @@ test("TeleportService ships SSH bundle, bundle excludes, and mirrored includes",
     path: "/home/user/.ssh/config",
     data: "CONFIG",
   });
-  expect(provider.sandbox.execs[4]).toContain("mkdir -p '/home/user/.ssh'");
-  expect(provider.sandbox.execs[4]).toContain("chmod 700 '/home/user/.ssh'");
-  expect(provider.sandbox.execs[4]).toContain(
+  expect(provider.sandbox.execs[6]).toContain("mkdir -p '/home/user/.ssh'");
+  expect(provider.sandbox.execs[6]).toContain("chmod 700 '/home/user/.ssh'");
+  expect(provider.sandbox.execs[6]).toContain(
     "chmod '600' '/home/user/.ssh/id_git'",
   );
-  expect(provider.sandbox.execs[4]).toContain(
+  expect(provider.sandbox.execs[6]).toContain(
     "chmod '644' '/home/user/.ssh/known_hosts'",
   );
 });

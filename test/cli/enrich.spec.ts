@@ -113,6 +113,7 @@ cwd = "/home/local/mcp"
       sandboxId: "sbx-1",
       agent: "codex",
       cwd: "/workspace/project",
+      excludes: ["node_modules"],
       profile: true,
     },
     host,
@@ -150,8 +151,10 @@ cwd = "/home/local/mcp"
   expect(host.spawnPipeCalls).toEqual(
     expect.arrayContaining([
       expect.stringContaining("zstd -T0 -8 --long=27 --check"),
+      expect.stringContaining("--exclude 'node_modules'"),
     ]),
   );
+  expect(host.copyCalls[0]!.excludes).toEqual(["node_modules"]);
   expect(execLog).toContain("command -v dnf >/dev/null && dnf install -y zstd");
   expect(execLog).toContain('SANDHOP_LOW_PRIORITY="nice -n 19"');
   expect(execLog).toContain("nice -n 19 ionice -c3");
@@ -190,6 +193,7 @@ cwd = "/home/local/mcp"
       sandboxId: "sbx-1",
       agent: "codex",
       cwd: "/workspace/project",
+      excludes: [],
       profile: true,
     },
     host,
@@ -218,6 +222,7 @@ test("runEnrichment does not re-apply Codex preseed after profile transfer", asy
       sandboxId: "sbx-1",
       agent: "codex",
       cwd: "/workspace/project",
+      excludes: [],
       profile: true,
     },
     host,
@@ -267,6 +272,7 @@ test("runEnrichment finishes profile and marker after MCP transfer failure", asy
       sandboxId: "sbx-1",
       agent: "claude-code",
       cwd: "/workspace/project",
+      excludes: [],
       profile: true,
     },
     host,
@@ -326,6 +332,7 @@ test("runEnrichment runs reinstall commands nice, HTTPS-preferred, fault-isolate
       sandboxId: "sbx-1",
       agent: "claude-code",
       cwd: "/workspace/project",
+      excludes: [],
       profile: true,
     },
     host,
@@ -409,6 +416,7 @@ test("runEnrichment ships Claude settings scripts and uploads rewritten settings
       sandboxId: "sbx-1",
       agent: "claude-code",
       cwd: "/home/local/work",
+      excludes: ["dist"],
       profile: true,
     },
     host,
@@ -442,11 +450,12 @@ test("runEnrichment ships Claude settings scripts and uploads rewritten settings
     ]),
   );
   expect(host.spawnPipeCalls).toEqual(
-    expect.arrayContaining([
-      expect.stringContaining("--exclude 'node_modules'"),
-      expect.stringContaining("--exclude '.venv'"),
-    ]),
+    expect.arrayContaining([expect.stringContaining("--exclude 'dist'")]),
   );
+  expect(host.spawnPipeCalls.join("\n")).not.toContain(
+    "--exclude 'node_modules'",
+  );
+  expect(host.spawnPipeCalls.join("\n")).not.toContain("--exclude '.venv'");
   expect(host.spawnPipeCalls.join("\n")).not.toContain("--exclude '.git'");
   expect(log).toContain('SANDHOP_LOW_PRIORITY="nice -n 19"');
   expect(log).toContain("nice -n 19 ionice -c3");

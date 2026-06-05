@@ -118,6 +118,8 @@ test("parseEnrichArgs reads required enrich flags", () => {
       "/workspace/project",
       "--provider",
       "modal",
+      "--exclude",
+      "dist,.cache",
       "--no-profile",
       "--strict",
     ]),
@@ -126,6 +128,7 @@ test("parseEnrichArgs reads required enrich flags", () => {
     agent: "codex",
     cwd: "/workspace/project",
     provider: "modal",
+    excludes: ["dist", ".cache"],
     profile: false,
     strict: true,
   });

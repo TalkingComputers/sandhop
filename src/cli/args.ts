@@ -22,6 +22,7 @@ export interface ParsedArgs {
 export interface EnrichArgs {
   agent: AgentId;
   cwd: string;
+  excludes: string[];
   profile: boolean;
 }
 
@@ -131,6 +132,7 @@ export const parseEnrichArgs = (argv: string[]): ParsedEnrichArgs => ({
   agent: readRequiredAgent(readRequiredFlag(argv, "--agent")),
   cwd: readRequiredFlag(argv, "--cwd"),
   provider: readProvider(readRequiredFlag(argv, "--provider")),
+  excludes: readExcludes(argv),
   profile: !argv.includes("--no-profile"),
   strict: argv.includes("--strict"),
 });

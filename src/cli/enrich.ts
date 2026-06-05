@@ -56,6 +56,7 @@ export const runEnrichment = async (
   return new EnrichmentService(
     agent,
     buildEnrichmentServices(host, agent, sandbox),
+    args.excludes,
   ).run(args.cwd, args.profile);
 };
 

@@ -106,6 +106,7 @@ const runPush = async (
       args.cwd,
       "--provider",
       args.provider,
+      ...args.excludes.flatMap((exclude) => ["--exclude", exclude]),
       ...(args.profile ? [] : ["--no-profile"]),
       ...(args.strict ? ["--strict"] : []),
     ],

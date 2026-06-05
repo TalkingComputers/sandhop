@@ -1,6 +1,6 @@
 import { buildManifest } from "../manifest.js";
 import { TTYD_PORT } from "../constants.js";
-import { expandHome } from "../paths.js";
+import { dirname, expandHome } from "../paths.js";
 import type { Agent } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
 import type { Sandbox, SandboxProvider } from "../ports/provider.js";
@@ -145,12 +145,19 @@ export class TeleportService {
       for (const [index, include] of opts.includes.entries()) {
         if (!this.services.host.exists(include)) continue;
         const realInclude = this.services.host.realpath(include);
-        await transfer.send(
+        const dest = mirrorPath(
           realInclude,
-          mirrorPath(realInclude, this.services.host.home, sandbox.home),
-          `include-${index}`,
-          { codec: "gzip", excludes: [] },
+          this.services.host.home,
+          sandbox.home,
         );
+        const destDir = this.services.host.isDirectory(realInclude)
+          ? dest
+          : dirname(dest);
+        await sandbox.exec(this.services.bootstrap.renderPathPrep(destDir));
+        await transfer.send(realInclude, dest, `include-${index}`, {
+          codec: "gzip",
+          excludes: opts.excludes,
+        });
       }
       await sandbox.uploadFile(
         "/tmp/transcript.jsonl",

@@ -52,10 +52,10 @@ export class ProfileService {
       .filter((path) => this.host.exists(joinHome(this.host.home, path)));
   }
 
-  async build(outPath: string): Promise<string | null> {
+  async build(outPath: string, excludes: string[]): Promise<string | null> {
     const entries = this.listProfileEntries();
     if (entries.length === 0) return null;
-    await this.host.copyTree(this.host.home, entries, outPath);
+    await this.host.copyTree(this.host.home, entries, outPath, { excludes });
     return outPath;
   }
 }
