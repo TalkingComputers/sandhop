@@ -100,6 +100,7 @@ command = "bash"
 args = ["-lc", "source /home/local/.env.d/mcp.env && /home/local/mcp/server.js"]
 cwd = "/home/local/mcp"
 `,
+      "/home/local/.codex/AGENTS.md": "agents",
       "/home/local/.env.d/mcp.env": "TOKEN=value\n",
       "/home/local/mcp/package.json": "{}",
       "/home/local/mcp/package-lock.json": "{}",
@@ -213,6 +214,7 @@ test("runEnrichment does not re-apply Codex preseed after profile transfer", asy
     env: {},
     files: {
       "/home/local/.codex/config.toml": 'model = "gpt-5.4"\n',
+      "/home/local/.codex/AGENTS.md": "agents",
     },
   });
   const sandbox = new FakeSandbox("sbx-1", "/home/user");

@@ -133,7 +133,12 @@ export class E2bSandboxProvider implements SandboxProvider {
     const paginator = E2bSandbox.list(this.credentials());
     while (paginator.hasNext) {
       for (const sandbox of await paginator.nextItems()) {
-        sandboxes.push({ id: sandbox.sandboxId, startedAt: sandbox.startedAt });
+        const startedAt =
+          sandbox.startedAt instanceof Date &&
+          !Number.isNaN(sandbox.startedAt.getTime())
+            ? sandbox.startedAt
+            : new Date(0);
+        sandboxes.push({ id: sandbox.sandboxId, startedAt });
       }
     }
     return sandboxes;
@@ -148,10 +153,25 @@ export class E2bSandboxProvider implements SandboxProvider {
   }
 
   private async readHome(sandbox: E2bSandboxInstance): Promise<string> {
-    const result = await sandbox.commands.run('printf %s "$HOME"', {
-      timeoutMs: UPLOAD_TIMEOUT_MS,
-      requestTimeoutMs: UPLOAD_TIMEOUT_MS,
-    });
-    return result.stdout.trim();
+    let result: { exitCode: number; stdout: string; stderr: string };
+    try {
+      result = await sandbox.commands.run('printf %s "$HOME"', {
+        timeoutMs: UPLOAD_TIMEOUT_MS,
+        requestTimeoutMs: UPLOAD_TIMEOUT_MS,
+      });
+    } catch (error: unknown) {
+      if (error instanceof CommandExitError) {
+        const output = error.stderr.length > 0 ? error.stderr : error.stdout;
+        throw new Error(`Home lookup failed: ${output}`);
+      }
+      throw error;
+    }
+    if (result.exitCode !== 0) {
+      const output = result.stderr.length > 0 ? result.stderr : result.stdout;
+      throw new Error(`Home lookup failed: ${output}`);
+    }
+    const home = result.stdout.trim();
+    if (home.length === 0) throw new Error("Home lookup returned empty path");
+    return home;
   }
 }

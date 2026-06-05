@@ -102,7 +102,7 @@ class DaytonaSandboxAdapter implements Sandbox {
       `bash -lc ${shellQuote(cmd)}`,
       undefined,
       undefined,
-      this.timeoutSeconds,
+      COMMAND_TIMEOUT_SECONDS,
     );
     return {
       exitCode: result.exitCode,
@@ -116,7 +116,7 @@ class DaytonaSandboxAdapter implements Sandbox {
       `nohup bash -lc ${shellQuote(cmd)} >/dev/null 2>&1 &`,
       undefined,
       undefined,
-      this.timeoutSeconds,
+      COMMAND_TIMEOUT_SECONDS,
     );
   }
 
@@ -172,12 +172,13 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     const sandboxes: SandboxInfo[] = [];
     for await (const sandbox of (await this.client()).list()) {
       const instance = sandbox as DaytonaSandboxInstance;
+      const startedAt =
+        instance.createdAt === undefined
+          ? new Date(0)
+          : new Date(instance.createdAt);
       sandboxes.push({
         id: instance.id,
-        startedAt:
-          instance.createdAt === undefined
-            ? new Date(0)
-            : new Date(instance.createdAt),
+        startedAt: Number.isNaN(startedAt.getTime()) ? new Date(0) : startedAt,
       });
     }
     return sandboxes;

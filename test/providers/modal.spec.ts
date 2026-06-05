@@ -39,7 +39,6 @@ const modalMocks = vi.hoisted(() => {
   const list = vi.fn(async function* () {
     yield {
       sandboxId: "modal-sbx",
-      createdAt: new Date("2026-01-01T00:00:00Z"),
     };
   });
   const ModalClient = vi.fn(() => ({
@@ -222,7 +221,7 @@ test("ModalSandboxProvider connect and destroy use SDK lookups", async () => {
 
   const connected = await provider.connect("modal-sbx");
   await expect(provider.list()).resolves.toEqual([
-    { id: "modal-sbx", startedAt: new Date("2026-01-01T00:00:00Z") },
+    { id: "modal-sbx", startedAt: new Date(0) },
   ]);
   await expect(provider.destroy("modal-sbx")).resolves.toBe(true);
 
@@ -232,6 +231,36 @@ test("ModalSandboxProvider connect and destroy use SDK lookups", async () => {
   expect(modalMocks.fromId).toHaveBeenNthCalledWith(1, "modal-sbx");
   expect(modalMocks.fromId).toHaveBeenNthCalledWith(2, "modal-sbx");
   expect(modalMocks.terminate).toHaveBeenCalledTimes(1);
+});
+
+test("ModalSandboxProvider validates Node major before image lookup", async () => {
+  const descriptor = Object.getOwnPropertyDescriptor(process.versions, "node");
+  if (descriptor === undefined) throw new Error("Missing node version");
+  Object.defineProperty(process.versions, "node", {
+    value: "not-a-version",
+    configurable: true,
+  });
+  try {
+    const { ModalSandboxProvider } = await loadProvider();
+    const provider = new ModalSandboxProvider(
+      new FakeHost({
+        home: "/home/local",
+        env: { MODAL_TOKEN_ID: "id", MODAL_TOKEN_SECRET: "secret" },
+      }),
+    );
+
+    await expect(
+      provider.create({
+        envs: {},
+        timeoutMs: 600000,
+        ports: [7681],
+      }),
+    ).rejects.toThrow("Invalid Node version not-a-version");
+
+    expect(modalMocks.fromRegistry).not.toHaveBeenCalled();
+  } finally {
+    Object.defineProperty(process.versions, "node", descriptor);
+  }
 });
 
 test("ModalSandboxProvider missing package throws install hint", async () => {

@@ -14,12 +14,32 @@ import { shellQuote } from "../core/shell.js";
 import { parse, stringify, type TomlTable, type TomlValue } from "smol-toml";
 import { makeVersionParser, sortNewest } from "./shared.js";
 
-const codexId = (file: string): string => {
+interface CodexTranscriptName {
+  sessionId: string;
+  year: string;
+  month: string;
+  day: string;
+}
+
+const parseCodexTranscriptName = (file: string): CodexTranscriptName => {
   const match = file.match(
-    /rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-(.+)\.jsonl$/,
+    /rollout-(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})T\d{2}-\d{2}-\d{2}-(?<sessionId>.+)\.jsonl$/,
   );
-  if (!match) throw new Error(`Invalid Codex transcript filename ${file}`);
-  return match[1]!;
+  if (match === null || match.groups === undefined)
+    throw new Error(`Invalid Codex transcript filename ${file}`);
+  const { year, month, day, sessionId } = match.groups;
+  if (
+    year === undefined ||
+    month === undefined ||
+    day === undefined ||
+    sessionId === undefined
+  )
+    throw new Error(`Invalid Codex transcript filename ${file}`);
+  return { sessionId, year, month, day };
+};
+
+const codexId = (file: string): string => {
+  return parseCodexTranscriptName(file).sessionId;
 };
 
 const parseVersion = makeVersionParser("codex");
@@ -303,7 +323,6 @@ export const CODEX: Agent = {
     );
   },
   profilePaths: () => [
-    ".codex/config.toml",
     ".codex/AGENTS.md",
     ".codex/instructions.md",
     ".codex/prompts",
@@ -324,8 +343,10 @@ export const CODEX: Agent = {
     "mkdir -p $HOME/.codex",
     `node -e ${shellQuote(buildCodexPreSeedScript(remoteProj))}`,
   ],
-  remoteTranscriptPath: (home, remoteEnc, transcriptName) =>
-    `${home}/.codex/sessions/restored/${transcriptName}`,
+  remoteTranscriptPath: (home, remoteEnc, transcriptName) => {
+    const { year, month, day } = parseCodexTranscriptName(transcriptName);
+    return `${home}/.codex/sessions/${year}/${month}/${day}/${transcriptName}`;
+  },
   resumeCmd: (sessionId, remoteProj) =>
     `cd ${shellQuote(remoteProj)} && codex resume ${shellQuote(sessionId)}`,
 };

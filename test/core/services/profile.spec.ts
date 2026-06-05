@@ -4,7 +4,7 @@ import { CLAUDE_CODE } from "../../../src/agents/claude-code.js";
 import { ProfileService } from "../../../src/core/services/profile.js";
 import { FakeHost } from "../../fakes/host.js";
 
-test("ProfileService ships portable Codex config without auth, caches, sessions, plugins, or secret dirs", async () => {
+test("ProfileService ships portable Codex profile without auth, config, caches, sessions, plugins, or secret dirs", async () => {
   const host = new FakeHost({
     home: "/home/local",
     env: {},
@@ -25,7 +25,7 @@ test("ProfileService ships portable Codex config without auth, caches, sessions,
   expect(host.copyCalls).toEqual([
     {
       cwd: "/home/local",
-      entries: [".codex/config.toml", ".codex/prompts"],
+      entries: [".codex/prompts"],
       outPath: "/tmp/profile.tgz",
       excludes: [],
     },

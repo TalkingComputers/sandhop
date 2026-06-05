@@ -47,9 +47,11 @@ test("declarative agents install exact versions and compose native resume comman
     CODEX.remoteTranscriptPath(
       "/home/vercel-sandbox",
       "-workspace-project",
-      "session-id.jsonl",
+      "rollout-2026-06-04T12-00-00-session-id.jsonl",
     ),
-  ).toBe("/home/vercel-sandbox/.codex/sessions/restored/session-id.jsonl");
+  ).toBe(
+    "/home/vercel-sandbox/.codex/sessions/2026/06/04/rollout-2026-06-04T12-00-00-session-id.jsonl",
+  );
 });
 
 test("agent preseed node eval commands single-quote scripts", () => {
@@ -203,6 +205,38 @@ test("Claude agent parses user, project, and cwd MCP server configs", () => {
     )}\n`,
     mode: "merge-claude-json",
   });
+});
+
+test("Claude MCP parsing skips malformed JSON files and keeps valid servers", () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: {
+      "/home/local/.claude.json": "[",
+      "/workspace/project/.mcp.json": JSON.stringify({
+        mcpServers: { cwd: { command: "node", args: ["server.js"] } },
+      }),
+    },
+  });
+  const reverseHost = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: {
+      "/home/local/.claude.json": JSON.stringify({
+        mcpServers: { user: { command: "npx", args: ["user"] } },
+      }),
+      "/workspace/project/.mcp.json": "[",
+    },
+  });
+
+  expect(CLAUDE_CODE.parseMcpServers(host, "/workspace/project")).toEqual([
+    { name: "cwd", transport: "stdio", command: "node", args: ["server.js"] },
+  ]);
+  expect(
+    CLAUDE_CODE.parseMcpServers(reverseHost, "/workspace/project"),
+  ).toEqual([
+    { name: "user", transport: "stdio", command: "npx", args: ["user"] },
+  ]);
 });
 
 test("Codex agent parses mcp_servers TOML tables", () => {

@@ -44,15 +44,13 @@ const renderMcpConfig = (agent: Agent, codePlan: CodePlan): string[] => {
       `mkdir -p ${quoteHomePath(dir)}`,
       `node -e ${shellQuote(buildMergeClaudeMcpScript(config.path, config.content))}`,
     ];
-  const redirect = config.mode === "append" ? ">>" : ">";
+  const delimiter = `SANDHOP_MCP_CONFIG_${Date.now()}`;
   return [
     `mkdir -p ${quoteHomePath(dir)}`,
-    ...(config.mode === "append"
-      ? [`node -e ${shellQuote(buildPruneMcpTablesScript(config.path))}`]
-      : []),
-    `cat ${redirect} ${quoteHomePath(config.path)} <<'SANDHOP_MCP_CONFIG'`,
+    `node -e ${shellQuote(buildPruneMcpTablesScript(config.path))}`,
+    `cat >> ${quoteHomePath(config.path)} <<'${delimiter}'`,
     config.content.trimEnd(),
-    "SANDHOP_MCP_CONFIG",
+    delimiter,
   ];
 };
 

@@ -21,7 +21,6 @@ type ModalModule = typeof import("modal");
 
 interface ModalSandboxListItem {
   sandboxId: string;
-  createdAt: string | Date;
 }
 
 const COMMAND_TIMEOUT_MS = 600000;
@@ -31,8 +30,12 @@ const MODAL_INSTALL_HINT =
   "The 'modal' provider needs the 'modal' package. Run: npm i modal";
 const MODAL_PACKAGE = "modal";
 
-const nodeImage = (): string =>
-  `node:${process.versions.node.split(".", 1)[0]!}`;
+const nodeImage = (): string => {
+  const major = Number(process.versions.node.split(".", 1)[0]);
+  if (!Number.isInteger(major))
+    throw new Error(`Invalid Node version ${process.versions.node}`);
+  return `node:${major}`;
+};
 
 class ModalSandboxAdapter implements Sandbox {
   readonly id: string;
@@ -153,7 +156,7 @@ export class ModalSandboxProvider implements SandboxProvider {
     for await (const sandbox of listed)
       sandboxes.push({
         id: sandbox.sandboxId,
-        startedAt: new Date(sandbox.createdAt),
+        startedAt: new Date(0),
       });
     return sandboxes;
   }

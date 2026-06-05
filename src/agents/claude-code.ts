@@ -18,7 +18,6 @@ import {
   CLAUDE_JSON_HOME_PATH,
   CLAUDE_JSON_PATH,
   CLAUDE_MCP_PATH,
-  CLAUDE_PROFILE_PATHS,
   CLAUDE_PROJECTS_PATH,
   CLAUDE_SETTINGS_LOCAL_PATH,
   CLAUDE_SETTINGS_PATH,
@@ -198,14 +197,23 @@ const readMcpServers = (value: unknown, servers: McpServer[]): void => {
   }
 };
 
+const parseJsonRecord = (text: string): Record<string, unknown> | null => {
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
 const parseMcpServers = (deps: AgentMcpDeps, cwd: string): McpServer[] => {
   const servers: McpServer[] = [];
   const claudeJson = deps.readFile(
     joinClaudeLocalPath(deps.home, CLAUDE_JSON_PATH),
   );
   if (claudeJson !== null) {
-    const parsed = JSON.parse(claudeJson) as unknown;
-    if (isRecord(parsed)) {
+    const parsed = parseJsonRecord(claudeJson);
+    if (parsed !== null) {
       readMcpServers(parsed.mcpServers, servers);
       const projects = parsed.projects;
       if (isRecord(projects)) {
@@ -216,8 +224,8 @@ const parseMcpServers = (deps: AgentMcpDeps, cwd: string): McpServer[] => {
   }
   const mcpJson = deps.readFile(`${cwd}/.mcp.json`);
   if (mcpJson !== null) {
-    const parsed = JSON.parse(mcpJson) as unknown;
-    if (isRecord(parsed)) readMcpServers(parsed.mcpServers, servers);
+    const parsed = parseJsonRecord(mcpJson);
+    if (parsed !== null) readMcpServers(parsed.mcpServers, servers);
   }
   return servers;
 };
@@ -261,7 +269,6 @@ export const CLAUDE_CODE: Agent = {
         }),
     );
   },
-  profilePaths: () => [...CLAUDE_PROFILE_PATHS],
   mcpConfigPaths: (home, cwd) => [
     `${cwd}/.mcp.json`,
     joinClaudeLocalPath(home, CLAUDE_SETTINGS_PATH),

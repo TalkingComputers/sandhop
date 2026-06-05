@@ -31,6 +31,7 @@ interface VercelHttpError extends Error {
 const VERCEL_INSTALL_HINT =
   "The 'vercel' provider needs @vercel/sandbox. Run: npm i @vercel/sandbox";
 const VERCEL_PACKAGE = "@vercel/sandbox";
+const COMMAND_TIMEOUT_MS = 600000;
 const VERCEL_NODE_MAJORS = [22, 24, 26] as const;
 type VercelNodeRuntime = `node${(typeof VERCEL_NODE_MAJORS)[number]}`;
 
@@ -92,7 +93,9 @@ class VercelSandboxAdapter implements Sandbox {
   }
 
   async exec(cmd: string): Promise<RunResult> {
-    const result = await this.sandbox.runCommand("bash", ["-lc", cmd]);
+    const result = await this.sandbox.runCommand("bash", ["-lc", cmd], {
+      timeoutMs: COMMAND_TIMEOUT_MS,
+    });
     return {
       exitCode: result.exitCode,
       stdout: await result.stdout(),
@@ -105,6 +108,7 @@ class VercelSandboxAdapter implements Sandbox {
       cmd: "bash",
       args: ["-lc", cmd],
       detached: true,
+      timeoutMs: 0,
     });
   }
 

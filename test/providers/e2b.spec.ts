@@ -18,6 +18,7 @@ const e2bMocks = vi.hoisted(() => {
   }
   const filesWrite = vi.fn();
   const commandsRun = vi.fn();
+  const listItems: { sandboxId: string; startedAt: Date | string }[] = [];
   const sandbox = {
     sandboxId: "sbx-created",
     files: { write: filesWrite },
@@ -27,10 +28,28 @@ const e2bMocks = vi.hoisted(() => {
   const Sandbox = {
     create: vi.fn(async () => sandbox),
     connect: vi.fn(async () => sandbox),
-    list: vi.fn(),
+    list: vi.fn(() => {
+      let hasNext = listItems.length > 0;
+      return {
+        get hasNext(): boolean {
+          return hasNext;
+        },
+        nextItems: vi.fn(async () => {
+          hasNext = false;
+          return listItems;
+        }),
+      };
+    }),
     kill: vi.fn(async (id: string) => id === "sbx-created"),
   };
-  return { CommandExitError, filesWrite, commandsRun, sandbox, Sandbox };
+  return {
+    CommandExitError,
+    filesWrite,
+    commandsRun,
+    listItems,
+    sandbox,
+    Sandbox,
+  };
 });
 
 vi.mock("e2b", () => ({
@@ -138,7 +157,11 @@ test("E2bSandboxProvider returns non-zero command exits as RunResult data", asyn
 
 test("E2bSandboxProvider kills a created sandbox when home lookup fails", async () => {
   e2bMocks.commandsRun.mockReset();
-  e2bMocks.commandsRun.mockRejectedValueOnce(new Error("home failed"));
+  e2bMocks.commandsRun.mockResolvedValueOnce({
+    exitCode: 1,
+    stdout: "",
+    stderr: "home failed",
+  });
   e2bMocks.Sandbox.kill.mockClear();
   const provider = new E2bSandboxProvider(
     new FakeHost({ home: "/home/local", env }),
@@ -150,11 +173,58 @@ test("E2bSandboxProvider kills a created sandbox when home lookup fails", async 
       timeoutMs: 600000,
       ports: [7681],
     }),
-  ).rejects.toThrow("home failed");
+  ).rejects.toThrow("Home lookup failed: home failed");
 
   expect(e2bMocks.Sandbox.kill).toHaveBeenCalledWith("sbx-created", {
     apiKey: "e2b-key",
   });
+});
+
+test("E2bSandboxProvider rejects empty home lookup output", async () => {
+  e2bMocks.commandsRun.mockReset();
+  e2bMocks.commandsRun.mockResolvedValueOnce({
+    exitCode: 0,
+    stdout: "",
+    stderr: "",
+  });
+  e2bMocks.Sandbox.kill.mockClear();
+  const provider = new E2bSandboxProvider(
+    new FakeHost({ home: "/home/local", env }),
+  );
+
+  await expect(
+    provider.create({
+      envs: {},
+      timeoutMs: 600000,
+      ports: [7681],
+    }),
+  ).rejects.toThrow("Home lookup returned empty path");
+
+  expect(e2bMocks.Sandbox.kill).toHaveBeenCalledWith("sbx-created", {
+    apiKey: "e2b-key",
+  });
+});
+
+test("E2bSandboxProvider guards list startedAt values", async () => {
+  const valid = new Date("2026-06-01T00:00:00Z");
+  e2bMocks.listItems.splice(
+    0,
+    e2bMocks.listItems.length,
+    { sandboxId: "valid", startedAt: valid },
+    { sandboxId: "invalid-date", startedAt: new Date("not-a-date") },
+    { sandboxId: "string-date", startedAt: "2026-06-01T00:00:00Z" },
+  );
+  const provider = new E2bSandboxProvider(
+    new FakeHost({ home: "/home/local", env }),
+  );
+
+  await expect(provider.list()).resolves.toEqual([
+    { id: "valid", startedAt: valid },
+    { id: "invalid-date", startedAt: new Date(0) },
+    { id: "string-date", startedAt: new Date(0) },
+  ]);
+
+  expect(e2bMocks.Sandbox.list).toHaveBeenCalledWith({ apiKey: "e2b-key" });
 });
 
 test("E2bSandboxProvider reconnects after adapter destroy", async () => {

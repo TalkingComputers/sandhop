@@ -6,7 +6,11 @@ const vercelMocks = vi.hoisted(() => {
   const stdout = vi.fn(async () => "stdout");
   const stderr = vi.fn(async () => "stderr");
   const runCommand = vi.fn(
-    async (cmd: string | { cmd: string }, args?: string[]) =>
+    async (
+      cmd: string | { cmd: string },
+      args?: string[],
+      opts?: { timeoutMs: number },
+    ) =>
       cmd === "bash" && args?.[1] === 'printf %s "$HOME"'
         ? {
             exitCode: 0,
@@ -120,10 +124,13 @@ test("VercelSandboxProvider creates a named sandbox with creds and maps exec res
   expect(sandbox.id).toBe(
     (vercelMocks.create.mock.calls[0]![0] as { name: string }).name,
   );
-  expect(vercelMocks.runCommand).toHaveBeenCalledWith("bash", [
-    "-lc",
-    "echo ok",
-  ]);
+  expect(vercelMocks.runCommand).toHaveBeenCalledWith(
+    "bash",
+    ["-lc", "echo ok"],
+    {
+      timeoutMs: 600000,
+    },
+  );
   expect(vercelMocks.stdout).toHaveBeenCalled();
   expect(vercelMocks.stderr).toHaveBeenCalled();
 });
@@ -156,6 +163,7 @@ test("VercelSandboxProvider spawn uses detached bash and upload uses mkdir plus 
     cmd: "bash",
     args: ["-lc", "ttyd"],
     detached: true,
+    timeoutMs: 0,
   });
   expect(vercelMocks.mkDir).toHaveBeenCalledWith("/tmp/nested");
   expect(vercelMocks.writeFiles).toHaveBeenCalledWith([

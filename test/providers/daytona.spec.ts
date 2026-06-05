@@ -20,7 +20,14 @@ const daytonaMocks = vi.hoisted(() => {
     token: "preview-token",
   }));
   const deleteSandbox = vi.fn(async () => undefined);
-  const sandbox = {
+  const sandbox: {
+    id: string;
+    createdAt?: string;
+    process: { executeCommand: typeof executeCommand };
+    fs: { uploadFile: typeof uploadFile };
+    getPreviewLink: typeof getPreviewLink;
+    delete: typeof deleteSandbox;
+  } = {
     id: "daytona-sbx",
     process: { executeCommand },
     fs: { uploadFile },
@@ -29,7 +36,7 @@ const daytonaMocks = vi.hoisted(() => {
   };
   const create = vi.fn(async () => sandbox);
   const get = vi.fn(async () => sandbox);
-  const list = vi.fn(async () => [sandbox]);
+  const list = vi.fn(() => [sandbox]);
   const Daytona = vi.fn(() => ({ create, get, list }));
   return {
     Daytona,
@@ -47,6 +54,7 @@ const daytonaMocks = vi.hoisted(() => {
 const loadProvider = async () => {
   vi.resetModules();
   vi.clearAllMocks();
+  daytonaMocks.sandbox.createdAt = undefined;
   vi.doMock("@daytonaio/sdk", () => ({ Daytona: daytonaMocks.Daytona }));
   return import("../../src/providers/daytona/index.js");
 };
@@ -149,6 +157,59 @@ test("DaytonaSandboxProvider spawn backgrounds commands without a session", asyn
     undefined,
     600,
   );
+});
+
+test("DaytonaSandboxProvider uses fixed command timeout after long create", async () => {
+  const { DaytonaSandboxProvider } = await loadProvider();
+  const provider = new DaytonaSandboxProvider(
+    new FakeHost({
+      home: "/home/local",
+      env: { DAYTONA_API_KEY: "api-key" },
+    }),
+  );
+  const sandbox = await provider.create({
+    envs: {},
+    timeoutMs: 3_600_000,
+    ports: [7681],
+  });
+  daytonaMocks.executeCommand.mockClear();
+
+  await sandbox.exec("echo ok");
+  await sandbox.spawn("ttyd");
+
+  expect(daytonaMocks.executeCommand).toHaveBeenNthCalledWith(
+    1,
+    "bash -lc 'echo ok'",
+    undefined,
+    undefined,
+    600,
+  );
+  expect(daytonaMocks.executeCommand).toHaveBeenNthCalledWith(
+    2,
+    "nohup bash -lc 'ttyd' >/dev/null 2>&1 &",
+    undefined,
+    undefined,
+    600,
+  );
+});
+
+test("DaytonaSandboxProvider maps missing and malformed createdAt to epoch", async () => {
+  const { DaytonaSandboxProvider } = await loadProvider();
+  const provider = new DaytonaSandboxProvider(
+    new FakeHost({
+      home: "/home/local",
+      env: { DAYTONA_API_KEY: "api-key" },
+    }),
+  );
+
+  await expect(provider.list()).resolves.toEqual([
+    { id: "daytona-sbx", startedAt: new Date(0) },
+  ]);
+
+  daytonaMocks.sandbox.createdAt = "not-a-date";
+  await expect(provider.list()).resolves.toEqual([
+    { id: "daytona-sbx", startedAt: new Date(0) },
+  ]);
 });
 
 test("DaytonaSandboxProvider uploads files, exposes ports, and destroys", async () => {

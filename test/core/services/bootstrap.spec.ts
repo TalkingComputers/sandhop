@@ -335,4 +335,8 @@ test("BootstrapService prunes stale Codex MCP tables before appending rewritten 
   expect(script).toContain("node -e");
   expect(script).toContain("[mcp_servers");
   expect(script).toContain('cat >> "$HOME/.codex/config.toml"');
+  const delimiter = script.match(/<<'(SANDHOP_MCP_CONFIG_\d+)'/)?.[1];
+  if (delimiter === undefined) throw new Error("Missing MCP heredoc delimiter");
+  expect(delimiter).not.toBe("SANDHOP_MCP_CONFIG");
+  expect(script).toContain(`\n${delimiter}`);
 });

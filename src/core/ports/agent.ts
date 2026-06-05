@@ -32,7 +32,6 @@ export interface McpServer {
 
 export type McpConfigWrite =
   | { path: string; content: string; mode: "append" }
-  | { path: string; content: string; mode: "overwrite" }
   | { path: string; content: string; mode: "merge-claude-json" };
 
 export type AgentHostDeps = Pick<
@@ -54,7 +53,7 @@ export interface Agent {
   detectVersionArgs: string[];
   parseVersion(output: string): string;
   matchSession(deps: AgentSessionDeps, cwd: string): SessionRef[];
-  profilePaths(home: string): string[];
+  profilePaths?(home: string): string[];
   mcpConfigPaths(home: string, cwd: string): string[];
   mcpEnvRefs(configText: string): string[];
   parseMcpServers(deps: AgentMcpDeps, cwd: string): McpServer[];

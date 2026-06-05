@@ -82,9 +82,14 @@ export class ProfileService {
 
   listProfileEntries(): string[] {
     if (this.agent.id === "claude-code") return this.listClaudeProfileEntries();
-    return this.agent
-      .profilePaths(this.host.home)
-      .filter((path) => this.host.exists(joinHome(this.host.home, path)));
+    const profilePaths = this.agent.profilePaths;
+    if (profilePaths === undefined)
+      throw new Error(
+        `Agent ${this.agent.id} profile paths are not configured`,
+      );
+    return profilePaths(this.host.home).filter((path) =>
+      this.host.exists(joinHome(this.host.home, path)),
+    );
   }
 
   async build(outPath: string, excludes: string[]): Promise<string | null> {
