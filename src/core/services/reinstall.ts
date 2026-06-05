@@ -11,6 +11,7 @@ import type { HostDeps } from "../ports/host.js";
 import { isRecord } from "../json.js";
 import { dirname, joinPath, listSkillNames, normalizePath } from "../paths.js";
 import { quoteShellPath, shellQuote } from "../shell.js";
+import { buildCommandFor, installCommandFor } from "./install-cmd.js";
 
 export interface ReinstallPlan {
   commands: string[];
@@ -22,10 +23,34 @@ interface GitSkill {
   remoteDir: string;
 }
 
+export interface GitSkillState {
+  copyRequired: boolean;
+  ref: string | null;
+}
+
 const readLinkedPath = (path: string, target: string): string =>
   normalizePath(
     target.startsWith("/") ? target : joinPath(dirname(path), target),
   );
+
+const readGitHead = (host: HostDeps, localDir: string): string =>
+  host.exec("git", ["-C", localDir, "rev-parse", "HEAD"]).trim();
+
+export const readGitSkillState = (
+  host: HostDeps,
+  localDir: string,
+): GitSkillState => {
+  if (host.exec("git", ["-C", localDir, "status", "--porcelain"]).trim())
+    return { copyRequired: true, ref: null };
+  const ref = readGitHead(host, localDir);
+  return {
+    copyRequired:
+      host
+        .exec("git", ["-C", localDir, "branch", "-r", "--contains", ref])
+        .trim().length === 0,
+    ref,
+  };
+};
 
 const readJsonRecord = (
   host: HostDeps,
@@ -94,15 +119,67 @@ const toRemoteSkillPath = (
   return null;
 };
 
-const readSymlinkSource = (host: HostDeps, skillDir: string): string | null => {
+interface SymlinkSkillSource {
+  localPath: string;
+  realDir: string;
+  isDirectory: boolean;
+}
+
+const readSymlinkSource = (
+  host: HostDeps,
+  skillDir: string,
+): SymlinkSkillSource | null => {
   if (host.isSymlink(skillDir)) {
     const target = readLinkedPath(skillDir, host.readlink(skillDir));
-    return target.endsWith("/SKILL.md") ? target : `${target}/SKILL.md`;
+    const realPath = host.realpath(skillDir);
+    const isDirectory = host.isDirectory(realPath);
+    return {
+      localPath: isDirectory
+        ? target
+        : target.endsWith("/SKILL.md")
+          ? target
+          : `${target}/SKILL.md`,
+      realDir: isDirectory ? realPath : dirname(realPath),
+      isDirectory,
+    };
   }
   const skillFile = `${skillDir}/SKILL.md`;
   if (host.exists(skillFile) && host.isSymlink(skillFile))
-    return readLinkedPath(skillFile, host.readlink(skillFile));
+    return {
+      localPath: readLinkedPath(skillFile, host.readlink(skillFile)),
+      realDir: dirname(host.realpath(skillFile)),
+      isDirectory: false,
+    };
   return null;
+};
+
+const inRemoteDir = (remoteDir: string, cmd: string): string =>
+  `cd ${quoteShellPath(remoteDir)} && ${cmd}`;
+
+const listInstallAndBuildCommands = (
+  host: HostDeps,
+  localDir: string,
+  remoteDir: string,
+): string[] => {
+  const commands: string[] = [];
+  const installCommand = installCommandFor(host, localDir);
+  if (installCommand !== null)
+    commands.push(inRemoteDir(remoteDir, installCommand));
+  const buildCommand = buildCommandFor(host, localDir);
+  if (buildCommand !== null)
+    commands.push(inRemoteDir(remoteDir, buildCommand));
+  return commands;
+};
+
+const listInstallCommands = (
+  host: HostDeps,
+  localDir: string,
+  remoteDir: string,
+): string[] => {
+  const installCommand = installCommandFor(host, localDir);
+  return installCommand === null
+    ? []
+    : [inRemoteDir(remoteDir, installCommand)];
 };
 
 export class ReinstallService {
@@ -158,18 +235,40 @@ export class ReinstallService {
       const gitDir = `${localDir}/.git`;
       if (!this.host.exists(gitDir)) continue;
       const remoteDir = joinClaudeHomePath(`${CLAUDE_SKILLS_PATH}/${name}`);
+      gitSkills.push({ name, localDir, remoteDir });
+      const state = readGitSkillState(this.host, localDir);
+      if (state.copyRequired) {
+        commands.push(...listInstallCommands(this.host, localDir, remoteDir));
+        continue;
+      }
+      if (state.ref === null)
+        throw new Error(`Missing git HEAD for ${localDir}`);
       const url = this.host
         .exec("git", ["-C", localDir, "config", "--get", "remote.origin.url"])
         .trim();
-      const ref = this.host
-        .exec("git", ["-C", localDir, "rev-parse", "HEAD"])
-        .trim();
-      gitSkills.push({ name, localDir, remoteDir });
       const clone = `git clone ${shellQuote(url)} ${quoteShellPath(remoteDir)}`;
-      const checkout = `git -C ${quoteShellPath(remoteDir)} checkout ${shellQuote(ref)}`;
+      const checkout = `git -C ${quoteShellPath(remoteDir)} checkout ${shellQuote(state.ref)}`;
       commands.push(`${clone} && ${checkout}`);
+      commands.push(
+        ...listInstallAndBuildCommands(this.host, localDir, remoteDir),
+      );
     }
     return { commands, gitSkills };
+  }
+
+  listLocalSkillCommands(): string[] {
+    const skillsRoot = joinClaudeLocalPath(this.host.home, CLAUDE_SKILLS_PATH);
+    const commands: string[] = [];
+    for (const name of listSkillNames(this.host, skillsRoot)) {
+      const localDir = `${skillsRoot}/${name}`;
+      if (this.host.isSymlink(localDir)) continue;
+      if (!this.host.exists(`${localDir}/SKILL.md`)) continue;
+      if (this.host.isSymlink(`${localDir}/SKILL.md`)) continue;
+      if (this.host.exists(`${localDir}/.git`)) continue;
+      const remoteDir = joinClaudeHomePath(`${CLAUDE_SKILLS_PATH}/${name}`);
+      commands.push(...listInstallCommands(this.host, localDir, remoteDir));
+    }
+    return commands;
   }
 
   listSymlinkSkillCommands(gitSkills: GitSkill[]): string[] {
@@ -179,14 +278,33 @@ export class ReinstallService {
       const skillDir = `${skillsRoot}/${name}`;
       const localSource = readSymlinkSource(this.host, skillDir);
       if (localSource === null) continue;
-      const remoteSource = toRemoteSkillPath(localSource, gitSkills);
-      if (remoteSource === null) continue;
+      const remoteSource = toRemoteSkillPath(localSource.localPath, gitSkills);
       const remoteSkillDir = joinClaudeHomePath(
         `${CLAUDE_SKILLS_PATH}/${name}`,
       );
-      const mkdir = `mkdir -p ${quoteShellPath(remoteSkillDir)}`;
-      const link = `ln -sf ${quoteShellPath(remoteSource)} ${quoteShellPath(`${remoteSkillDir}/SKILL.md`)}`;
-      commands.push(`${mkdir} && ${link}`);
+      if (remoteSource === null) {
+        commands.push(
+          ...listInstallCommands(
+            this.host,
+            localSource.realDir,
+            remoteSkillDir,
+          ),
+        );
+        continue;
+      }
+      if (localSource.isDirectory) {
+        const mkdir = `mkdir -p ${quoteShellPath(dirname(remoteSkillDir))}`;
+        const link = `ln -sfn ${quoteShellPath(remoteSource)} ${quoteShellPath(
+          remoteSkillDir,
+        )}`;
+        commands.push(`${mkdir} && ${link}`);
+      } else {
+        const mkdir = `mkdir -p ${quoteShellPath(remoteSkillDir)}`;
+        const link = `ln -sf ${quoteShellPath(remoteSource)} ${quoteShellPath(
+          `${remoteSkillDir}/SKILL.md`,
+        )}`;
+        commands.push(`${mkdir} && ${link}`);
+      }
     }
     return commands;
   }
@@ -200,6 +318,7 @@ export class ReinstallService {
         ...this.listPluginCommands(),
         ...this.listDisableCommands(),
         ...gitSkillPlan.commands,
+        ...this.listLocalSkillCommands(),
         ...this.listSymlinkSkillCommands(gitSkillPlan.gitSkills),
       ],
     };

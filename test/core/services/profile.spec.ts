@@ -61,6 +61,13 @@ test("ProfileService ships Claude manifests and non-reproducible skill dirs", as
       "/home/local/.claude/plugins/cache/blob": "plugin",
       "/home/local/.claude/plugins/marketplaces/official/README.md": "market",
     },
+    execValues: {
+      "git -C /home/local/.claude/skills/git status --porcelain": "",
+      "git -C /home/local/.claude/skills/git rev-parse HEAD":
+        "0123456789abcdef0123456789abcdef01234567\n",
+      "git -C /home/local/.claude/skills/git branch -r --contains 0123456789abcdef0123456789abcdef01234567":
+        "  origin/main\n",
+    },
   });
 
   await new ProfileService(host, CLAUDE_CODE).build("/tmp/profile.tgz", [
@@ -76,6 +83,77 @@ test("ProfileService ships Claude manifests and non-reproducible skill dirs", as
     ".claude/plugins/installed_plugins.json",
     ".claude/skills/big",
     ".claude/skills/local",
+    ".claude/skills/node",
   ]);
   expect(host.copyCalls[0]!.excludes).toEqual(["dist"]);
+});
+
+test("ProfileService ships dirty and unpushed git skills as local skill dirs", async () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: {
+      "/home/local/.claude/skills/clean/SKILL.md": "clean",
+      "/home/local/.claude/skills/clean/.git/config": "clean",
+      "/home/local/.claude/skills/dirty/SKILL.md": "dirty",
+      "/home/local/.claude/skills/dirty/.git/config": "dirty",
+      "/home/local/.claude/skills/unpushed/SKILL.md": "unpushed",
+      "/home/local/.claude/skills/unpushed/.git/config": "unpushed",
+    },
+    execValues: {
+      "git -C /home/local/.claude/skills/clean status --porcelain": "",
+      "git -C /home/local/.claude/skills/clean rev-parse HEAD":
+        "1111111111111111111111111111111111111111\n",
+      "git -C /home/local/.claude/skills/clean branch -r --contains 1111111111111111111111111111111111111111":
+        "  origin/main\n",
+      "git -C /home/local/.claude/skills/dirty status --porcelain":
+        " M SKILL.md\n",
+      "git -C /home/local/.claude/skills/unpushed status --porcelain": "",
+      "git -C /home/local/.claude/skills/unpushed rev-parse HEAD":
+        "2222222222222222222222222222222222222222\n",
+      "git -C /home/local/.claude/skills/unpushed branch -r --contains 2222222222222222222222222222222222222222":
+        "",
+    },
+  });
+
+  await new ProfileService(host, CLAUDE_CODE).build("/tmp/profile.tgz", []);
+
+  expect(host.copyCalls[0]!.entries).toEqual([
+    ".claude/skills/dirty",
+    ".claude/skills/unpushed",
+  ]);
+});
+
+test("ProfileService dereferences external symlink skills into the skill name", async () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    symlinks: {
+      "/home/local/.claude/skills/external": "/work/external-skill",
+    },
+    files: {
+      "/work/external-skill/SKILL.md": "external",
+      "/work/external-skill/bin/run.js": "run",
+      "/work/external-skill/dist/out.js": "out",
+    },
+  });
+
+  await new ProfileService(host, CLAUDE_CODE).build("/tmp/profile.tgz", [
+    "dist",
+  ]);
+
+  expect(host.copyCalls).toEqual([
+    {
+      cwd: "/work/external-skill",
+      entries: ["."],
+      outPath: "/tmp/profile.tgz/.claude/skills/external",
+      excludes: ["dist"],
+    },
+  ]);
+  expect(
+    host.exists("/tmp/profile.tgz/.claude/skills/external/bin/run.js"),
+  ).toBe(true);
+  expect(
+    host.exists("/tmp/profile.tgz/.claude/skills/external/dist/out.js"),
+  ).toBe(false);
 });

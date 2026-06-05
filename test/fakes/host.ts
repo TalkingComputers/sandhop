@@ -3,6 +3,26 @@ import { createHash } from "node:crypto";
 
 const encoder = new TextEncoder();
 
+const normalizePath = (path: string): string =>
+  path
+    .split("/")
+    .reduce<string[]>((parts, part) => {
+      if (part === "" && parts.length === 0) return [""];
+      if (part === "" || part === ".") return parts;
+      if (part === "..") {
+        parts.pop();
+        return parts;
+      }
+      parts.push(part);
+      return parts;
+    }, [])
+    .join("/");
+
+const hasExcludedSegment = (path: string, excludes: string[]): boolean => {
+  const segments = path.split("/");
+  return excludes.some((exclude) => segments.includes(exclude));
+};
+
 export class FakeHost implements HostDeps {
   env: Record<string, string | undefined>;
   home: string;
@@ -64,23 +84,21 @@ export class FakeHost implements HostDeps {
   }
 
   linkedPath(path: string): string {
-    if (!Object.hasOwn(this.symlinks, path)) return path;
-    const target = this.symlinks[path]!;
-    if (target.startsWith("/")) return target;
-    const dir = path.slice(0, path.lastIndexOf("/"));
-    return `${dir}/${target}`
-      .split("/")
-      .reduce<string[]>((parts, part) => {
-        if (part === "" && parts.length === 0) return [""];
-        if (part === "" || part === ".") return parts;
-        if (part === "..") {
-          parts.pop();
-          return parts;
-        }
-        parts.push(part);
-        return parts;
-      }, [])
-      .join("/");
+    let linked = path;
+    for (let index = 0; index < 20; index += 1) {
+      const link = Object.keys(this.symlinks)
+        .filter(
+          (candidate) =>
+            linked === candidate || linked.startsWith(`${candidate}/`),
+        )
+        .sort((left, right) => right.length - left.length)[0];
+      if (link === undefined) return linked;
+      const target = this.symlinks[link]!;
+      const dir = link.slice(0, link.lastIndexOf("/"));
+      const realTarget = target.startsWith("/") ? target : `${dir}/${target}`;
+      linked = normalizePath(`${realTarget}${linked.slice(link.length)}`);
+    }
+    throw new Error(`symlink cycle ${path}`);
   }
 
   readFile(path: string): string | null {
@@ -160,7 +178,7 @@ export class FakeHost implements HostDeps {
   }
 
   realpath(path: string): string {
-    return path;
+    return this.linkedPath(path);
   }
 
   cpuCount(): number {
@@ -237,14 +255,21 @@ export class FakeHost implements HostDeps {
         ? { cwd, entries, outPath }
         : { cwd, entries, outPath, excludes: opts.excludes };
     this.copyCalls.push(call);
+    const excludes = opts?.excludes ?? [];
     for (const entry of entries) {
-      const prefix = `${cwd}/${entry}`;
+      const prefix = entry === "." ? cwd : `${cwd}/${entry}`;
       for (const [path, content] of Object.entries(this.files)) {
-        if (path === prefix || path.startsWith(`${prefix}/`))
+        if (
+          (path === prefix || path.startsWith(`${prefix}/`)) &&
+          !hasExcludedSegment(path.slice(cwd.length + 1), excludes)
+        )
           this.files[`${outPath}/${path.slice(cwd.length + 1)}`] = content;
       }
       for (const [path, content] of Object.entries(this.bytes)) {
-        if (path === prefix || path.startsWith(`${prefix}/`))
+        if (
+          (path === prefix || path.startsWith(`${prefix}/`)) &&
+          !hasExcludedSegment(path.slice(cwd.length + 1), excludes)
+        )
           this.bytes[`${outPath}/${path.slice(cwd.length + 1)}`] = content;
       }
     }
