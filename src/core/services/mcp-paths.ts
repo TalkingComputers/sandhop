@@ -1,5 +1,5 @@
 import { projectDirName } from "../encode.js";
-import { dirname, expandHome, joinPath } from "../paths.js";
+import { dirname, expandHome } from "../paths.js";
 import type { HostDeps } from "../ports/host.js";
 
 export interface PathMapping {
@@ -7,33 +7,31 @@ export interface PathMapping {
   sandboxPath: string;
 }
 
-const MARKERS = [
-  "package.json",
-  "pyproject.toml",
-  "requirements.txt",
-  "Cargo.toml",
-  "bun.lock",
-  ".git",
-];
-
 export const maybeRealpath = (host: HostDeps, path: string): string | null => {
   if (!host.exists(path)) return null;
   return host.realpath(path);
 };
 
-export const hasRootMarker = (host: HostDeps, path: string): boolean =>
-  MARKERS.some((marker) => host.exists(joinPath(path, marker)));
-
-export const nearestRoot = (host: HostDeps, path: string): string => {
+export const gitRoot = (
+  host: Pick<HostDeps, "exec" | "isDirectory">,
+  path: string,
+): string | null => {
   const start = host.isDirectory(path) ? path : dirname(path);
-  let current = start;
-  for (;;) {
-    if (hasRootMarker(host, current)) return current;
-    const parent = dirname(current);
-    if (parent === current) return start;
-    current = parent;
+  try {
+    const root = host
+      .exec("git", ["-C", start, "rev-parse", "--show-toplevel"])
+      .trim();
+    return root.length > 0 ? root : null;
+  } catch {
+    return null;
   }
 };
+
+export const nearestRoot = (
+  host: Pick<HostDeps, "exec" | "isDirectory">,
+  path: string,
+): string =>
+  gitRoot(host, path) ?? (host.isDirectory(path) ? path : dirname(path));
 
 export const sandboxPath = (
   host: HostDeps,

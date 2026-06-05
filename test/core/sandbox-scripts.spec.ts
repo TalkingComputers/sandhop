@@ -62,7 +62,7 @@ test("buildClaudePreSeedScript merges onboarding, trust, API approval, and keeps
   expect(parsed.mcpServers).toEqual({ keep: { command: "node" } });
 });
 
-test("buildCodexPreSeedScript writes root policy and trusts the sandbox cwd", () => {
+test("buildCodexPreSeedScript writes auth store and trust while preserving user policy", () => {
   const home = mkdtempSync(join(tmpdir(), "sandhop-codex-preseed-"));
   mkdirSync(join(home, ".codex"), { recursive: true });
   writeFileSync(
@@ -70,6 +70,7 @@ test("buildCodexPreSeedScript writes root policy and trusts the sandbox cwd", ()
     [
       'model = "gpt-5.4"',
       'approval_policy = "on-request"',
+      'sandbox_mode = "workspace-write"',
       "",
       "[mcp_servers.local]",
       'command = "node"',
@@ -81,14 +82,15 @@ test("buildCodexPreSeedScript writes root policy and trusts the sandbox cwd", ()
 
   const text = readFileSync(join(home, ".codex", "config.toml"), "utf8");
   expect(text).toContain('model = "gpt-5.4"');
-  expect(text).toContain('approval_policy = "never"');
-  expect(text).toContain('sandbox_mode = "danger-full-access"');
+  expect(text).toContain('approval_policy = "on-request"');
+  expect(text).toContain('sandbox_mode = "workspace-write"');
   expect(text).toContain('cli_auth_credentials_store = "file"');
   expect(text).toContain("[mcp_servers.local]");
   expect(text).toContain(
     '[projects."/workspace/project"]\ntrust_level = "trusted"',
   );
-  expect(text).not.toContain('approval_policy = "on-request"');
+  expect(text).not.toContain('approval_policy = "never"');
+  expect(text).not.toContain('sandbox_mode = "danger-full-access"');
 });
 
 test("buildPruneMcpTablesScript removes stale Codex MCP tables", () => {

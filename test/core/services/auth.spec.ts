@@ -36,13 +36,22 @@ test("AuthService ships non-empty Codex auth file or OpenAI env token", () => {
       new FakeHost({
         home: "/home/local",
         env: {},
-        files: { "/home/local/.codex/auth.json": "{}" },
+        files: {
+          "/home/local/.codex/auth.json": "{}",
+          "/home/local/.codex/config.toml": 'approval_policy = "on-request"\n',
+        },
       }),
       CODEX,
     ).extract(),
   ).toEqual({
     envs: {},
-    files: [{ path: "$HOME/.codex/auth.json", content: "{}" }],
+    files: [
+      { path: "$HOME/.codex/auth.json", content: "{}" },
+      {
+        path: "$HOME/.codex/config.toml",
+        content: 'approval_policy = "on-request"\n',
+      },
+    ],
   });
 
   expect(

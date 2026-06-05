@@ -48,6 +48,12 @@ test("ScriptCaptureService maps local scripts from Claude settings and rewrites 
       "/home/local/bin/api-key-helper.sh": "#!/bin/sh\n",
       "/home/local/work/scripts/project-hook.py": "#!/usr/bin/env python\n",
     },
+    execValues: {
+      "git -C /home/local/hook-app/bin rev-parse --show-toplevel":
+        "/home/local/hook-app\n",
+      "git -C /home/local/hook-app rev-parse --show-toplevel":
+        "/home/local/hook-app\n",
+    },
   });
 
   const plan = new ScriptCaptureService(host).plan(

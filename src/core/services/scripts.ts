@@ -7,9 +7,8 @@ import { expandEnv, joinPath, normalizePath } from "../paths.js";
 import type { HostDeps } from "../ports/host.js";
 import { installCmd } from "./mcp-classify.js";
 import {
-  hasRootMarker,
+  gitRoot,
   maybeRealpath,
-  nearestRoot,
   remapValue,
   sandboxPath,
   type PathMapping,
@@ -61,8 +60,8 @@ const expandTokenPath = (
 };
 
 const readScriptRoot = (host: HostDeps, localPath: string): string => {
-  const root = nearestRoot(host, localPath);
-  return hasRootMarker(host, root) ? root : localPath;
+  const root = gitRoot(host, localPath);
+  return root ?? localPath;
 };
 
 const readScriptTokens = (
@@ -214,7 +213,7 @@ export class ScriptCaptureService {
     }));
     const installCmds = mappings.flatMap((mapping) =>
       this.host.isDirectory(mapping.localPath) &&
-      hasRootMarker(this.host, mapping.localPath)
+      gitRoot(this.host, mapping.localPath) !== null
         ? installCmd(this.host, mapping.localPath, mapping.sandboxPath)
         : [],
     );

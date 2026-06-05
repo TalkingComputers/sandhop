@@ -177,7 +177,12 @@ const formatMcpConfig = (servers: McpServer[]): McpConfigWrite => {
 
 const authEnv = (deps: AgentHostDeps): AuthBundle => {
   const authJson = deps.readFile(`${deps.home}/.codex/auth.json`);
+  const configToml = deps.readFile(`${deps.home}/.codex/config.toml`);
   const envs: Record<string, string> = {};
+  const configFiles =
+    configToml === null
+      ? []
+      : [{ path: "$HOME/.codex/config.toml", content: configToml }];
   const apiKey = deps.env.OPENAI_API_KEY;
   if (apiKey !== undefined) envs.OPENAI_API_KEY = apiKey;
   const codexApiKey = deps.env.CODEX_API_KEY;
@@ -185,7 +190,10 @@ const authEnv = (deps: AgentHostDeps): AuthBundle => {
   if (authJson !== null && authJson.trim().length > 0)
     return {
       envs,
-      files: [{ path: "$HOME/.codex/auth.json", content: authJson }],
+      files: [
+        { path: "$HOME/.codex/auth.json", content: authJson },
+        ...configFiles,
+      ],
     };
   const codexHome = `${deps.home}/.codex`;
   if (deps.exists(codexHome)) {
@@ -194,10 +202,13 @@ const authEnv = (deps: AgentHostDeps): AuthBundle => {
     if (keychainJson !== null && keychainJson.trim().length > 0)
       return {
         envs,
-        files: [{ path: "$HOME/.codex/auth.json", content: keychainJson }],
+        files: [
+          { path: "$HOME/.codex/auth.json", content: keychainJson },
+          ...configFiles,
+        ],
       };
   }
-  if (Object.keys(envs).length > 0) return { envs, files: [] };
+  if (Object.keys(envs).length > 0) return { envs, files: configFiles };
   throw new Error(
     "No Codex credential at ~/.codex/auth.json, OS keychain, OPENAI_API_KEY, or CODEX_API_KEY",
   );

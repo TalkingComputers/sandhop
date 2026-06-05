@@ -30,6 +30,9 @@ command = "/Applications/Foo.app/Contents/MacOS/foo"
       "/home/local/mcp/server.js": "#!/usr/bin/env node\n",
       "/Applications/Foo.app/Contents/MacOS/foo": "binary",
     },
+    execValues: {
+      "git -C /home/local/mcp rev-parse --show-toplevel": "/home/local/mcp\n",
+    },
   });
 
   const plan = new McpCodeService(host, CODEX).plan(
@@ -98,6 +101,11 @@ cwd = "/home/local/py"
       "/home/local/py/uv.lock": "",
       "/home/local/py/server.py": "#!/usr/bin/env python\n",
     },
+    execValues: {
+      "git -C /home/local/bun-app rev-parse --show-toplevel":
+        "/home/local/bun-app\n",
+      "git -C /home/local/py rev-parse --show-toplevel": "/home/local/py\n",
+    },
   });
 
   const plan = new McpCodeService(host, CODEX).plan(
@@ -132,6 +140,9 @@ cwd = "/home/local/mcp"
       "/home/local/mcp/package-lock.json": "{}",
       "/home/local/mcp/server.js": "",
       "/home/local/mcp/node_modules/pkg/index.js": "",
+    },
+    execValues: {
+      "git -C /home/local/mcp rev-parse --show-toplevel": "/home/local/mcp\n",
     },
   });
 

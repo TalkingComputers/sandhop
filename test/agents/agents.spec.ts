@@ -71,9 +71,14 @@ test("Codex preSeed preserves existing config and trusts the sandbox cwd", () =>
     },
   );
 
-  expect(readFileSync(join(home, ".codex", "config.toml"), "utf8")).toContain(
+  const config = readFileSync(join(home, ".codex", "config.toml"), "utf8");
+  expect(config).toContain('model = "gpt-5.4"');
+  expect(config).toContain('cli_auth_credentials_store = "file"');
+  expect(config).toContain(
     '[projects."/home/user/project"]\ntrust_level = "trusted"',
   );
+  expect(config).not.toContain("approval_policy");
+  expect(config).not.toContain("sandbox_mode");
 });
 
 test("Claude agent parses user, project, and cwd MCP server configs", () => {
