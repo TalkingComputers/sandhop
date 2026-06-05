@@ -9,6 +9,7 @@ export * from "./core/ports/provider.js";
 export * from "./core/ports/transport.js";
 export * from "./core/services/auth.js";
 export * from "./core/services/bootstrap.js";
+export * from "./core/services/git-ssh.js";
 export * from "./core/services/mcp-code.js";
 export * from "./core/services/profile.js";
 export * from "./core/services/reinstall.js";

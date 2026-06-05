@@ -4,6 +4,7 @@ import { TTYD_PORT } from "../../../src/core/constants.js";
 import type { AuthBundle, SessionRef } from "../../../src/core/ports/agent.js";
 import type { Transport } from "../../../src/core/ports/transport.js";
 import { BootstrapService } from "../../../src/core/services/bootstrap.js";
+import type { SshCollector } from "../../../src/core/services/git-ssh.js";
 import { TeleportService } from "../../../src/core/services/teleport.js";
 import { PublicTransport } from "../../../src/transports/public.js";
 import { FakeHost } from "../../fakes/host.js";
@@ -19,6 +20,10 @@ class RealpathHost extends FakeHost {
     return path;
   }
 }
+
+const emptyGitSsh: SshCollector = {
+  collect: () => ({ files: [], dirs: [] }),
+};
 
 test("TeleportService fast core fans out collection, transfers one gzip bundle, starts HTTPS ttyd with native resume, and skips enrichment", async () => {
   let inFlight = 0;
@@ -61,9 +66,12 @@ test("TeleportService fast core fans out collection, transfers one gzip bundle, 
     auth: { extract: () => track(auth) },
     version: { detect: () => track("2.1.160") },
     bootstrap: new BootstrapService(CLAUDE_CODE),
+    gitSsh: emptyGitSsh,
   });
 
   const result = await service.run("/workspace/project", {
+    excludes: [],
+    includes: [],
     transport: new PublicTransport(),
     timeoutMs: 3_600_000,
   });
@@ -167,9 +175,12 @@ test("TeleportService injects transport bootstrap steps and loopback ttyd bind",
     },
     version: { detect: async () => "2.1.160" },
     bootstrap: new BootstrapService(CLAUDE_CODE),
+    gitSsh: emptyGitSsh,
   });
 
   const result = await service.run("/workspace/project", {
+    excludes: [],
+    includes: [],
     transport: cloudflaredTransport,
     timeoutMs: 3_600_000,
   });
@@ -221,9 +232,12 @@ test("TeleportService uploads core secret and auth files but leaves MCP code to 
     },
     version: { detect: async () => "2.1.160" },
     bootstrap: new BootstrapService(CLAUDE_CODE),
+    gitSsh: emptyGitSsh,
   });
 
   await service.run("/workspace/project", {
+    excludes: [],
+    includes: [],
     transport: new PublicTransport(),
     timeoutMs: 3_600_000,
   });
@@ -282,12 +296,103 @@ test("TeleportService restore failure surfaces stdout when stderr is empty", asy
     },
     version: { detect: async () => "2.1.160" },
     bootstrap: new BootstrapService(CLAUDE_CODE),
+    gitSsh: emptyGitSsh,
   });
 
   await expect(
     service.run("/workspace/project", {
+      excludes: [],
+      includes: [],
       transport: new PublicTransport(),
       timeoutMs: 3_600_000,
     }),
   ).rejects.toThrow("Restore failed: daytona npm EACCES output");
+});
+
+test("TeleportService ships SSH bundle, bundle excludes, and mirrored includes", async () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: {
+      "/home/local/external.txt": "external",
+      "/opt/shared/file.txt": "shared",
+    },
+    bytes: {
+      "/home/local/.claude/projects/-workspace-project/session-id.jsonl":
+        encoder.encode("transcript"),
+    },
+  });
+  const provider = new FakeProvider();
+  const session: SessionRef = {
+    sessionId: "session-id",
+    transcriptPath:
+      "/home/local/.claude/projects/-workspace-project/session-id.jsonl",
+    transcriptName: "session-id.jsonl",
+  };
+  const gitSsh: SshCollector = {
+    collect: () => ({
+      dirs: ["$HOME/.ssh"],
+      files: [
+        { path: "$HOME/.ssh/id_git", content: "PRIVATE", mode: "600" },
+        { path: "$HOME/.ssh/id_git.pub", content: "PUBLIC", mode: "644" },
+        {
+          path: "$HOME/.ssh/known_hosts",
+          content: "github.com ssh-ed25519 AAA\n",
+          mode: "644",
+        },
+        { path: "$HOME/.ssh/config", content: "CONFIG", mode: "600" },
+      ],
+    }),
+  };
+  const service = new TeleportService(provider, CLAUDE_CODE, {
+    host,
+    session: { latest: async () => session, byId: async () => session },
+    secrets: { collect: async () => ({ envs: {}, files: [] }) },
+    auth: {
+      extract: async () => ({
+        envs: { ANTHROPIC_API_KEY: "sk-ant-api03-test" },
+        files: [],
+      }),
+    },
+    version: { detect: async () => "2.1.160" },
+    bootstrap: new BootstrapService(CLAUDE_CODE),
+    gitSsh,
+  });
+
+  await service.run("/workspace/project", {
+    excludes: ["node_modules", "dist"],
+    includes: [
+      "/home/local/external.txt",
+      "/missing/path",
+      "/opt/shared/file.txt",
+    ],
+    transport: new PublicTransport(),
+    timeoutMs: 3_600_000,
+  });
+
+  expect(host.spawnPipeCalls[0]).toContain("--exclude 'node_modules'");
+  expect(host.spawnPipeCalls[0]).toContain("--exclude 'dist'");
+  expect(host.spawnPipeCalls[1]).toContain("-czf '/tmp/sandhop-include-0-");
+  expect(host.spawnPipeCalls[1]).toContain("-C '/home/local' 'external.txt'");
+  expect(provider.sandbox.execs[2]).toContain("tar -xzf");
+  expect(provider.sandbox.execs[2]).toContain("-C '/home/user'");
+  expect(host.spawnPipeCalls[2]).toContain("-czf '/tmp/sandhop-include-2-");
+  expect(host.spawnPipeCalls[2]).toContain("-C '/opt/shared' 'file.txt'");
+  expect(provider.sandbox.execs[3]).toContain("-C '/opt/shared'");
+  expect(provider.sandbox.uploads).toContainEqual({
+    path: "/home/user/.ssh/id_git",
+    data: "PRIVATE",
+  });
+  expect(provider.sandbox.uploads).toContainEqual({
+    path: "/home/user/.ssh/config",
+    data: "CONFIG",
+  });
+  expect(provider.sandbox.execs[4]).toContain("mkdir -p '/home/user/.ssh'");
+  expect(provider.sandbox.execs[4]).toContain("chmod 700 '/home/user/.ssh'");
+  expect(provider.sandbox.execs[4]).toContain(
+    "chmod 600 '/home/user/.ssh/id_git'",
+  );
+  expect(provider.sandbox.execs[4]).toContain(
+    "chmod 644 '/home/user/.ssh/known_hosts'",
+  );
 });

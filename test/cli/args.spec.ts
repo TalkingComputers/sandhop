@@ -11,6 +11,8 @@ test("parseArgs keeps push defaults and flags", () => {
   expect(parseArgs([], "/workspace/project")).toMatchObject({
     cmd: "push",
     cwd: "/workspace/project",
+    excludes: [],
+    includes: [],
     profile: true,
     provider: undefined,
     transport: undefined,
@@ -33,10 +35,40 @@ test("parseArgs keeps push defaults and flags", () => {
   });
 });
 
+test("parseArgs reads repeated comma-split exclude and include flags", () => {
+  expect(
+    parseArgs(
+      [
+        "push",
+        "--exclude",
+        "node_modules,dist",
+        "--exclude",
+        ".cache",
+        "--include",
+        "/Users/parsa/.cache/tool",
+        "--include",
+        "/opt/large,/tmp/shared",
+      ],
+      "/workspace/project",
+    ),
+  ).toMatchObject({
+    excludes: ["node_modules", "dist", ".cache"],
+    includes: ["/Users/parsa/.cache/tool", "/opt/large", "/tmp/shared"],
+  });
+  expect(() => parseArgs(["push", "--exclude"], "/workspace/project")).toThrow(
+    "--exclude requires a value",
+  );
+  expect(() => parseArgs(["push", "--include"], "/workspace/project")).toThrow(
+    "--include requires a value",
+  );
+});
+
 test("parseArgs reads setup command", () => {
   expect(parseArgs(["setup"], "/workspace/project")).toMatchObject({
     cmd: "setup",
     cwd: "/workspace/project",
+    excludes: [],
+    includes: [],
     provider: undefined,
     transport: undefined,
   });

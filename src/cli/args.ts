@@ -13,6 +13,8 @@ export interface ParsedArgs {
   cwd: string;
   provider?: ProviderId;
   transport?: SandhopTransport;
+  excludes: string[];
+  includes: string[];
   profile: boolean;
   strict: boolean;
 }
@@ -82,6 +84,24 @@ const readOptionalProvider = (
 ): ProviderId | undefined =>
   value === undefined ? undefined : readProvider(value);
 
+const readCsvFlags = (argv: string[], name: string): string[] => {
+  const values: string[] = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    if (argv[index] !== name) continue;
+    const value = argv[index + 1];
+    if (value === undefined || value === "" || value.startsWith("--"))
+      throw new Error(`${name} requires a value`);
+    values.push(...value.split(",").filter((item) => item.length > 0));
+  }
+  return values;
+};
+
+export const readExcludes = (argv: string[]): string[] =>
+  readCsvFlags(argv, "--exclude");
+
+export const readIncludes = (argv: string[]): string[] =>
+  readCsvFlags(argv, "--include");
+
 const readCmd = (value: string | undefined): ParsedArgs["cmd"] => {
   if (value === "list" || value === "kill" || value === "setup") return value;
   return "push";
@@ -99,6 +119,8 @@ export const parseArgs = (argv: string[], cwd: string): ParsedArgs => {
     transport: readOptionalTransport(
       argv.includes("--tunnel") ? readFlag(argv, "--tunnel") : undefined,
     ),
+    excludes: readExcludes(argv),
+    includes: readIncludes(argv),
     profile: !argv.includes("--no-profile"),
     strict: argv.includes("--strict"),
   };

@@ -10,6 +10,7 @@ import { CredentialError } from "../core/errors.js";
 import type { Agent } from "../core/ports/agent.js";
 import { AuthService } from "../core/services/auth.js";
 import { BootstrapService } from "../core/services/bootstrap.js";
+import { GitSshService } from "../core/services/git-ssh.js";
 import { SecretsService } from "../core/services/secrets.js";
 import { SessionService } from "../core/services/session.js";
 import { TeleportService } from "../core/services/teleport.js";
@@ -23,26 +24,23 @@ import {
   readTransport,
   type ParsedArgs,
 } from "./args.js";
-import {
-  applyConfigToEnv,
-  loadConfig,
-  type SandhopTransport,
-} from "./config.js";
+import { applyConfigToEnv, loadConfig } from "./config.js";
 import { buildHost } from "./host.js";
 import { runSetup } from "./setup.js";
 
-type RuntimeArgs = Omit<ParsedArgs, "provider" | "transport"> & {
+type RuntimeArgs = Omit<ParsedArgs, "provider"> & {
   provider: ProviderId;
-  transport: SandhopTransport;
 };
 
-const withRuntimeDefaults = (args: ParsedArgs, host: NodeHost): RuntimeArgs => {
+export const withRuntimeDefaults = (
+  args: ParsedArgs,
+  host: NodeHost,
+): RuntimeArgs => {
   const config = loadConfig(host.home);
   if (config !== null) applyConfigToEnv(config, host.env);
   return {
     ...args,
     provider: args.provider ?? readProvider(host.env["SANDHOP_PROVIDER"]),
-    transport: args.transport ?? readTransport(host.env["SANDHOP_TRANSPORT"]),
   };
 };
 
@@ -52,6 +50,8 @@ const runPush = async (
   onProgress: (msg: string) => void,
 ): Promise<void> => {
   const provider = buildProvider(args.provider, host);
+  const transport =
+    args.transport ?? readTransport(host.env["SANDHOP_TRANSPORT"]);
   const detected =
     args.agent === undefined ? detectAgents(host, args.cwd) : undefined;
   let agent: Agent;
@@ -77,10 +77,13 @@ const runPush = async (
     auth: new AuthService(host, agent),
     version: new VersionService(host, agent),
     bootstrap: new BootstrapService(agent),
+    gitSsh: new GitSshService(host),
   });
   const result = await service.run(args.cwd, {
     sessionId: args.session,
-    transport: buildTransport(args, host.env),
+    transport: buildTransport({ transport }, host.env),
+    excludes: args.excludes,
+    includes: args.includes,
     timeoutMs: 3_600_000,
     onProgress,
   });

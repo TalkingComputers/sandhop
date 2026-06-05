@@ -3,12 +3,13 @@ import { TTYD_PORT } from "../constants.js";
 import { expandHome } from "../paths.js";
 import type { Agent } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
-import type { SandboxProvider } from "../ports/provider.js";
+import type { Sandbox, SandboxProvider } from "../ports/provider.js";
 import type { Transport } from "../ports/transport.js";
 import { randomToken } from "../rand.js";
 import { shellQuote } from "../shell.js";
 import type { AuthExtractor } from "./auth.js";
 import type { BootstrapService } from "./bootstrap.js";
+import type { SshBundle, SshCollector } from "./git-ssh.js";
 import type { SecretsCollector } from "./secrets.js";
 import type { SessionReader } from "./session.js";
 import { TransferService } from "./transfer.js";
@@ -24,6 +25,8 @@ export interface TeleportResult {
 export interface TeleportOptions {
   sessionId?: string;
   transport: Transport;
+  excludes: string[];
+  includes: string[];
   timeoutMs: number;
   onProgress?: (msg: string) => void;
 }
@@ -34,6 +37,7 @@ export interface TeleportServices {
     | "env"
     | "exists"
     | "fileSize"
+    | "home"
     | "isDirectory"
     | "cpuCount"
     | "readBytes"
@@ -47,7 +51,42 @@ export interface TeleportServices {
   auth: AuthExtractor;
   version: VersionDetector;
   bootstrap: BootstrapService;
+  gitSsh: SshCollector;
 }
+
+const mirrorPath = (
+  path: string,
+  hostHome: string,
+  sandboxHome: string,
+): string => {
+  if (path === hostHome) return sandboxHome;
+  const homePrefix = `${hostHome}/`;
+  if (path.startsWith(homePrefix))
+    return `${sandboxHome}/${path.slice(homePrefix.length)}`;
+  return path;
+};
+
+const chmodSshBundle = async (
+  sandbox: Sandbox,
+  bundle: SshBundle,
+): Promise<void> => {
+  if (bundle.files.length === 0) return;
+  for (const file of bundle.files)
+    await sandbox.uploadFile(expandHome(file.path, sandbox.home), file.content);
+  const dirs = bundle.dirs.map((dir) =>
+    shellQuote(expandHome(dir, sandbox.home)),
+  );
+  await sandbox.exec(
+    [
+      ...dirs.map((dir) => `mkdir -p ${dir}`),
+      ...(dirs.length === 0 ? [] : [`chmod 700 ${dirs.join(" ")}`]),
+      ...bundle.files.map(
+        (file) =>
+          `chmod ${file.mode} ${shellQuote(expandHome(file.path, sandbox.home))}`,
+      ),
+    ].join("; "),
+  );
+};
 
 export class TeleportService {
   readonly provider: SandboxProvider;
@@ -68,15 +107,17 @@ export class TeleportService {
     const user = this.services.host.username;
     const pass = randomToken(24);
     opts.onProgress?.("snapshotting");
-    const [bundle, session, baseSecrets, auth, cliVersion] = await Promise.all([
-      this.services.host.realpath(cwd),
-      opts.sessionId === undefined
-        ? this.services.session.latest(cwd)
-        : this.services.session.byId(cwd, opts.sessionId),
-      this.services.secrets.collect(cwd),
-      this.services.auth.extract(),
-      this.services.version.detect(),
-    ]);
+    const [bundle, session, baseSecrets, auth, cliVersion, sshBundle] =
+      await Promise.all([
+        this.services.host.realpath(cwd),
+        opts.sessionId === undefined
+          ? this.services.session.latest(cwd)
+          : this.services.session.byId(cwd, opts.sessionId),
+        this.services.secrets.collect(cwd),
+        this.services.auth.extract(),
+        this.services.version.detect(),
+        this.services.gitSsh.collect(cwd),
+      ]);
     const manifest = buildManifest({
       agent: this.agent.id,
       cliVersion,
@@ -97,8 +138,18 @@ export class TeleportService {
     const transfer = new TransferService(this.services.host, sandbox);
     await transfer.send(bundle, manifest.remoteProj, "bundle", {
       codec: "gzip",
-      excludes: [],
+      excludes: opts.excludes,
     });
+    for (const [index, include] of opts.includes.entries()) {
+      if (!this.services.host.exists(include)) continue;
+      const realInclude = this.services.host.realpath(include);
+      await transfer.send(
+        realInclude,
+        mirrorPath(realInclude, this.services.host.home, sandbox.home),
+        `include-${index}`,
+        { codec: "gzip", excludes: [] },
+      );
+    }
     await sandbox.uploadFile(
       "/tmp/transcript.jsonl",
       this.services.host.readBytes(session.transcriptPath),
@@ -113,6 +164,7 @@ export class TeleportService {
         expandHome(file.path, sandbox.home),
         file.content,
       );
+    await chmodSshBundle(sandbox, sshBundle);
     opts.onProgress?.(
       `installing ${this.agent.pkg}@${manifest.cliVersion} + ttyd`,
     );
