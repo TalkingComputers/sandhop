@@ -33,7 +33,13 @@ const readJsonRecord = (
 ): Record<string, unknown> | null => {
   const text = host.readFile(path);
   if (text === null) return null;
-  const parsed = JSON.parse(text) as unknown;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text) as unknown;
+  } catch (error: unknown) {
+    if (error instanceof SyntaxError) return null;
+    throw error;
+  }
   if (!isRecord(parsed)) throw new Error(`Expected JSON object at ${path}`);
   return parsed;
 };

@@ -1,7 +1,10 @@
+import { homedir } from "node:os";
 import { NodeHost } from "../host/node.js";
 
 export const buildHost = (): NodeHost => {
-  const home = process.env["HOME"];
-  if (home === undefined) throw new Error("HOME is required");
-  return new NodeHost(process.env, home);
+  if (process.platform === "win32")
+    throw new Error(
+      "sandhop requires a POSIX environment (macOS/Linux). On Windows, run it under WSL.",
+    );
+  return new NodeHost(process.env, homedir());
 };

@@ -1,6 +1,7 @@
 import { formatErrorStack } from "../errors.js";
 import { expandHome, makeTempPath } from "../paths.js";
 import type { Agent } from "../ports/agent.js";
+import type { HostDeps } from "../ports/host.js";
 import type { RunResult, Sandbox } from "../ports/provider.js";
 import type { BootstrapService, EnrichmentStepResult } from "./bootstrap.js";
 import type { CodePlan } from "./mcp-code.js";
@@ -65,6 +66,7 @@ const recordScriptStep = async (
 
 export class EnrichmentService {
   readonly agent: Agent;
+  readonly host: Pick<HostDeps, "hasZstd">;
   readonly sandbox: Sandbox;
   readonly transfer: TransferService;
   readonly profile: ProfileService;
@@ -76,6 +78,7 @@ export class EnrichmentService {
 
   constructor(agent: Agent, services: EnrichmentServices) {
     this.agent = agent;
+    this.host = services.host;
     this.sandbox = services.sandbox;
     this.transfer = services.transfer;
     this.profile = services.profile;
@@ -159,7 +162,7 @@ export class EnrichmentService {
     const profileTree = await this.profile.build(makeTempPath("profile"));
     if (profileTree !== null)
       await this.transfer.send(profileTree, this.sandbox.home, "profile", {
-        codec: "zstd",
+        codec: this.host.hasZstd() ? "zstd" : "gzip",
         lowPriority: true,
       });
   }
@@ -177,7 +180,7 @@ export class EnrichmentService {
           mapping.sandboxPath,
           `settings-scripts-${index}`,
           {
-            codec: "zstd",
+            codec: this.host.hasZstd() ? "zstd" : "gzip",
             lowPriority: true,
             excludes: ["node_modules", ".venv"],
           },
@@ -199,7 +202,7 @@ export class EnrichmentService {
           mapping.sandboxPath,
           `mcp-${index}`,
           {
-            codec: "zstd",
+            codec: this.host.hasZstd() ? "zstd" : "gzip",
             lowPriority: true,
           },
         ),
@@ -225,6 +228,7 @@ export class EnrichmentService {
 }
 
 export interface EnrichmentServices {
+  host: Pick<HostDeps, "hasZstd">;
   sandbox: Sandbox;
   transfer: TransferService;
   profile: ProfileService;

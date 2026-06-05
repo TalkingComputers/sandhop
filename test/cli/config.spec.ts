@@ -65,6 +65,40 @@ test("loadConfig throws a friendly error on invalid JSON", () => {
   expect(() => loadConfig(home)).toThrow(`Invalid sandhop config at ${path}`);
 });
 
+test("loadConfig throws a friendly error on wrong-shaped JSON", () => {
+  const home = makeHome();
+  const path = configPath(home);
+  mkdirSync(path.slice(0, path.lastIndexOf("/")), { recursive: true });
+  writeFileSync(
+    path,
+    JSON.stringify({
+      defaultProvider: "bogus",
+      transport: "ssh",
+      credentials: { E2B_API_KEY: 1 },
+    }),
+  );
+
+  expect(() => loadConfig(home)).toThrow(`Invalid sandhop config at ${path}`);
+});
+
+test("loadConfig rejects missing and non-string credentials", () => {
+  const home = makeHome();
+  const path = configPath(home);
+  mkdirSync(path.slice(0, path.lastIndexOf("/")), { recursive: true });
+
+  for (const text of [
+    JSON.stringify({ defaultProvider: "e2b", transport: "public" }),
+    JSON.stringify({
+      defaultProvider: "e2b",
+      transport: "public",
+      credentials: { E2B_API_KEY: 1 },
+    }),
+  ]) {
+    writeFileSync(path, text);
+    expect(() => loadConfig(home)).toThrow(`Invalid sandhop config at ${path}`);
+  }
+});
+
 test("applyConfigToEnv sets missing values, preserves existing values, and applies defaults", () => {
   const env: Record<string, string | undefined> = {
     E2B_API_KEY: "env-key",

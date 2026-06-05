@@ -19,7 +19,15 @@ const vercelMocks = vi.hoisted(() => {
   const writeFiles = vi.fn(async () => undefined);
   const domain = vi.fn((port: number) => `https://vercel-${port}.example`);
   const stop = vi.fn(async () => undefined);
-  const sandbox = {
+  const sandbox: {
+    name: string;
+    createdAt: Date | string;
+    runCommand: typeof runCommand;
+    mkDir: typeof mkDir;
+    writeFiles: typeof writeFiles;
+    domain: typeof domain;
+    stop: typeof stop;
+  } = {
     name: "sdk-name",
     createdAt: new Date("2026-06-01T00:00:00Z"),
     runCommand,
@@ -47,6 +55,7 @@ const vercelMocks = vi.hoisted(() => {
     stderr,
     stop,
     stdout,
+    sandbox,
     writeFiles,
   };
 });
@@ -76,6 +85,7 @@ const VERCEL_RUNTIME = vercelRuntime();
 const loadProvider = async () => {
   vi.resetModules();
   vi.clearAllMocks();
+  vercelMocks.sandbox.createdAt = new Date("2026-06-01T00:00:00Z");
   vi.doMock("@vercel/sandbox", () => ({ Sandbox: vercelMocks.Sandbox }));
   return import("../../src/providers/vercel/index.js");
 };
@@ -249,6 +259,18 @@ test("VercelSandboxProvider lists and destroys sandboxes by name", async () => {
     name: "sandhop-existing",
   });
   expect(vercelMocks.stop).toHaveBeenCalled();
+});
+
+test("VercelSandboxProvider maps invalid createdAt to epoch", async () => {
+  const { VercelSandboxProvider } = await loadProvider();
+  vercelMocks.sandbox.createdAt = "not-a-date";
+  const provider = new VercelSandboxProvider(
+    new FakeHost({ home: "/home/local", env }),
+  );
+
+  await expect(provider.list()).resolves.toEqual([
+    { id: "sdk-name", startedAt: new Date(0) },
+  ]);
 });
 
 test("VercelSandboxProvider destroy returns false when sandbox is missing", async () => {

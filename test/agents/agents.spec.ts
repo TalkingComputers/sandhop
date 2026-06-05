@@ -196,6 +196,44 @@ url = "https://example.com/mcp"
   ]);
 });
 
+test("Codex env refs return raw refs when TOML parsing fails", () => {
+  expect(CODEX.mcpEnvRefs('token = "${TOKEN}"\n[')).toEqual(["TOKEN"]);
+});
+
+test("Codex MCP parsing skips malformed TOML files and keeps valid servers", () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: {
+      "/home/local/.codex/config.toml": "[",
+      "/workspace/project/.codex/config.toml": `
+[mcp_servers.cwd]
+command = "node"
+args = ["server.js"]
+`,
+    },
+  });
+  const reverseHost = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: {
+      "/home/local/.codex/config.toml": `
+[mcp_servers.home]
+command = "node"
+args = ["server.js"]
+`,
+      "/workspace/project/.codex/config.toml": "[",
+    },
+  });
+
+  expect(CODEX.parseMcpServers(host, "/workspace/project")).toEqual([
+    { name: "cwd", transport: "stdio", command: "node", args: ["server.js"] },
+  ]);
+  expect(CODEX.parseMcpServers(reverseHost, "/workspace/project")).toEqual([
+    { name: "home", transport: "stdio", command: "node", args: ["server.js"] },
+  ]);
+});
+
 test("Codex agent parses multiline args arrays before localhost classification", () => {
   const host = new FakeHost({
     home: "/home/local",

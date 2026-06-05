@@ -102,6 +102,43 @@ test("ReinstallService quotes marketplace and plugin metacharacters", () => {
   ]);
 });
 
+test("ReinstallService treats corrupt plugin and settings JSON as absent", () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: {
+      "/home/local/.claude/plugins/known_marketplaces.json": JSON.stringify({
+        official: {
+          source: { source: "github", repo: "anthropics/claude-plugins" },
+        },
+      }),
+      "/home/local/.claude/plugins/installed_plugins.json": "{",
+      "/home/local/.claude/settings.json": "{",
+    },
+  });
+
+  expect(new ReinstallService(host, CLAUDE_CODE).plan().commands).toEqual([
+    "claude plugin marketplace add 'anthropics/claude-plugins'",
+  ]);
+});
+
+test("ReinstallService treats corrupt marketplaces JSON as absent", () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: {
+      "/home/local/.claude/plugins/known_marketplaces.json": "{",
+      "/home/local/.claude/plugins/installed_plugins.json": JSON.stringify({
+        plugins: { "serena@official": [] },
+      }),
+    },
+  });
+
+  expect(new ReinstallService(host, CLAUDE_CODE).plan().commands).toEqual([
+    "claude plugin install 'serena@official' --scope user",
+  ]);
+});
+
 test("ReinstallService leaves Codex profiles to MCP enrichment", () => {
   const host = new FakeHost({
     home: "/home/local",

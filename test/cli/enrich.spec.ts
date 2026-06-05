@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import { afterEach, expect, test, vi } from "vitest";
 import type { RunResult } from "../../src/core/ports/provider.js";
 import type { EnrichmentStepResult } from "../../src/core/services/bootstrap.js";
@@ -125,7 +126,7 @@ cwd = "/home/local/mcp"
           /\/tmp\/sandhop-profile-.+\.part\.000000$/,
         ),
         localPath: expect.stringMatching(
-          /\/tmp\/sandhop-profile-.+\.part\.000000$/,
+          new RegExp(`${tmpdir()}/sandhop-profile-.+\\.part\\.000000$`),
         ),
       },
       {
@@ -133,7 +134,7 @@ cwd = "/home/local/mcp"
           /\/tmp\/sandhop-mcp-0-.+\.part\.000000$/,
         ),
         localPath: expect.stringMatching(
-          /\/tmp\/sandhop-mcp-0-.+\.part\.000000$/,
+          new RegExp(`${tmpdir()}/sandhop-mcp-0-.+\\.part\\.000000$`),
         ),
       },
     ]),
@@ -163,6 +164,43 @@ cwd = "/home/local/mcp"
   expect(execLog).toContain('cat >> "$HOME/.codex/config.toml"');
   expect(execLog).toContain("/home/user/mcp/server.js");
   expect(enrichmentExec).toContain("[sandhop] enrichment summary");
+});
+
+test("runEnrichment uses gzip transfers when host zstd is unavailable", async () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    zstdAvailable: false,
+    files: {
+      "/home/local/.codex/config.toml": `
+[mcp_servers.local]
+command = "node"
+args = ["/home/local/mcp/server.js"]
+cwd = "/home/local/mcp"
+`,
+      "/home/local/mcp/package.json": "{}",
+      "/home/local/mcp/package-lock.json": "{}",
+      "/home/local/mcp/server.js": "",
+    },
+  });
+  const sandbox = new FakeSandbox("sbx-1", "/home/user");
+
+  await runEnrichment(
+    {
+      sandboxId: "sbx-1",
+      agent: "codex",
+      cwd: "/workspace/project",
+      profile: true,
+    },
+    host,
+    sandbox,
+  );
+
+  expect(host.spawnPipeCalls.join("\n")).not.toContain("zstd");
+  expect(host.spawnPipeCalls).toEqual(
+    expect.arrayContaining([expect.stringContaining("-czf ")]),
+  );
+  expect(sandbox.execs.join("\n")).toContain("gzip -t");
 });
 
 test("runEnrichment does not re-apply Codex preseed after profile transfer", async () => {

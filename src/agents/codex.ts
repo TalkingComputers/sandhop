@@ -114,7 +114,13 @@ const collectEnvRefsFromValue = (refs: Set<string>, value: TomlValue): void => {
 
 const readTomlEnvRefs = (text: string): string[] => {
   const refs = new Set<string>();
-  const parsed = parse(text);
+  for (const name of collectEnvRefs(text)) refs.add(name);
+  let parsed: TomlTable;
+  try {
+    parsed = parse(text);
+  } catch {
+    return [...refs].sort();
+  }
   const mcpServers = toTomlTable(parsed.mcp_servers, "mcp_servers");
   if (mcpServers !== undefined)
     for (const [name, value] of Object.entries(mcpServers)) {
@@ -161,7 +167,12 @@ const parseMcpServers = (deps: AgentMcpDeps, cwd: string): McpServer[] => {
   for (const file of files) {
     const text = deps.readFile(file);
     if (text === null) continue;
-    const parsed = parse(text);
+    let parsed: TomlTable;
+    try {
+      parsed = parse(text);
+    } catch {
+      continue;
+    }
     const mcpServers = toTomlTable(parsed.mcp_servers, "mcp_servers");
     if (mcpServers === undefined) continue;
     for (const [name, value] of Object.entries(mcpServers))

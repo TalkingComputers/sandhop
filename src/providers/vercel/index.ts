@@ -173,11 +173,13 @@ export class VercelSandboxProvider implements SandboxProvider {
     const credentials = this.credentials();
     const { Sandbox } = await this.sdk();
     const sandboxes: SandboxInfo[] = [];
-    for await (const sandbox of await Sandbox.list(credentials))
+    for await (const sandbox of await Sandbox.list(credentials)) {
+      const startedAt = new Date(sandbox.createdAt);
       sandboxes.push({
         id: sandbox.name,
-        startedAt: new Date(sandbox.createdAt),
+        startedAt: Number.isNaN(startedAt.getTime()) ? new Date(0) : startedAt,
       });
+    }
     return sandboxes;
   }
 

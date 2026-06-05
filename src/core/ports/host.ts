@@ -3,6 +3,7 @@ export interface HostDeps {
   home: string;
   username: string;
   cpuCount(): number;
+  hasZstd(): boolean;
   readFile(path: string): string | null;
   readBytes(path: string): Uint8Array;
   openBlob(path: string): Promise<Blob>;

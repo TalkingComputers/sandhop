@@ -56,7 +56,7 @@ export class McpCodeService {
       const classification = classify(this.host, server, paths);
       classifications.push({ name: server.name, kind: classification.kind });
       if (classification.kind === "excluded") {
-        excluded.push({ name: server.name, reason: classification.reason! });
+        excluded.push({ name: server.name, reason: classification.reason });
         continue;
       }
       if (classification.kind === "local-path") {

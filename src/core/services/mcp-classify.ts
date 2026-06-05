@@ -11,6 +11,10 @@ export type McpServerClassification =
   | "remote-url"
   | "excluded";
 
+type McpServerClassificationResult =
+  | { kind: "excluded"; reason: string }
+  | { kind: Exclude<McpServerClassification, "excluded"> };
+
 export type McpRuntime = "bun" | "uv";
 
 export interface ClassifiedServer {
@@ -258,7 +262,7 @@ export const classify = (
   host: HostDeps,
   server: McpServer,
   paths: string[],
-): { kind: McpServerClassification; reason?: string } => {
+): McpServerClassificationResult => {
   if (hasLocalBindValue(server))
     return {
       kind: "excluded",

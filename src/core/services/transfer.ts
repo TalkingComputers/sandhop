@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import pLimit from "p-limit";
 import { basename, dirname } from "../paths.js";
 import type { HostDeps } from "../ports/host.js";
@@ -29,12 +30,23 @@ export interface TransferOptions {
 const safeLabel = (label: string): string =>
   label.replace(/[^A-Za-z0-9.-]/g, "-");
 
-const makeArchivePath = (
+const makeArchiveName = (
   safe: string,
   id: string,
   codec: TransferCodec,
-): string =>
-  `/tmp/sandhop-${safe}-${id}.${codec === "gzip" ? "tar.gz" : "tar.zst"}`;
+): string => `sandhop-${safe}-${id}.${codec === "gzip" ? "tar.gz" : "tar.zst"}`;
+
+const makeLocalArchivePath = (
+  safe: string,
+  id: string,
+  codec: TransferCodec,
+): string => `${tmpdir()}/${makeArchiveName(safe, id, codec)}`;
+
+const makeRemoteArchivePath = (
+  safe: string,
+  id: string,
+  codec: TransferCodec,
+): string => `/tmp/${makeArchiveName(safe, id, codec)}`;
 
 const TAR_CREATE_SETUP = [
   "export COPYFILE_DISABLE=1",
@@ -154,8 +166,8 @@ export class TransferService {
     const sandboxDestDir = isDirectory
       ? sandboxDestPath
       : dirname(sandboxDestPath);
-    const archive = makeArchivePath(safe, id, codec);
-    const prefix = `/tmp/sandhop-${safe}-${id}.part.`;
+    const archive = makeLocalArchivePath(safe, id, codec);
+    const prefix = `${tmpdir()}/sandhop-${safe}-${id}.part.`;
     let chunks: string[] = [];
     try {
       await this.host.spawnPipe(
@@ -169,9 +181,7 @@ export class TransferService {
       );
       chunks = await this.host.splitFile(archive, CHUNK_BYTES, prefix);
       const chunkSizes = chunks.map((chunk) => this.host.fileSize(chunk));
-      const remoteChunks = chunks.map(
-        (chunk) => `/tmp/sandhop-${safe}-${id}.${basename(chunk)}`,
-      );
+      const remoteChunks = chunks.map((chunk) => `/tmp/${basename(chunk)}`);
       const limit = pLimit(this.host.cpuCount());
       await Promise.all(
         chunks.map((chunk, index) =>
@@ -185,7 +195,7 @@ export class TransferService {
         ),
       );
       const totalBytes = chunkSizes.reduce((sum, size) => sum + size, 0);
-      const remoteArchive = makeArchivePath(safe, id, codec);
+      const remoteArchive = makeRemoteArchivePath(safe, id, codec);
       const catInputs = remoteChunks.map(shellQuote).join(" ");
       const cleanup = [remoteArchive, ...remoteChunks]
         .map(shellQuote)

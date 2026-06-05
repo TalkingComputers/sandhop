@@ -36,6 +36,7 @@ const buildEnrichmentServices = (
   agent: Agent,
   sandbox: Sandbox,
 ): EnrichmentServices => ({
+  host,
   sandbox,
   transfer: new TransferService(host, sandbox),
   profile: new ProfileService(host, agent),

@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import { expect, test } from "vitest";
 import { TransferService } from "../../../src/core/services/transfer.js";
 import { FakeHost } from "../../fakes/host.js";
@@ -15,7 +16,7 @@ test("TransferService uses required gzip codec, chunks locally, uploads chunks, 
   );
 
   expect(host.spawnPipeCalls).toHaveLength(1);
-  expect(host.spawnPipeCalls[0]).toContain("-czf '/tmp/sandhop-bundle-");
+  expect(host.spawnPipeCalls[0]).toContain(`-czf '${tmpdir()}/sandhop-bundle-`);
   expect(host.spawnPipeCalls[0]).toContain("-C '/workspace/project' .");
   expect(host.spawnPipeCalls[0]).not.toContain("zstd");
   expect(provider.sandbox.pathUploads).toEqual([
@@ -24,7 +25,7 @@ test("TransferService uses required gzip codec, chunks locally, uploads chunks, 
         /\/tmp\/sandhop-bundle-.+\.part\.000000$/,
       ),
       localPath: expect.stringMatching(
-        /\/tmp\/sandhop-bundle-.+\.part\.000000$/,
+        new RegExp(`${tmpdir()}/sandhop-bundle-.+\\.part\\.000000$`),
       ),
     },
   ]);
@@ -36,10 +37,12 @@ test("TransferService uses required gzip codec, chunks locally, uploads chunks, 
   expect(provider.sandbox.execs[0]).not.toContain("zstd");
   expect(provider.sandbox.execs[0]).not.toContain("apt-get");
   expect(provider.sandbox.execs[0]).not.toContain("sudo");
-  expect(host.removedPaths).toEqual([
-    expect.stringMatching(/\/tmp\/sandhop-bundle-.+\.tar\.gz$/),
-    expect.stringMatching(/\/tmp\/sandhop-bundle-.+\.part\.000000$/),
-  ]);
+  expect(host.removedPaths[0]).toMatch(
+    new RegExp(`${tmpdir()}/sandhop-bundle-.+\\.tar\\.gz$`),
+  );
+  expect(host.removedPaths[1]).toMatch(
+    new RegExp(`${tmpdir()}/sandhop-bundle-.+\\.part\\.000000$`),
+  );
 });
 
 test("TransferService disables macOS AppleDouble metadata while creating archives", async () => {
@@ -78,7 +81,7 @@ test("TransferService zstd codec keeps multithreaded zstd compression and zstd i
         /\/tmp\/sandhop-bundle-.+\.part\.000000$/,
       ),
       localPath: expect.stringMatching(
-        /\/tmp\/sandhop-bundle-.+\.part\.000000$/,
+        new RegExp(`${tmpdir()}/sandhop-bundle-.+\\.part\\.000000$`),
       ),
     },
   ]);
@@ -91,10 +94,12 @@ test("TransferService zstd codec keeps multithreaded zstd compression and zstd i
     "tar -xf - -C '/home/user/project'",
   );
   expect(provider.sandbox.execs[0]).not.toContain("apt-get");
-  expect(host.removedPaths).toEqual([
-    expect.stringMatching(/\/tmp\/sandhop-bundle-.+\.tar\.zst$/),
-    expect.stringMatching(/\/tmp\/sandhop-bundle-.+\.part\.000000$/),
-  ]);
+  expect(host.removedPaths[0]).toMatch(
+    new RegExp(`${tmpdir()}/sandhop-bundle-.+\\.tar\\.zst$`),
+  );
+  expect(host.removedPaths[1]).toMatch(
+    new RegExp(`${tmpdir()}/sandhop-bundle-.+\\.part\\.000000$`),
+  );
 });
 
 test("TransferService can run sandbox extraction under low CPU and IO priority", async () => {
@@ -136,8 +141,10 @@ test("TransferService deletes host archives and chunks after sandbox extract fai
     ),
   ).rejects.toThrow("Transfer failed for bundle: extract failed");
 
-  expect(host.removedPaths).toEqual([
-    expect.stringMatching(/\/tmp\/sandhop-bundle-.+\.tar\.gz$/),
-    expect.stringMatching(/\/tmp\/sandhop-bundle-.+\.part\.000000$/),
-  ]);
+  expect(host.removedPaths[0]).toMatch(
+    new RegExp(`${tmpdir()}/sandhop-bundle-.+\\.tar\\.gz$`),
+  );
+  expect(host.removedPaths[1]).toMatch(
+    new RegExp(`${tmpdir()}/sandhop-bundle-.+\\.part\\.000000$`),
+  );
 });

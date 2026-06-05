@@ -28,6 +28,7 @@ export class FakeHost implements HostDeps {
   execCalls: { bin: string; args: string[] }[];
   spawnPipeCalls: string[];
   removedPaths: string[];
+  zstdAvailable: boolean;
   spawnDetachedCalls: {
     bin: string;
     args: string[];
@@ -43,6 +44,7 @@ export class FakeHost implements HostDeps {
     mtimes?: Record<string, number>;
     keychainValues?: Record<string, string>;
     execValues?: Record<string, string>;
+    zstdAvailable?: boolean;
   }) {
     this.home = args.home;
     this.env = args.env;
@@ -57,6 +59,7 @@ export class FakeHost implements HostDeps {
     this.execCalls = [];
     this.spawnPipeCalls = [];
     this.removedPaths = [];
+    this.zstdAvailable = args.zstdAvailable ?? true;
     this.spawnDetachedCalls = [];
   }
 
@@ -162,6 +165,10 @@ export class FakeHost implements HostDeps {
 
   cpuCount(): number {
     return 4;
+  }
+
+  hasZstd(): boolean {
+    return this.zstdAvailable;
   }
 
   sha256Hex(input: string): string {

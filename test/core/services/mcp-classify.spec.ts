@@ -46,18 +46,19 @@ test("classify excludes MCP servers with localhost bindings in urls args and env
 });
 
 test("classify keeps plain npx MCP servers remote-installable", () => {
-  expect(
-    classify(
-      host,
-      {
-        name: "filesystem",
-        transport: "stdio",
-        command: "npx",
-        args: ["-y", "@modelcontextprotocol/server-filesystem"],
-      },
-      [],
-    ),
-  ).toEqual({ kind: "remote-installable" });
+  const classification = classify(
+    host,
+    {
+      name: "filesystem",
+      transport: "stdio",
+      command: "npx",
+      args: ["-y", "@modelcontextprotocol/server-filesystem"],
+    },
+    [],
+  );
+
+  expect(classification).toEqual({ kind: "remote-installable" });
+  expect("reason" in classification).toBe(false);
 });
 
 test("installCmd chooses JavaScript install command from the root lockfile", () => {

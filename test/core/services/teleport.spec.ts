@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import { expect, test } from "vitest";
 import { CLAUDE_CODE } from "../../../src/agents/claude-code.js";
 import { TTYD_PORT } from "../../../src/core/constants.js";
@@ -91,13 +92,15 @@ test("TeleportService fast core fans out collection, transfers one gzip bundle, 
         /\/tmp\/sandhop-bundle-.+\.part\.000000$/,
       ),
       localPath: expect.stringMatching(
-        /\/tmp\/sandhop-bundle-.+\.part\.000000$/,
+        new RegExp(`${tmpdir()}/sandhop-bundle-.+\\.part\\.000000$`),
       ),
     },
   ]);
   expect(host.spawnPipeCalls).toEqual([
     expect.stringMatching(
-      /tar \$SANDHOP_TAR_MAC_FLAGS -czf '\/tmp\/sandhop-bundle-.+\.tar\.gz' -C '\/workspace\/project' \./,
+      new RegExp(
+        `tar \\$SANDHOP_TAR_MAC_FLAGS -czf '${tmpdir()}/sandhop-bundle-.+\\.tar\\.gz' -C '/workspace/project' \\.`,
+      ),
     ),
   ]);
   expect(host.spawnPipeCalls[0]).toContain("COPYFILE_DISABLE=1");
@@ -250,7 +253,7 @@ test("TeleportService uploads core secret and auth files but leaves MCP code to 
         /\/tmp\/sandhop-bundle-.+\.part\.000000$/,
       ),
       localPath: expect.stringMatching(
-        /\/tmp\/sandhop-bundle-.+\.part\.000000$/,
+        new RegExp(`${tmpdir()}/sandhop-bundle-.+\\.part\\.000000$`),
       ),
     },
   ]);
@@ -375,11 +378,15 @@ test("TeleportService ships SSH bundle, bundle excludes, and mirrored includes",
 
   expect(host.spawnPipeCalls[0]).toContain("--exclude 'node_modules'");
   expect(host.spawnPipeCalls[0]).toContain("--exclude 'dist'");
-  expect(host.spawnPipeCalls[1]).toContain("-czf '/tmp/sandhop-include-0-");
+  expect(host.spawnPipeCalls[1]).toContain(
+    `-czf '${tmpdir()}/sandhop-include-0-`,
+  );
   expect(host.spawnPipeCalls[1]).toContain("-C '/home/local' 'external.txt'");
   expect(provider.sandbox.execs[2]).toContain("tar -xzf");
   expect(provider.sandbox.execs[2]).toContain("-C '/home/user'");
-  expect(host.spawnPipeCalls[2]).toContain("-czf '/tmp/sandhop-include-2-");
+  expect(host.spawnPipeCalls[2]).toContain(
+    `-czf '${tmpdir()}/sandhop-include-2-`,
+  );
   expect(host.spawnPipeCalls[2]).toContain("-C '/opt/shared' 'file.txt'");
   expect(provider.sandbox.execs[3]).toContain("-C '/opt/shared'");
   expect(provider.sandbox.uploads).toContainEqual({
