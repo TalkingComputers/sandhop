@@ -20,7 +20,7 @@ class RealpathHost extends FakeHost {
   }
 }
 
-test("TeleportService fast core fans out collection, uploads one gzip bundle, starts HTTPS ttyd with native resume, and skips enrichment", async () => {
+test("TeleportService fast core fans out collection, transfers one gzip bundle, starts HTTPS ttyd with native resume, and skips enrichment", async () => {
   let inFlight = 0;
   let maxInFlight = 0;
   const track = async <T>(value: T): Promise<T> => {
@@ -77,28 +77,44 @@ test("TeleportService fast core fans out collection, uploads one gzip bundle, st
       ports: [TTYD_PORT],
     },
   ]);
-  expect(provider.sandbox.pathUploads).toEqual([]);
-  expect(provider.sandbox.uploads[0]).toEqual({
-    path: "/tmp/bundle.tgz",
-    data: encoder.encode("archive"),
-  });
+  expect(provider.sandbox.pathUploads).toEqual([
+    {
+      remotePath: expect.stringMatching(
+        /\/tmp\/sandhop-bundle-.+\.part\.000000$/,
+      ),
+      localPath: expect.stringMatching(
+        /\/tmp\/sandhop-bundle-.+\.part\.000000$/,
+      ),
+    },
+  ]);
   expect(host.spawnPipeCalls).toEqual([
     expect.stringMatching(
-      /tar \$SANDHOP_TAR_MAC_FLAGS -czf '\/tmp\/sandhop-.+-bundle\.tgz' -C '\/workspace\/project' \./,
+      /tar \$SANDHOP_TAR_MAC_FLAGS -czf '\/tmp\/sandhop-bundle-.+\.tar\.gz' -C '\/workspace\/project' \./,
     ),
   ]);
   expect(host.spawnPipeCalls[0]).toContain("COPYFILE_DISABLE=1");
   expect(host.spawnPipeCalls[0]).toContain("--no-mac-metadata");
   expect(host.spawnPipeCalls[0]).not.toContain("zstd");
-  expect(provider.sandbox.execs[0]).not.toContain("zstd");
-  expect(provider.sandbox.execs[0]).not.toContain("apt-get");
+  expect(provider.sandbox.execs[0]).toContain(
+    '$SUDO mkdir -p "/workspace/project"',
+  );
+  expect(provider.sandbox.execs[0]).toContain(
+    '$SUDO chown -R "$(id -u):$(id -g)" "/workspace/project"',
+  );
+  expect(provider.sandbox.execs[1]).toContain("gzip -t");
+  expect(provider.sandbox.execs[1]).toContain("wc -c");
+  expect(provider.sandbox.execs[1]).toContain("tar -xzf '/tmp/sandhop-bundle-");
+  expect(provider.sandbox.execs[1]).not.toContain("zstd");
+  expect(provider.sandbox.execs[1]).not.toContain("apt-get");
+  expect(provider.sandbox.execs[2]).not.toContain("zstd");
+  expect(provider.sandbox.execs[2]).not.toContain("apt-get");
   expect(provider.sandbox.uploads.map((upload) => upload.path)).toEqual([
-    "/tmp/bundle.tgz",
     "/tmp/transcript.jsonl",
   ]);
-  expect(provider.sandbox.execs[0]).toContain(
-    'tar -xzf /tmp/bundle.tgz -C "/workspace/project"',
+  expect(provider.sandbox.execs[2]).toContain(
+    'git config --global --add safe.directory "/workspace/project"',
   );
+  expect(provider.sandbox.execs[2]).not.toContain("tar -xzf /tmp/bundle.tgz");
   expect(provider.sandbox.spawns[0]).toContain(
     `ttyd -p ${TTYD_PORT} -W -c ${SANDHOP_AUTH_USER}:`,
   );
@@ -107,9 +123,9 @@ test("TeleportService fast core fans out collection, uploads one gzip bundle, st
     "bash -lc 'cd \"/workspace/project\" && MCP_TIMEOUT=120000 claude --resume session-id'",
   );
   expect(provider.sandbox.spawns[0]).not.toContain("for f in");
-  expect(provider.sandbox.execs).toHaveLength(1);
-  expect(provider.sandbox.execs[0]).not.toContain("profile");
-  expect(provider.sandbox.execs[0]).not.toContain("mcp");
+  expect(provider.sandbox.execs).toHaveLength(3);
+  expect(provider.sandbox.execs[2]).not.toContain("profile");
+  expect(provider.sandbox.execs[2]).not.toContain("mcp");
   expect(provider.sandbox.exposedPorts).toEqual([TTYD_PORT]);
   expect(result.url).toBe(`https://sandbox-sbx-1-${TTYD_PORT}.example`);
   expect(result.user).toBe(SANDHOP_AUTH_USER);
@@ -160,7 +176,7 @@ test("TeleportService injects transport bootstrap steps and loopback ttyd bind",
   expect(provider.creates[0]!.envs).toEqual({
     ANTHROPIC_API_KEY: "sk-ant-api03-test",
   });
-  expect(provider.sandbox.execs[0]).toContain("install cloudflared");
+  expect(provider.sandbox.execs[2]).toContain("install cloudflared");
   expect(provider.sandbox.spawns[0]).toContain(
     `ttyd -i 127.0.0.1 -p ${TTYD_PORT} -W -c ${SANDHOP_AUTH_USER}:`,
   );
@@ -208,8 +224,17 @@ test("TeleportService uploads core secret and auth files but leaves MCP code to 
     timeoutMs: 3_600_000,
   });
 
-  expect(provider.sandbox.pathUploads).toEqual([]);
-  expect(provider.sandbox.uploads).toContainEqual({
+  expect(provider.sandbox.pathUploads).toEqual([
+    {
+      remotePath: expect.stringMatching(
+        /\/tmp\/sandhop-bundle-.+\.part\.000000$/,
+      ),
+      localPath: expect.stringMatching(
+        /\/tmp\/sandhop-bundle-.+\.part\.000000$/,
+      ),
+    },
+  ]);
+  expect(provider.sandbox.uploads).not.toContainEqual({
     path: "/tmp/bundle.tgz",
     data: encoder.encode("archive"),
   });
@@ -217,7 +242,7 @@ test("TeleportService uploads core secret and auth files but leaves MCP code to 
     path: "/home/user/.env.d/mcp.env",
     data: "MCP_TOKEN=token\n",
   });
-  expect(provider.sandbox.execs[0]).not.toContain("mcp-code");
+  expect(provider.sandbox.execs[2]).not.toContain("mcp-code");
 });
 
 test("TeleportService restore failure surfaces stdout when stderr is empty", async () => {
@@ -230,11 +255,11 @@ test("TeleportService restore failure surfaces stdout when stderr is empty", asy
     },
   });
   const provider = new FakeProvider();
-  provider.sandbox.execResults.push({
-    exitCode: 1,
-    stdout: "daytona npm EACCES output",
-    stderr: "",
-  });
+  provider.sandbox.execResults.push(
+    { exitCode: 0, stdout: "", stderr: "" },
+    { exitCode: 0, stdout: "", stderr: "" },
+    { exitCode: 1, stdout: "daytona npm EACCES output", stderr: "" },
+  );
   const session: SessionRef = {
     sessionId: "session-id",
     transcriptPath:

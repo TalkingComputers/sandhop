@@ -1,6 +1,6 @@
 import { buildManifest } from "../manifest.js";
 import { SANDHOP_AUTH_USER, TTYD_PORT } from "../constants.js";
-import { expandHome, makeTempPath } from "../paths.js";
+import { expandHome } from "../paths.js";
 import type { Agent } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
 import type { SandboxProvider } from "../ports/provider.js";
@@ -11,7 +11,7 @@ import type { AuthExtractor } from "./auth.js";
 import type { BootstrapService } from "./bootstrap.js";
 import type { SecretsCollector } from "./secrets.js";
 import type { SessionReader } from "./session.js";
-import { makeTarGzipCommand } from "./transfer.js";
+import { TransferService } from "./transfer.js";
 import type { VersionDetector } from "./version.js";
 
 export interface TeleportResult {
@@ -29,7 +29,16 @@ export interface TeleportOptions {
 }
 
 export interface TeleportServices {
-  host: Pick<HostDeps, "readBytes" | "realpath" | "spawnPipe">;
+  host: Pick<
+    HostDeps,
+    | "exists"
+    | "fileSize"
+    | "isDirectory"
+    | "readBytes"
+    | "realpath"
+    | "spawnPipe"
+    | "splitFile"
+  >;
   session: SessionReader;
   secrets: SecretsCollector;
   auth: AuthExtractor;
@@ -81,12 +90,12 @@ export class TeleportService {
       ports: [TTYD_PORT],
     });
     opts.onProgress?.("uploading bundle");
-    const bundlePath = makeTempPath("bundle.tgz");
-    await this.services.host.spawnPipe(makeTarGzipCommand(bundlePath, bundle));
-    await sandbox.uploadFile(
-      "/tmp/bundle.tgz",
-      this.services.host.readBytes(bundlePath),
-    );
+    await sandbox.exec(this.services.bootstrap.renderProjectPrep(manifest));
+    const transfer = new TransferService(this.services.host, sandbox);
+    await transfer.send(bundle, manifest.remoteProj, "bundle", {
+      codec: "gzip",
+      excludes: [],
+    });
     await sandbox.uploadFile(
       "/tmp/transcript.jsonl",
       this.services.host.readBytes(session.transcriptPath),

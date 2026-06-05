@@ -96,6 +96,15 @@ export class BootstrapService {
     this.agent = agent;
   }
 
+  renderProjectPrep(manifest: Manifest): string {
+    return [
+      "set -e",
+      SUDO_SETUP,
+      `$SUDO mkdir -p "${manifest.remoteProj}"`,
+      `$SUDO chown -R "$(id -u):$(id -g)" "${manifest.remoteProj}"`,
+    ].join("\n");
+  }
+
   render(manifest: Manifest, opts: BootstrapOptions): string {
     const installCmd = this.agent.installCmd(manifest.cliVersion);
     const dest = this.agent.remoteTranscriptPath(
@@ -112,10 +121,7 @@ export class BootstrapService {
       ...(opts.transportSteps ?? []),
       `${installCmd} || $SUDO env PATH="$PATH" ${installCmd}`,
       ...this.agent.preSeed(manifest.remoteProj),
-      `$SUDO mkdir -p "${manifest.remoteProj}"`,
-      `$SUDO chown -R "$(id -u):$(id -g)" "${manifest.remoteProj}"`,
       `git config --global --add safe.directory "${manifest.remoteProj}"`,
-      `tar -xzf /tmp/bundle.tgz -C "${manifest.remoteProj}"`,
       `dest="${dest}"`,
       'mkdir -p "$(dirname "$dest")"',
       'cp /tmp/transcript.jsonl "$dest"',

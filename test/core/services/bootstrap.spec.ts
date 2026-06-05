@@ -20,7 +20,18 @@ const manifest = buildManifest({
 const ZSTD_INSTALL =
   "command -v zstd || $SUDO sh -lc 'command -v apt-get >/dev/null && (apt-get update && apt-get install -y zstd) || (command -v dnf >/dev/null && dnf install -y zstd) || (command -v apk >/dev/null && apk add zstd) || (command -v yum >/dev/null && yum install -y zstd)'";
 
-test("BootstrapService core installs exact CLI version, places transcript, and skips enrichment without zstd or apt", () => {
+test("BootstrapService project prep sudo-creates and owns remote project before transfer", () => {
+  const script = new BootstrapService(CLAUDE_CODE).renderProjectPrep(manifest);
+
+  expect(script.split("\n")).toEqual([
+    "set -e",
+    'SUDO=""; if [ "$(id -u)" != 0 ] && command -v sudo >/dev/null 2>&1; then SUDO="sudo"; fi',
+    '$SUDO mkdir -p "/private/tmp/sandhop-codex2"',
+    '$SUDO chown -R "$(id -u):$(id -g)" "/private/tmp/sandhop-codex2"',
+  ]);
+});
+
+test("BootstrapService core installs exact CLI version, places transcript, and skips project prep, enrichment, zstd, and apt", () => {
   const script = new BootstrapService(CLAUDE_CODE).render(manifest, {
     home: "/home/user",
   });
@@ -39,42 +50,19 @@ test("BootstrapService core installs exact CLI version, places transcript, and s
   expect(script).toContain(
     "curl -fsSL https://github.com/tsl0922/ttyd/releases/latest/download/ttyd.${TTYD_ARCH} -o /usr/local/bin/ttyd",
   );
-  expect(script).toContain('$SUDO mkdir -p "/private/tmp/sandhop-codex2"');
-  expect(script).toContain(
-    '$SUDO chown -R "$(id -u):$(id -g)" "/private/tmp/sandhop-codex2"',
-  );
   expect(script).toContain(
     'git config --global --add safe.directory "/private/tmp/sandhop-codex2"',
   );
-  expect(script).toContain(
-    'tar -xzf /tmp/bundle.tgz -C "/private/tmp/sandhop-codex2"',
-  );
-  expect(
-    script.indexOf('$SUDO mkdir -p "/private/tmp/sandhop-codex2"'),
-  ).toBeLessThan(
-    script.indexOf(
-      '$SUDO chown -R "$(id -u):$(id -g)" "/private/tmp/sandhop-codex2"',
-    ),
-  );
-  expect(
-    script.indexOf(
-      '$SUDO chown -R "$(id -u):$(id -g)" "/private/tmp/sandhop-codex2"',
-    ),
-  ).toBeLessThan(
-    script.indexOf(
-      'git config --global --add safe.directory "/private/tmp/sandhop-codex2"',
-    ),
-  );
+  expect(script).not.toContain('$SUDO mkdir -p "/private/tmp/sandhop-codex2"');
   expect(
     script.indexOf(
       'git config --global --add safe.directory "/private/tmp/sandhop-codex2"',
     ),
-  ).toBeLessThan(
-    script.indexOf('tar -xzf /tmp/bundle.tgz -C "/private/tmp/sandhop-codex2"'),
-  );
-  expect(
-    script.indexOf('tar -xzf /tmp/bundle.tgz -C "/private/tmp/sandhop-codex2"'),
   ).toBeLessThan(script.indexOf('cp /tmp/transcript.jsonl "$dest"'));
+  expect(script).not.toContain(
+    '$SUDO chown -R "$(id -u):$(id -g)" "/private/tmp/sandhop-codex2"',
+  );
+  expect(script).not.toContain("tar -xzf /tmp/bundle.tgz");
   expect(script).toContain('cp /tmp/transcript.jsonl "$dest"');
   expect(script).toContain("SANDHOP_RESTORE_OK");
   expect(script).not.toContain("profile.tgz");
@@ -90,14 +78,20 @@ test("BootstrapService quotes remote project shell paths with spaces", () => {
     transcriptName: "session-id.jsonl",
     ts: 1,
   });
-  const script = new BootstrapService(CLAUDE_CODE).render(spacedManifest, {
+  const bootstrap = new BootstrapService(CLAUDE_CODE);
+  const prep = bootstrap.renderProjectPrep(spacedManifest);
+  const script = bootstrap.render(spacedManifest, {
     home: "/home/user",
   });
 
-  expect(script).toContain('$SUDO mkdir -p "/Users/alice/My Project"');
-  expect(script).toContain(
-    'tar -xzf /tmp/bundle.tgz -C "/Users/alice/My Project"',
+  expect(prep).toContain('$SUDO mkdir -p "/Users/alice/My Project"');
+  expect(prep).toContain(
+    '$SUDO chown -R "$(id -u):$(id -g)" "/Users/alice/My Project"',
   );
+  expect(script).toContain(
+    'git config --global --add safe.directory "/Users/alice/My Project"',
+  );
+  expect(script).not.toContain("tar -xzf /tmp/bundle.tgz");
 });
 
 test("BootstrapService injects transport steps before agent install", () => {
