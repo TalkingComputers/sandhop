@@ -100,6 +100,28 @@ test("BootstrapService quotes remote project shell paths with metacharacters", (
   expect(script).not.toContain("tar -xzf /tmp/bundle.tgz");
 });
 
+test("BootstrapService emits quoted git identity after safe directory when supplied", () => {
+  const script = new BootstrapService(CLAUDE_CODE).render(manifest, {
+    home: "/home/user",
+    gitUserName: "Alice O'Connor",
+    gitUserEmail: "alice+test@example.com",
+  });
+
+  const safe =
+    "git config --global --add safe.directory '/private/tmp/sandhop-codex2'";
+  const name = "git config --global user.name 'Alice O'\\''Connor'";
+  const email = "git config --global user.email 'alice+test@example.com'";
+
+  expect(script).toContain(safe);
+  expect(script).toContain(name);
+  expect(script).toContain(email);
+  expect(script.indexOf(safe)).toBeLessThan(script.indexOf(name));
+  expect(script.indexOf(name)).toBeLessThan(script.indexOf(email));
+  expect(script.indexOf(email)).toBeLessThan(
+    script.indexOf("dest='/home/user/.claude/projects"),
+  );
+});
+
 test("BootstrapService injects transport steps before agent install", () => {
   const script = new BootstrapService(CLAUDE_CODE).render(manifest, {
     home: "/home/user",
@@ -298,7 +320,7 @@ test("BootstrapService merges Claude MCP servers into existing claude.json witho
   });
   expect(parsed.mcpServers).toEqual({
     local: {
-      transport: "stdio",
+      type: "stdio",
       command: "node",
       args: ["/home/user/mcp/server.js"],
       cwd: "/home/user/mcp",

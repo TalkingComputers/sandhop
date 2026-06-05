@@ -30,6 +30,7 @@ export class FakeHost implements HostDeps {
   files: Record<string, string>;
   bytes: Record<string, Uint8Array>;
   symlinks: Record<string, string>;
+  brokenRealpaths: Set<string>;
   mtimes: Record<string, number>;
   keychainValues: Record<string, string>;
   execValues: Record<string, string>;
@@ -61,6 +62,7 @@ export class FakeHost implements HostDeps {
     files?: Record<string, string>;
     bytes?: Record<string, Uint8Array>;
     symlinks?: Record<string, string>;
+    brokenRealpaths?: string[];
     mtimes?: Record<string, number>;
     keychainValues?: Record<string, string>;
     execValues?: Record<string, string>;
@@ -71,6 +73,7 @@ export class FakeHost implements HostDeps {
     this.files = args.files ?? {};
     this.bytes = args.bytes ?? {};
     this.symlinks = args.symlinks ?? {};
+    this.brokenRealpaths = new Set(args.brokenRealpaths ?? []);
     this.mtimes = args.mtimes ?? {};
     this.keychainValues = args.keychainValues ?? {};
     this.execValues = args.execValues ?? {};
@@ -119,6 +122,7 @@ export class FakeHost implements HostDeps {
   }
 
   exists(path: string): boolean {
+    if (this.brokenRealpaths.has(path)) return false;
     const linked = this.linkedPath(path);
     const prefix = `${linked}/`;
     return (
@@ -178,6 +182,7 @@ export class FakeHost implements HostDeps {
   }
 
   realpath(path: string): string {
+    if (this.brokenRealpaths.has(path)) throw new Error(`ENOENT ${path}`);
     return this.linkedPath(path);
   }
 

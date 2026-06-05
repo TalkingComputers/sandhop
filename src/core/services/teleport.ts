@@ -36,6 +36,7 @@ export interface TeleportServices {
     HostDeps,
     | "env"
     | "exists"
+    | "exec"
     | "fileSize"
     | "home"
     | "isDirectory"
@@ -101,6 +102,18 @@ const chmodAuthFiles = async (
   }
 };
 
+const readGitConfig = (
+  host: Pick<HostDeps, "exec">,
+  key: string,
+): string | undefined => {
+  try {
+    const value = host.exec("git", ["config", "--global", "--get", key]).trim();
+    return value.length === 0 ? undefined : value;
+  } catch {
+    return undefined;
+  }
+};
+
 export class TeleportService {
   readonly provider: SandboxProvider;
   readonly agent: Agent;
@@ -154,6 +167,20 @@ export class TeleportService {
         codec: "gzip",
         excludes: opts.excludes,
       });
+      const mem = this.agent.projectMemoryDir(
+        this.services.host.home,
+        manifest.remoteEnc,
+      );
+      if (mem !== null && this.services.host.exists(mem))
+        await transfer.send(
+          mem,
+          expandHome(
+            `$HOME/.claude/projects/${manifest.remoteEnc}/memory`,
+            sandbox.home,
+          ),
+          "memory",
+          { codec: "gzip", excludes: opts.excludes },
+        );
       for (const [index, include] of opts.includes.entries()) {
         if (!this.services.host.exists(include)) continue;
         const realInclude = this.services.host.realpath(include);
@@ -194,6 +221,8 @@ export class TeleportService {
         this.services.bootstrap.render(manifest, {
           home: sandbox.home,
           transportSteps: opts.transport.bootstrapSteps(),
+          gitUserName: readGitConfig(this.services.host, "user.name"),
+          gitUserEmail: readGitConfig(this.services.host, "user.email"),
         }),
       );
       if (

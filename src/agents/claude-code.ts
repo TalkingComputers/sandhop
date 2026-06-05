@@ -167,8 +167,15 @@ const readStringRecord = (
 };
 
 const readTransport = (value: unknown, hasUrl: boolean): McpTransport => {
-  if (value === "sse") return "sse";
-  if (value === "http" || hasUrl) return "http";
+  if (
+    value === "stdio" ||
+    value === "sse" ||
+    value === "http" ||
+    value === "ws"
+  )
+    return value;
+  if (value === "streamable-http") return "http";
+  if (hasUrl) return "http";
   return "stdio";
 };
 
@@ -186,7 +193,7 @@ const readMcpServers = (value: unknown, servers: McpServer[]): void => {
     const cwd = typeof server.cwd === "string" ? server.cwd : undefined;
     servers.push({
       name,
-      transport: readTransport(server.transport, url !== undefined),
+      transport: readTransport(server.type, url !== undefined),
       ...(command === undefined ? {} : { command }),
       ...(args === undefined ? {} : { args }),
       ...(env === undefined ? {} : { env }),
@@ -231,10 +238,13 @@ const parseMcpServers = (deps: AgentMcpDeps, cwd: string): McpServer[] => {
 };
 
 const formatMcpConfig = (servers: McpServer[]): McpConfigWrite => {
-  const mcpServers: Record<string, Omit<McpServer, "name">> = {};
+  const mcpServers: Record<
+    string,
+    Omit<McpServer, "name" | "transport"> & { type: McpTransport }
+  > = {};
   for (const server of servers) {
-    const { name, ...config } = server;
-    mcpServers[name] = config;
+    const { name, transport, ...config } = server;
+    mcpServers[name] = { type: transport, ...config };
   }
   return {
     path: CLAUDE_JSON_HOME_PATH,
@@ -271,6 +281,8 @@ export const CLAUDE_CODE: Agent = {
   },
   mcpConfigPaths: (home, cwd) => [
     `${cwd}/.mcp.json`,
+    `${cwd}/${CLAUDE_SETTINGS_PATH}`,
+    `${cwd}/${CLAUDE_SETTINGS_LOCAL_PATH}`,
     joinClaudeLocalPath(home, CLAUDE_SETTINGS_PATH),
     joinClaudeLocalPath(home, CLAUDE_SETTINGS_LOCAL_PATH),
     joinClaudeLocalPath(home, CLAUDE_MCP_PATH),
@@ -288,6 +300,8 @@ export const CLAUDE_CODE: Agent = {
   ],
   remoteTranscriptPath: (home, remoteEnc, transcriptName) =>
     `${home}/${CLAUDE_PROJECTS_PATH}/${remoteEnc}/${transcriptName}`,
+  projectMemoryDir: (home, remoteEnc) =>
+    `${home}/${CLAUDE_PROJECTS_PATH}/${remoteEnc}/memory`,
   resumeCmd: (sessionId, remoteProj, mcpTimeout) => {
     const env =
       mcpTimeout === undefined ? "" : `MCP_TIMEOUT=${shellQuote(mcpTimeout)} `;

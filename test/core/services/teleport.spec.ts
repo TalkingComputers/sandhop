@@ -43,6 +43,10 @@ test("TeleportService fast core fans out collection, transfers one gzip bundle, 
       "/home/local/.claude/projects/-workspace-project/session-id.jsonl":
         encoder.encode("transcript"),
     },
+    execValues: {
+      "git config --global --get user.name": "Host User\n",
+      "git config --global --get user.email": "host@example.com\n",
+    },
   });
   const provider = new FakeProvider();
   const session: SessionRef = {
@@ -125,6 +129,15 @@ test("TeleportService fast core fans out collection, transfers one gzip bundle, 
   expect(provider.sandbox.execs[2]).toContain(
     "git config --global --add safe.directory '/workspace/project'",
   );
+  expect(provider.sandbox.execs[2]).toContain(
+    "git config --global user.name 'Host User'",
+  );
+  expect(provider.sandbox.execs[2]).toContain(
+    "git config --global user.email 'host@example.com'",
+  );
+  expect(provider.sandbox.execs[2].indexOf("safe.directory")).toBeLessThan(
+    provider.sandbox.execs[2].indexOf("user.name"),
+  );
   expect(provider.sandbox.execs[2]).not.toContain("tar -xzf /tmp/bundle.tgz");
   expect(provider.sandbox.spawns[0]).toContain(
     `ttyd -p ${TTYD_PORT} -W -c 'host-user:`,
@@ -144,6 +157,62 @@ test("TeleportService fast core fans out collection, transfers one gzip bundle, 
   expect(result.url).toBe(`https://sandbox-sbx-1-${TTYD_PORT}.example`);
   expect(result.user).toBe("host-user");
   expect(result.pass).toMatch(/^[A-Za-z0-9_-]{24}$/);
+});
+
+test("TeleportService transfers Claude project memory after the bundle when present", async () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: {
+      "/home/local/.claude/projects/-workspace-project/memory/MEMORY.md":
+        "memory",
+    },
+    bytes: {
+      "/home/local/.claude/projects/-workspace-project/session-id.jsonl":
+        encoder.encode("transcript"),
+    },
+  });
+  const provider = new FakeProvider();
+  const session: SessionRef = {
+    sessionId: "session-id",
+    transcriptPath:
+      "/home/local/.claude/projects/-workspace-project/session-id.jsonl",
+    transcriptName: "session-id.jsonl",
+  };
+  const service = new TeleportService(provider, CLAUDE_CODE, {
+    host,
+    session: { latest: async () => session, byId: async () => session },
+    secrets: { collect: async () => ({ envs: {}, files: [] }) },
+    auth: {
+      extract: async () => ({
+        envs: { ANTHROPIC_API_KEY: "sk-ant-api03-test" },
+        files: [],
+      }),
+    },
+    version: { detect: async () => "2.1.160" },
+    bootstrap: new BootstrapService(CLAUDE_CODE),
+    gitSsh: emptyGitSsh,
+  });
+
+  await service.run("/workspace/project", {
+    excludes: ["node_modules"],
+    includes: [],
+    transport: new PublicTransport(),
+    timeoutMs: 3_600_000,
+  });
+
+  expect(host.spawnPipeCalls).toHaveLength(2);
+  expect(host.spawnPipeCalls[0]).toContain("sandhop-bundle-");
+  expect(host.spawnPipeCalls[1]).toContain("sandhop-memory-");
+  expect(host.spawnPipeCalls[1]).toContain(
+    "-C '/home/local/.claude/projects/-workspace-project/memory' .",
+  );
+  expect(host.spawnPipeCalls[1]).toContain("--exclude 'node_modules'");
+  expect(provider.sandbox.execs[2]).toContain("sandhop-memory-");
+  expect(provider.sandbox.execs[2]).toContain("tar -xzf '/tmp/sandhop-memory-");
+  expect(provider.sandbox.execs[2]).toContain(
+    "-C '/home/user/.claude/projects/-workspace-project/memory'",
+  );
 });
 
 test("TeleportService injects transport bootstrap steps and loopback ttyd bind", async () => {

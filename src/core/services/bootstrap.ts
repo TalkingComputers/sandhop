@@ -20,6 +20,8 @@ import type { ScriptCapturePlan } from "./scripts.js";
 export interface BootstrapOptions {
   home: string;
   transportSteps?: string[];
+  gitUserName?: string;
+  gitUserEmail?: string;
 }
 
 export interface EnrichmentBootstrapOptions {
@@ -125,6 +127,12 @@ export class BootstrapService {
       `${installCmd} || $SUDO env PATH="$PATH" ${installCmd}`,
       ...this.agent.preSeed(manifest.remoteProj),
       `git config --global --add safe.directory ${shellQuote(manifest.remoteProj)}`,
+      ...(opts.gitUserName === undefined
+        ? []
+        : [`git config --global user.name ${shellQuote(opts.gitUserName)}`]),
+      ...(opts.gitUserEmail === undefined
+        ? []
+        : [`git config --global user.email ${shellQuote(opts.gitUserEmail)}`]),
       `dest=${shellQuote(dest)}`,
       'mkdir -p "$(dirname "$dest")"',
       'cp /tmp/transcript.jsonl "$dest"',

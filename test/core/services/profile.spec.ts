@@ -79,6 +79,8 @@ test("ProfileService ships Claude manifests and non-reproducible skill dirs", as
     ".claude/settings.local.json",
     ".claude/CLAUDE.md",
     ".claude/commands",
+    ".claude/agents",
+    ".claude/output-styles",
     ".claude/plugins/known_marketplaces.json",
     ".claude/plugins/installed_plugins.json",
     ".claude/skills/big",
@@ -156,4 +158,23 @@ test("ProfileService dereferences external symlink skills into the skill name", 
   expect(
     host.exists("/tmp/profile.tgz/.claude/skills/external/dist/out.js"),
   ).toBe(false);
+});
+
+test("ProfileService skips broken symlink skills", async () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    symlinks: {
+      "/home/local/.claude/skills/broken": "/work/missing-skill",
+    },
+    brokenRealpaths: ["/home/local/.claude/skills/broken"],
+  });
+
+  expect(
+    new ProfileService(host, CLAUDE_CODE).listExternalSymlinkSkills(),
+  ).toEqual([]);
+  await expect(
+    new ProfileService(host, CLAUDE_CODE).build("/tmp/profile.tgz", []),
+  ).resolves.toBe(null);
+  expect(host.copyCalls).toEqual([]);
 });

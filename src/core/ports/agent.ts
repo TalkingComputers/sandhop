@@ -13,7 +13,7 @@ export interface AuthBundle {
   files: { path: string; content: string; mode?: string }[];
 }
 
-export type McpTransport = "stdio" | "http" | "sse";
+export type McpTransport = "stdio" | "http" | "sse" | "ws";
 
 export interface McpServer {
   name: string;
@@ -68,6 +68,7 @@ export interface Agent {
     remoteEnc: string,
     transcriptName: string,
   ): string;
+  projectMemoryDir(home: string, remoteEnc: string): string | null;
   resumeCmd(
     sessionId: string,
     remoteProj: string,

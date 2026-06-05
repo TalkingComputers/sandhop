@@ -198,6 +198,21 @@ test("ReinstallService links directory symlink skills and installs external syml
   ]);
 });
 
+test("ReinstallService skips broken symlink skills", () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    symlinks: {
+      "/home/local/.claude/skills/broken": "/work/missing-skill",
+    },
+    brokenRealpaths: ["/home/local/.claude/skills/broken"],
+  });
+
+  expect(new ReinstallService(host, CLAUDE_CODE).plan()).toEqual({
+    commands: [],
+  });
+});
+
 test("ReinstallService quotes marketplace and plugin metacharacters", () => {
   const host = new FakeHost({
     home: "/home/local",

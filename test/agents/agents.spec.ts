@@ -43,6 +43,9 @@ test("declarative agents install exact versions and compose native resume comman
       "session-id.jsonl",
     ),
   ).toBe("/root/.claude/projects/-workspace-project/session-id.jsonl");
+  expect(CLAUDE_CODE.projectMemoryDir("/root", "-workspace-project")).toBe(
+    "/root/.claude/projects/-workspace-project/memory",
+  );
   expect(
     CODEX.remoteTranscriptPath(
       "/home/vercel-sandbox",
@@ -52,6 +55,9 @@ test("declarative agents install exact versions and compose native resume comman
   ).toBe(
     "/home/vercel-sandbox/.codex/sessions/2026/06/04/rollout-2026-06-04T12-00-00-session-id.jsonl",
   );
+  expect(
+    CODEX.projectMemoryDir("/home/vercel-sandbox", "-workspace-project"),
+  ).toBeNull();
 });
 
 test("agent preseed node eval commands single-quote scripts", () => {
@@ -162,6 +168,18 @@ test("Claude agent parses user, project, and cwd MCP server configs", () => {
             url: "https://example.com/mcp",
             headers: { Authorization: "Bearer ${MCP_TOKEN}" },
           },
+          sse: {
+            type: "sse",
+            url: "https://example.com/events",
+          },
+          streamable: {
+            type: "streamable-http",
+            url: "https://example.com/streamable",
+          },
+          ignoredTransport: {
+            transport: "sse",
+            url: "https://example.com/ignored-transport",
+          },
         },
       }),
     },
@@ -183,21 +201,48 @@ test("Claude agent parses user, project, and cwd MCP server configs", () => {
       url: "https://example.com/mcp",
       headers: { Authorization: "Bearer ${MCP_TOKEN}" },
     },
+    {
+      name: "sse",
+      transport: "sse",
+      url: "https://example.com/events",
+    },
+    {
+      name: "streamable",
+      transport: "http",
+      url: "https://example.com/streamable",
+    },
+    {
+      name: "ignoredTransport",
+      transport: "http",
+      url: "https://example.com/ignored-transport",
+    },
   ]);
   expect(CLAUDE_CODE.formatMcpConfig(servers)).toEqual({
     path: "$HOME/.claude.json",
     content: `${JSON.stringify(
       {
-        user: { transport: "stdio", command: "npx", args: ["user"] },
+        user: { type: "stdio", command: "npx", args: ["user"] },
         project: {
-          transport: "stdio",
+          type: "stdio",
           command: "node",
           args: ["project.js"],
         },
         cwd: {
-          transport: "http",
+          type: "http",
           url: "https://example.com/mcp",
           headers: { Authorization: "Bearer ${MCP_TOKEN}" },
+        },
+        sse: {
+          type: "sse",
+          url: "https://example.com/events",
+        },
+        streamable: {
+          type: "http",
+          url: "https://example.com/streamable",
+        },
+        ignoredTransport: {
+          type: "http",
+          url: "https://example.com/ignored-transport",
         },
       },
       null,

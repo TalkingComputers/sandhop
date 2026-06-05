@@ -347,6 +347,7 @@ export const CODEX: Agent = {
     const { year, month, day } = parseCodexTranscriptName(transcriptName);
     return `${home}/.codex/sessions/${year}/${month}/${day}/${transcriptName}`;
   },
+  projectMemoryDir: () => null,
   resumeCmd: (sessionId, remoteProj) =>
     `cd ${shellQuote(remoteProj)} && codex resume ${shellQuote(sessionId)}`,
 };

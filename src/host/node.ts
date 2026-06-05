@@ -230,6 +230,7 @@ export class NodeHost implements HostDeps {
       await mkdir(dirname(dest), { recursive: true });
       await cp(source, dest, {
         recursive: true,
+        dereference: true,
         filter:
           opts === undefined
             ? undefined

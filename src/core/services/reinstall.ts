@@ -12,6 +12,7 @@ import { isRecord } from "../json.js";
 import { dirname, joinPath, listSkillNames, normalizePath } from "../paths.js";
 import { quoteShellPath, shellQuote } from "../shell.js";
 import { buildCommandFor, installCommandFor } from "./install-cmd.js";
+import { maybeRealpath } from "./mcp-paths.js";
 
 export interface ReinstallPlan {
   commands: string[];
@@ -131,7 +132,8 @@ const readSymlinkSource = (
 ): SymlinkSkillSource | null => {
   if (host.isSymlink(skillDir)) {
     const target = readLinkedPath(skillDir, host.readlink(skillDir));
-    const realPath = host.realpath(skillDir);
+    const realPath = maybeRealpath(host, skillDir);
+    if (realPath === null) return null;
     const isDirectory = host.isDirectory(realPath);
     return {
       localPath: isDirectory
@@ -144,12 +146,15 @@ const readSymlinkSource = (
     };
   }
   const skillFile = `${skillDir}/SKILL.md`;
-  if (host.exists(skillFile) && host.isSymlink(skillFile))
+  if (host.exists(skillFile) && host.isSymlink(skillFile)) {
+    const realPath = maybeRealpath(host, skillFile);
+    if (realPath === null) return null;
     return {
       localPath: readLinkedPath(skillFile, host.readlink(skillFile)),
-      realDir: dirname(host.realpath(skillFile)),
+      realDir: dirname(realPath),
       isDirectory: false,
     };
+  }
   return null;
 };
 

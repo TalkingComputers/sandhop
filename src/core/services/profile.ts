@@ -6,6 +6,7 @@ import {
 import type { Agent } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
 import { dirname, listSkillNames } from "../paths.js";
+import { maybeRealpath } from "./mcp-paths.js";
 import { readGitSkillState } from "./reinstall.js";
 
 const joinHome = (home: string, path: string): string => `${home}/${path}`;
@@ -28,12 +29,14 @@ const listGitSkillDirs = (host: HostDeps, skillsRoot: string): string[] =>
 
 const symlinkRealDir = (host: HostDeps, skillDir: string): string | null => {
   if (host.isSymlink(skillDir)) {
-    const realPath = host.realpath(skillDir);
+    const realPath = maybeRealpath(host, skillDir);
+    if (realPath === null) return null;
     return host.isDirectory(realPath) ? realPath : dirname(realPath);
   }
   const skillFile = `${skillDir}/SKILL.md`;
   if (!host.exists(skillFile) || !host.isSymlink(skillFile)) return null;
-  return dirname(host.realpath(skillFile));
+  const realPath = maybeRealpath(host, skillFile);
+  return realPath === null ? null : dirname(realPath);
 };
 
 export class ProfileService {
