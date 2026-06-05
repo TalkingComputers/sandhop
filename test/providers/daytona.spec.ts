@@ -104,7 +104,11 @@ test("DaytonaSandboxProvider spawn backgrounds commands without a session", asyn
       env: { DAYTONA_API_KEY: "api-key" },
     }),
   );
-  const sandbox = await provider.create({ envs: {}, timeoutMs: 600000 });
+  const sandbox = await provider.create({
+    envs: {},
+    timeoutMs: 600000,
+    ports: [7681],
+  });
   daytonaMocks.executeCommand.mockClear();
 
   await sandbox.spawn("ttyd");
@@ -134,7 +138,11 @@ test("DaytonaSandboxProvider uploads files, exposes ports, and destroys", async 
       env: { DAYTONA_API_KEY: "api-key" },
     }),
   );
-  const sandbox = await provider.create({ envs: {}, timeoutMs: 600000 });
+  const sandbox = await provider.create({
+    envs: {},
+    timeoutMs: 600000,
+    ports: [7681],
+  });
 
   await sandbox.uploadFile("/tmp/a", "hello");
   await sandbox.uploadFile("/tmp/b", new Uint8Array([1, 2]));
@@ -171,7 +179,11 @@ test("DaytonaSandboxProvider connect and destroy use SDK lookups", async () => {
       env: { DAYTONA_API_KEY: "api-key" },
     }),
   );
-  const created = await provider.create({ envs: {}, timeoutMs: 600000 });
+  const created = await provider.create({
+    envs: {},
+    timeoutMs: 600000,
+    ports: [7681],
+  });
 
   const connected = await provider.connect("daytona-sbx");
   await expect(provider.destroy("daytona-sbx")).resolves.toBe(true);
@@ -196,7 +208,11 @@ test("DaytonaSandboxProvider missing package throws install hint", async () => {
   );
 
   await expect(
-    provider.create({ envs: {}, timeoutMs: 600000 }),
+    provider.create({
+      envs: {},
+      timeoutMs: 600000,
+      ports: [7681],
+    }),
   ).rejects.toThrow(
     "The 'daytona' provider needs @daytonaio/sdk. Run: npm i @daytonaio/sdk",
   );

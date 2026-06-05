@@ -185,7 +185,7 @@ export class EnrichmentService {
           {
             codec: "zstd",
             lowPriority: true,
-            excludes: ["node_modules", ".venv", ".git"],
+            excludes: ["node_modules", ".venv"],
           },
         ),
       ),

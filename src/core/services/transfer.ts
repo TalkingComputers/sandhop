@@ -6,11 +6,10 @@ import { randomToken } from "../rand.js";
 import { LOW_PRIORITY_SETUP, shellQuote } from "../shell.js";
 
 const CHUNK_BYTES = 90 * 1024 * 1024;
-const UPLOAD_CONCURRENCY = 8;
 
 type TransferHost = Pick<
   HostDeps,
-  "exists" | "fileSize" | "isDirectory" | "spawnPipe" | "splitFile"
+  "cpuCount" | "exists" | "fileSize" | "isDirectory" | "spawnPipe" | "splitFile"
 >;
 
 export type TransferCodec = "gzip" | "zstd";
@@ -23,11 +22,6 @@ export interface TransferOptions {
 
 const safeLabel = (label: string): string =>
   label.replace(/[^A-Za-z0-9.-]/g, "-");
-
-const readCodec = (opts: TransferOptions | undefined): TransferCodec => {
-  if (opts === undefined) return "gzip";
-  return opts.codec;
-};
 
 const makeArchivePath = (
   safe: string,
@@ -144,11 +138,11 @@ export class TransferService {
     localPath: string,
     sandboxDestPath: string,
     label: string,
-    opts?: TransferOptions,
+    opts: TransferOptions,
   ): Promise<void> {
     const safe = safeLabel(label);
     const id = randomToken(12);
-    const codec = readCodec(opts);
+    const codec = opts.codec;
     const isDirectory =
       !this.host.exists(localPath) || this.host.isDirectory(localPath);
     const sandboxDestDir = isDirectory
@@ -170,7 +164,7 @@ export class TransferService {
     const remoteChunks = chunks.map(
       (chunk) => `/tmp/sandhop-${safe}-${id}.${basename(chunk)}`,
     );
-    const limit = pLimit(UPLOAD_CONCURRENCY);
+    const limit = pLimit(this.host.cpuCount());
     await Promise.all(
       chunks.map((chunk, index) =>
         limit(

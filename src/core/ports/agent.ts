@@ -23,6 +23,7 @@ export interface McpServer {
   env?: Record<string, string>;
   cwd?: string;
   url?: string;
+  startupTimeoutSec?: number;
 }
 
 export type McpConfigWrite =
@@ -71,5 +72,9 @@ export interface Agent {
     remoteEnc: string,
     transcriptName: string,
   ): string;
-  resumeCmd(sessionId: string, remoteProj: string): string;
+  resumeCmd(
+    sessionId: string,
+    remoteProj: string,
+    mcpTimeout: string | undefined,
+  ): string;
 }

@@ -57,6 +57,22 @@ const env = {
   VERCEL_PROJECT_ID: "project",
 };
 
+const VERCEL_NODE_MAJORS = [22, 24, 26] as const;
+type VercelNodeRuntime = `node${(typeof VERCEL_NODE_MAJORS)[number]}`;
+
+const vercelRuntime = (): VercelNodeRuntime => {
+  const major = Number(process.versions.node.split(".", 1)[0]);
+  if (!Number.isInteger(major))
+    throw new Error(`Invalid Node version ${process.versions.node}`);
+  let nearest: (typeof VERCEL_NODE_MAJORS)[number] = VERCEL_NODE_MAJORS[0];
+  for (const candidate of VERCEL_NODE_MAJORS)
+    if (Math.abs(candidate - major) < Math.abs(nearest - major))
+      nearest = candidate;
+  return `node${nearest}`;
+};
+
+const VERCEL_RUNTIME = vercelRuntime();
+
 const loadProvider = async () => {
   vi.resetModules();
   vi.clearAllMocks();
@@ -89,7 +105,7 @@ test("VercelSandboxProvider creates a named sandbox with creds and maps exec res
     name: expect.stringMatching(/^sandhop-/),
     timeout: 3_600_000,
     ports: [3000, 7681],
-    runtime: "node22",
+    runtime: VERCEL_RUNTIME,
   });
   expect(sandbox.id).toBe(
     (vercelMocks.create.mock.calls[0]![0] as { name: string }).name,
@@ -111,7 +127,11 @@ test("VercelSandboxProvider spawn uses detached bash and upload uses mkdir plus 
       bytes: { "/local/profile.tgz": new Uint8Array([9, 8]) },
     }),
   );
-  const sandbox = await provider.create({ envs: {}, timeoutMs: 600000 });
+  const sandbox = await provider.create({
+    envs: {},
+    timeoutMs: 600000,
+    ports: [7681],
+  });
 
   await sandbox.spawn("ttyd");
   await sandbox.uploadFile("/tmp/nested/a.txt", "hello");
@@ -147,7 +167,11 @@ test("VercelSandboxProvider connects and destroys by SDK lookup", async () => {
     new FakeHost({ home: "/home/local", env }),
   );
 
-  const created = await provider.create({ envs: {}, timeoutMs: 600000 });
+  const created = await provider.create({
+    envs: {},
+    timeoutMs: 600000,
+    ports: [7681],
+  });
   const connectedCreated = await provider.connect(created.id);
 
   const connected = await provider.connect("sandhop-existing");
@@ -237,7 +261,11 @@ test("VercelSandboxProvider missing package throws install hint", async () => {
   );
 
   await expect(
-    provider.create({ envs: {}, timeoutMs: 600000 }),
+    provider.create({
+      envs: {},
+      timeoutMs: 600000,
+      ports: [7681],
+    }),
   ).rejects.toThrow(
     "The 'vercel' provider needs @vercel/sandbox. Run: npm i @vercel/sandbox",
   );
@@ -255,7 +283,11 @@ test("VercelSandboxProvider requires env credentials", async () => {
     );
 
     await expect(
-      provider.create({ envs: {}, timeoutMs: 600000 }),
+      provider.create({
+        envs: {},
+        timeoutMs: 600000,
+        ports: [7681],
+      }),
     ).rejects.toThrow(`${key} is required — set it or run \`sandhop setup\``);
   }
 });

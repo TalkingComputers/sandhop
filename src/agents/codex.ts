@@ -8,7 +8,6 @@ import type {
   McpServer,
 } from "../core/ports/agent.js";
 import { collectEnvRefs } from "../core/env.js";
-import { MCP_STARTUP_TIMEOUT_SEC } from "../core/mcp-timeout.js";
 import { buildCodexPreSeedScript } from "../core/sandbox-scripts.js";
 import { basename } from "../core/paths.js";
 import { parse, stringify, type TomlTable, type TomlValue } from "smol-toml";
@@ -92,6 +91,16 @@ const toTomlStringRecord = (
   );
 };
 
+const toTomlNumber = (
+  value: TomlValue | undefined,
+  path: string,
+): number | undefined => {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number")
+    throw new Error(`Expected ${path} to be a number`);
+  return value;
+};
+
 const collectEnvRefsFromValue = (refs: Set<string>, value: TomlValue): void => {
   if (typeof value === "string")
     for (const name of collectEnvRefs(value)) refs.add(name);
@@ -126,6 +135,10 @@ const toMcpServer = (name: string, value: TomlValue): McpServer => {
   const cwd = toTomlString(table.cwd, `mcp_servers.${name}.cwd`);
   const url = toTomlString(table.url, `mcp_servers.${name}.url`);
   const env = toTomlStringRecord(table.env, `mcp_servers.${name}.env`);
+  const startupTimeoutSec = toTomlNumber(
+    table.startup_timeout_sec,
+    `mcp_servers.${name}.startup_timeout_sec`,
+  );
   return {
     name,
     transport: url === undefined ? "stdio" : "http",
@@ -134,6 +147,7 @@ const toMcpServer = (name: string, value: TomlValue): McpServer => {
     ...(cwd === undefined ? {} : { cwd }),
     ...(url === undefined ? {} : { url }),
     ...(env === undefined ? {} : { env }),
+    ...(startupTimeoutSec === undefined ? {} : { startupTimeoutSec }),
   };
 };
 
@@ -160,7 +174,9 @@ const parseMcpServers = (deps: AgentMcpDeps, cwd: string): McpServer[] => {
 const formatMcpConfig = (servers: McpServer[]): McpConfigWrite => {
   const mcpServers: Record<string, TomlTable> = {};
   for (const server of servers) {
-    const table: TomlTable = { startup_timeout_sec: MCP_STARTUP_TIMEOUT_SEC };
+    const table: TomlTable = {};
+    if (server.startupTimeoutSec !== undefined)
+      table.startup_timeout_sec = server.startupTimeoutSec;
     if (server.command !== undefined) table.command = server.command;
     if (server.args !== undefined) table.args = server.args;
     if (server.cwd !== undefined) table.cwd = server.cwd;

@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import { posix } from "node:path";
 import type { HostDeps } from "./ports/host.js";
 
@@ -48,7 +49,7 @@ export const expandEnv = (
   );
 
 export const makeTempPath = (name: string): string =>
-  `/tmp/sandhop-${Date.now()}-${name}`;
+  `${tmpdir()}/sandhop-${Date.now()}-${name}`;
 
 export const uniqueSorted = (values: Iterable<string>): string[] =>
   [...new Set(values)].sort();

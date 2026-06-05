@@ -6,6 +6,7 @@ const encoder = new TextEncoder();
 export class FakeHost implements HostDeps {
   env: Record<string, string | undefined>;
   home: string;
+  username = "host-user";
   files: Record<string, string>;
   bytes: Record<string, Uint8Array>;
   symlinks: Record<string, string>;
@@ -157,6 +158,10 @@ export class FakeHost implements HostDeps {
     return path;
   }
 
+  cpuCount(): number {
+    return 4;
+  }
+
   sha256Hex(input: string): string {
     return createHash("sha256").update(input).digest("hex");
   }
@@ -165,6 +170,7 @@ export class FakeHost implements HostDeps {
     this.execCalls.push({ bin, args });
     const key = [bin, ...args].join(" ");
     if (Object.hasOwn(this.execValues, key)) return this.execValues[key]!;
+    if (key === "sh -lc env") return "";
     throw new Error(`missing exec ${key}`);
   }
 

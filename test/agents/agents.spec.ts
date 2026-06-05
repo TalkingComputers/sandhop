@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { expect, test } from "vitest";
 import { CODEX } from "../../src/agents/codex.js";
 import { CLAUDE_CODE } from "../../src/agents/claude-code.js";
+import { selectDefaultAgent } from "../../src/agents/index.js";
 import { classify } from "../../src/core/services/mcp-classify.js";
 import { FakeHost } from "../fakes/host.js";
 
@@ -12,11 +13,16 @@ test("declarative agents install exact versions and compose native resume comman
   expect(CLAUDE_CODE.installCmd("2.1.160")).toBe(
     "npm i -g @anthropic-ai/claude-code@2.1.160",
   );
-  expect(CLAUDE_CODE.resumeCmd("session-id", "/home/user/project")).toBe(
+  expect(
+    CLAUDE_CODE.resumeCmd("session-id", "/home/user/project", undefined),
+  ).toBe('cd "/home/user/project" && claude --resume session-id');
+  expect(
+    CLAUDE_CODE.resumeCmd("session-id", "/home/user/project", "120000"),
+  ).toBe(
     'cd "/home/user/project" && MCP_TIMEOUT=120000 claude --resume session-id',
   );
   expect(CODEX.installCmd("0.136.0")).toBe("npm i -g @openai/codex@0.136.0");
-  expect(CODEX.resumeCmd("session-id", "/home/user/project")).toBe(
+  expect(CODEX.resumeCmd("session-id", "/home/user/project", undefined)).toBe(
     'cd "/home/user/project" && codex resume session-id',
   );
   expect(
@@ -35,7 +41,7 @@ test("declarative agents install exact versions and compose native resume comman
   ).toBe("/home/vercel-sandbox/.codex/sessions/restored/session-id.jsonl");
 });
 
-test("Codex MCP config writes startup timeouts for every server", () => {
+test("Codex MCP config only writes startup timeouts captured from user config", () => {
   const config = CODEX.formatMcpConfig([
     {
       name: "stdio",
@@ -47,13 +53,23 @@ test("Codex MCP config writes startup timeouts for every server", () => {
       name: "remote",
       transport: "http",
       url: "https://example.com/mcp",
+      startupTimeoutSec: 45,
     },
   ]);
 
   expect(config).toEqual({
     path: "$HOME/.codex/config.toml",
-    content:
-      '[mcp_servers.stdio]\nstartup_timeout_sec = 120\ncommand = "npx"\nargs = [ "-y", "server" ]\n\n[mcp_servers.remote]\nstartup_timeout_sec = 120\nurl = "https://example.com/mcp"\n\n',
+    content: [
+      "[mcp_servers.stdio]",
+      'command = "npx"',
+      'args = [ "-y", "server" ]',
+      "",
+      "[mcp_servers.remote]",
+      "startup_timeout_sec = 45",
+      'url = "https://example.com/mcp"',
+      "",
+      "",
+    ].join("\n"),
     mode: "append",
   });
 });
@@ -119,6 +135,7 @@ test("Codex agent parses mcp_servers TOML tables", () => {
     files: {
       "/home/local/.codex/config.toml": `
 [mcp_servers.local]
+startup_timeout_sec = 45
 command = "node"
 args = ["server.js"]
 cwd = "/workspace/mcp"
@@ -140,6 +157,7 @@ url = "https://example.com/mcp"
       args: ["server.js"],
       cwd: "/workspace/mcp",
       env: { TOKEN: "${TOKEN}" },
+      startupTimeoutSec: 45,
     },
     { name: "remote", transport: "http", url: "https://example.com/mcp" },
   ]);
@@ -179,4 +197,27 @@ args = [
     kind: "excluded",
     reason: "binds to localhost / loopback (unreachable from sandbox)",
   });
+});
+
+test("selectDefaultAgent chooses the agent with the newest latest session", () => {
+  const claudePath =
+    "/home/local/.claude/projects/-workspace-project/claude-session.jsonl";
+  const codexPath =
+    "/home/local/.codex/sessions/2026/06/04/rollout-2026-06-04T12-00-00-codex-session.jsonl";
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: {
+      [claudePath]: "{}\n",
+      [codexPath]: `${JSON.stringify({ payload: { cwd: "/workspace/project" } })}\n`,
+    },
+    mtimes: {
+      [claudePath]: 10,
+      [codexPath]: 20,
+    },
+  });
+
+  expect(
+    selectDefaultAgent(host, "/workspace/project", [CLAUDE_CODE, CODEX]).id,
+  ).toBe("codex");
 });

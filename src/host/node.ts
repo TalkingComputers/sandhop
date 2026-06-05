@@ -12,6 +12,7 @@ import {
   type Dirent,
 } from "node:fs";
 import { cp, mkdir, open, rm, writeFile } from "node:fs/promises";
+import { cpus, userInfo } from "node:os";
 import * as tar from "tar";
 import { dirname } from "../core/paths.js";
 import type { HostDeps } from "../core/ports/host.js";
@@ -40,6 +41,7 @@ const hasExcludedSegment = (path: string, excludes: string[]): boolean => {
 export class NodeHost implements HostDeps {
   env: Record<string, string | undefined>;
   home: string;
+  username = userInfo().username;
 
   constructor(env: Record<string, string | undefined>, home: string) {
     this.env = env;
@@ -92,14 +94,28 @@ export class NodeHost implements HostDeps {
 
   keychain(service: string, account: string | null): string | null {
     try {
-      const args =
-        account === null
-          ? ["find-generic-password", "-w", "-s", service]
-          : ["find-generic-password", "-w", "-s", service, "-a", account];
-      return execFileSync("security", args, { encoding: "utf8" }).trim();
+      if (process.platform === "darwin") {
+        const args =
+          account === null
+            ? ["find-generic-password", "-w", "-s", service]
+            : ["find-generic-password", "-w", "-s", service, "-a", account];
+        return execFileSync("security", args, { encoding: "utf8" }).trim();
+      }
+      if (process.platform === "linux") {
+        const args =
+          account === null
+            ? ["lookup", "service", service]
+            : ["lookup", "service", service, "account", account];
+        return execFileSync("secret-tool", args, { encoding: "utf8" }).trim();
+      }
+      return null;
     } catch {
       return null;
     }
+  }
+
+  cpuCount(): number {
+    return cpus().length;
   }
 
   realpath(path: string): string {

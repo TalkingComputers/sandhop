@@ -3,6 +3,8 @@ import {
   buildTransport,
   parseArgs,
   parseEnrichArgs,
+  readProvider,
+  readTransport,
 } from "../../src/cli/args.js";
 
 test("parseArgs keeps push defaults and flags", () => {
@@ -56,6 +58,9 @@ test("parseArgs validates provider values", () => {
   expect(() =>
     parseArgs(["push", "--provider", "bogus"], "/workspace/project"),
   ).toThrow("--provider must be one of: e2b, modal, daytona, vercel");
+  expect(() => readProvider(undefined)).toThrow(
+    "pass --provider or run `sandhop setup`",
+  );
 });
 
 test("parseArgs validates tunnel values", () => {
@@ -65,6 +70,9 @@ test("parseArgs validates tunnel values", () => {
   expect(() =>
     parseArgs(["push", "--tunnel", "wireguard"], "/workspace/project"),
   ).toThrow("--tunnel must be 'public' or 'cloudflared'");
+  expect(() => readTransport(undefined)).toThrow(
+    "pass --tunnel or run `sandhop setup`",
+  );
 });
 
 test("parseEnrichArgs reads required enrich flags", () => {
@@ -93,12 +101,10 @@ test("parseEnrichArgs reads required enrich flags", () => {
 });
 
 test("buildTransport creates the selected transport", () => {
-  expect(buildTransport(parseArgs([], "/workspace/project"), {}).id).toBe(
-    "public",
-  );
+  expect(buildTransport({ transport: "public" }, {}).id).toBe("public");
   expect(
     buildTransport(
-      parseArgs(["push", "--tunnel", "cloudflared"], "/workspace/project"),
+      { transport: "cloudflared" },
       {
         CLOUDFLARE_TUNNEL_TOKEN: "token",
         CLOUDFLARE_TUNNEL_HOSTNAME: "sandhop.example.com",

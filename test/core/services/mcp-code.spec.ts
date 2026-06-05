@@ -115,7 +115,7 @@ cwd = "/home/local/py"
 
   expect([...plan.runtimes].sort()).toEqual(["bun", "uv"]);
   expect(plan.installCmds).toEqual([
-    "cd /home/user/bun-app && bun install",
+    "cd /home/user/bun-app && bun install --frozen-lockfile",
     "cd /home/user/py && uv sync",
   ]);
   expect(plan.referencedFiles).toEqual(["/home/local/.env.d/mcp.env"]);
@@ -159,7 +159,7 @@ cwd = "/home/local/mcp"
       cwd: "/home/local",
       entries: ["mcp"],
       outPath: "/tmp/mcp-code.tgz",
-      excludes: ["node_modules", ".venv", ".git"],
+      excludes: ["node_modules", ".venv"],
     },
   ]);
 });

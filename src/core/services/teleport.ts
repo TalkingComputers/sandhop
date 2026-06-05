@@ -1,5 +1,5 @@
 import { buildManifest } from "../manifest.js";
-import { SANDHOP_AUTH_USER, TTYD_PORT } from "../constants.js";
+import { TTYD_PORT } from "../constants.js";
 import { expandHome } from "../paths.js";
 import type { Agent } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
@@ -31,13 +31,16 @@ export interface TeleportOptions {
 export interface TeleportServices {
   host: Pick<
     HostDeps,
+    | "env"
     | "exists"
     | "fileSize"
     | "isDirectory"
+    | "cpuCount"
     | "readBytes"
     | "realpath"
     | "spawnPipe"
     | "splitFile"
+    | "username"
   >;
   session: SessionReader;
   secrets: SecretsCollector;
@@ -62,7 +65,7 @@ export class TeleportService {
   }
 
   async run(cwd: string, opts: TeleportOptions): Promise<TeleportResult> {
-    const user = SANDHOP_AUTH_USER;
+    const user = this.services.host.username;
     const pass = randomToken(24);
     opts.onProgress?.("snapshotting");
     const [bundle, session, baseSecrets, auth, cliVersion] = await Promise.all([
@@ -125,7 +128,11 @@ export class TeleportService {
     )
       throw new Error(`Restore failed: ${restore.stderr || restore.stdout}`);
     opts.onProgress?.("restoring session");
-    const resume = this.agent.resumeCmd(session.sessionId, manifest.remoteProj);
+    const resume = this.agent.resumeCmd(
+      session.sessionId,
+      manifest.remoteProj,
+      this.services.host.env.MCP_TIMEOUT,
+    );
     const bind = opts.transport.ttydBindAddress();
     const bindFlag = bind === "0.0.0.0" ? "" : `-i ${bind} `;
     await sandbox.spawn(

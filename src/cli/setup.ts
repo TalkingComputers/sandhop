@@ -55,7 +55,7 @@ const selectedInitialProviders = (
       (field) => existingCredential(host, stored, field.env) !== undefined,
     ),
   );
-  return selected.length === 0 ? ["e2b"] : selected;
+  return selected;
 };
 
 const credentialMessage = (

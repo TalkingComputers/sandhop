@@ -24,31 +24,14 @@ const remotePath = (home: string, path: string): string => {
   return path;
 };
 
-const HOST_ENV_NAMES = new Set([
-  "HOME",
-  "PATH",
-  "PWD",
-  "OLDPWD",
-  "USER",
-  "LOGNAME",
-  "SHELL",
-  "SHLVL",
-  "TERM",
-  "TMPDIR",
-  "TMP",
-  "TEMP",
-  "LANG",
-  "LC_ALL",
-  "LC_CTYPE",
-  "MAIL",
-  "EDITOR",
-]);
-
-const HOST_ENV_PATTERN =
-  /^(npm_config_|NODE_|FNM_|__MISE|MISE_|NVM_|VOLTA_|ZSH|BASH)/i;
-
-const isHostEnvName = (name: string): boolean =>
-  HOST_ENV_NAMES.has(name) || HOST_ENV_PATTERN.test(name);
+const readBaselineEnvNames = (host: HostDeps): Set<string> => {
+  const names = new Set<string>();
+  for (const line of host.exec("sh", ["-lc", "env"]).split(/\r?\n/)) {
+    const index = line.indexOf("=");
+    if (index > 0) names.add(line.slice(0, index));
+  }
+  return names;
+};
 
 export class SecretsService implements SecretsCollector {
   readonly host: HostDeps;
@@ -69,9 +52,10 @@ export class SecretsService implements SecretsCollector {
     if (inputs !== undefined) {
       for (const name of inputs.envRefs) names.add(name);
     }
+    const baselineEnvNames = readBaselineEnvNames(this.host);
     const envs: Record<string, string> = {};
     for (const name of [...names].sort()) {
-      if (isHostEnvName(name)) continue;
+      if (baselineEnvNames.has(name)) continue;
       const value = this.host.env[name];
       if (value !== undefined) envs[name] = value;
     }

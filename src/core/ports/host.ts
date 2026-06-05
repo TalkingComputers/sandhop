@@ -1,6 +1,8 @@
 export interface HostDeps {
   env: Record<string, string | undefined>;
   home: string;
+  username: string;
+  cpuCount(): number;
   readFile(path: string): string | null;
   readBytes(path: string): Uint8Array;
   openBlob(path: string): Promise<Blob>;

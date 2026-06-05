@@ -74,6 +74,8 @@ const loadProvider = async () => {
   return import("../../src/providers/modal/index.js");
 };
 
+const NODE_IMAGE = `node:${process.versions.node.split(".", 1)[0]!}`;
+
 test("ModalSandboxProvider creates a sandhop sandbox and maps exec results", async () => {
   const { ModalSandboxProvider } = await loadProvider();
   const host = new FakeHost({
@@ -101,10 +103,10 @@ test("ModalSandboxProvider creates a sandhop sandbox and maps exec results", asy
   expect(modalMocks.fromName).toHaveBeenCalledWith("sandhop", {
     createIfMissing: true,
   });
-  expect(modalMocks.fromRegistry).toHaveBeenCalledWith("node:22");
+  expect(modalMocks.fromRegistry).toHaveBeenCalledWith(NODE_IMAGE);
   expect(modalMocks.create).toHaveBeenCalledWith(
     { appId: "app-id" },
-    { image: "node:22" },
+    { image: NODE_IMAGE },
     {
       command: ["sleep", "infinity"],
       encryptedPorts: [7681],
@@ -125,7 +127,11 @@ test("ModalSandboxProvider spawn starts without awaiting process completion", as
       env: { MODAL_TOKEN_ID: "id", MODAL_TOKEN_SECRET: "secret" },
     }),
   );
-  const sandbox = await provider.create({ envs: {}, timeoutMs: 600000 });
+  const sandbox = await provider.create({
+    envs: {},
+    timeoutMs: 600000,
+    ports: [7681],
+  });
   modalMocks.exec.mockClear();
   modalMocks.wait.mockClear();
 
@@ -144,7 +150,11 @@ test("ModalSandboxProvider uploads files, exposes ports, and destroys", async ()
       bytes: { "/tmp/profile.tgz": new Uint8Array([9, 8]) },
     }),
   );
-  const sandbox = await provider.create({ envs: {}, timeoutMs: 600000 });
+  const sandbox = await provider.create({
+    envs: {},
+    timeoutMs: 600000,
+    ports: [7681],
+  });
 
   await sandbox.uploadFile("/tmp/a", "hello");
   await sandbox.uploadFile("/tmp/b", new Uint8Array([1, 2]));
@@ -175,9 +185,16 @@ test("ModalSandboxProvider connect and destroy use SDK lookups", async () => {
       env: { MODAL_TOKEN_ID: "id", MODAL_TOKEN_SECRET: "secret" },
     }),
   );
-  const created = await provider.create({ envs: {}, timeoutMs: 600000 });
+  const created = await provider.create({
+    envs: {},
+    timeoutMs: 600000,
+    ports: [7681],
+  });
 
   const connected = await provider.connect("modal-sbx");
+  await expect(provider.list()).resolves.toEqual([
+    { id: "modal-sbx", startedAt: new Date("2026-01-01T00:00:00Z") },
+  ]);
   await expect(provider.destroy("modal-sbx")).resolves.toBe(true);
 
   expect(connected).not.toBe(created);
@@ -203,7 +220,11 @@ test("ModalSandboxProvider missing package throws install hint", async () => {
   );
 
   await expect(
-    provider.create({ envs: {}, timeoutMs: 600000 }),
+    provider.create({
+      envs: {},
+      timeoutMs: 600000,
+      ports: [7681],
+    }),
   ).rejects.toThrow(
     "The 'modal' provider needs the 'modal' package. Run: npm i modal",
   );

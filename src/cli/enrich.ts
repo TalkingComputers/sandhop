@@ -29,8 +29,7 @@ interface EnrichRunResult {
 const hasFailedStep = (steps: EnrichmentStepResult[]): boolean =>
   steps.some((step) => !step.ok);
 
-const isStrict = (strict: boolean): boolean =>
-  strict || process.env["SANDHOP_STRICT"] === "1";
+const isStrict = (strict: boolean): boolean => strict;
 
 const buildEnrichmentServices = (
   host: HostDeps,

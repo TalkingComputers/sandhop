@@ -19,18 +19,11 @@ class FailingMcpSandbox extends FakeSandbox {
   }
 }
 
-const originalSandhopStrict = process.env["SANDHOP_STRICT"];
-
 afterEach(() => {
   vi.restoreAllMocks();
   vi.doUnmock("../../src/providers/index.js");
   vi.doUnmock("../../src/core/services/enrichment.js");
   vi.resetModules();
-  if (originalSandhopStrict === undefined) {
-    delete process.env["SANDHOP_STRICT"];
-    return;
-  }
-  process.env["SANDHOP_STRICT"] = originalSandhopStrict;
 });
 
 const loadRunEnrichCli = async (steps: EnrichmentStepResult[]) => {
@@ -88,15 +81,6 @@ test("runEnrichCli returns zero outside strict mode when an enrichment step fail
   ]);
 
   await expect(runCli(enrichArgv())).resolves.toBe(0);
-});
-
-test("runEnrichCli returns one when SANDHOP_STRICT is set and an enrichment step fails", async () => {
-  process.env["SANDHOP_STRICT"] = "1";
-  const { runEnrichCli: runCli } = await loadRunEnrichCli([
-    { name: "mcp", ok: false, error: "failed" },
-  ]);
-
-  await expect(runCli(enrichArgv())).resolves.toBe(1);
 });
 
 test("runEnrichment sends profile and MCP roots with TransferService, uploads sourced files, writes config, and marks completion", async () => {
@@ -422,9 +406,10 @@ test("runEnrichment ships Claude settings scripts and uploads rewritten settings
   expect(host.spawnPipeCalls).toEqual(
     expect.arrayContaining([
       expect.stringContaining("--exclude 'node_modules'"),
-      expect.stringContaining("--exclude '.git'"),
+      expect.stringContaining("--exclude '.venv'"),
     ]),
   );
+  expect(host.spawnPipeCalls.join("\n")).not.toContain("--exclude '.git'");
   expect(log).toContain('SANDHOP_LOW_PRIORITY="nice -n 19"');
   expect(log).toContain("nice -n 19 ionice -c3");
   expect(log).toContain("step ok: settings scripts transfer + rewrite");

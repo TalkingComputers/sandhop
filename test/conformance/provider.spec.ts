@@ -6,6 +6,7 @@ test("provider conformance: fake sandbox supports path uploads, command results,
   const sandbox = await provider.create({
     envs: {},
     timeoutMs: 1,
+    ports: [7681],
   });
 
   await sandbox.uploadPath("/tmp/archive.tgz", "/local/archive.tgz");

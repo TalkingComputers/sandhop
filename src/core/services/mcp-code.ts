@@ -106,7 +106,7 @@ export class McpCodeService {
         return mapping.localPath.slice(this.host.home.length + 1);
       });
       await this.host.tarGz(this.host.home, entries, outPath, {
-        excludes: ["node_modules", ".venv", ".git"],
+        excludes: ["node_modules", ".venv"],
       });
     }
     return plan;

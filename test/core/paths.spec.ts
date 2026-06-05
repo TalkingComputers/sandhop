@@ -1,4 +1,5 @@
 import { expect, test } from "vitest";
+import { tmpdir } from "node:os";
 import {
   dirname,
   expandHome,
@@ -26,7 +27,9 @@ test("home path functions expand provided homes", () => {
   expect(expandHome("$HOME/.codex/auth.json", "/home/user")).toBe(
     "/home/user/.codex/auth.json",
   );
-  expect(makeTempPath("profile")).toMatch(/^\/tmp\/sandhop-\d+-profile$/);
+  const tempPath = makeTempPath("profile");
+  expect(tempPath.startsWith(`${tmpdir()}/sandhop-`)).toBe(true);
+  expect(tempPath.endsWith("-profile")).toBe(true);
 });
 
 test("normalizePath collapses POSIX dot segments", () => {

@@ -210,6 +210,7 @@ export const addRuntime = (
     name === "bun" ||
     name === "bunx" ||
     host.exists(joinPath(root, "bun.lock")) ||
+    host.exists(joinPath(root, "bun.lockb")) ||
     hasRuntimeShebang(host, paths, "bun")
   )
     runtimes.add("bun");
@@ -229,16 +230,23 @@ export const installCmd = (
 ): string[] => {
   const cmds: string[] = [];
   if (host.exists(joinPath(root, "package.json"))) {
-    if (host.exists(joinPath(root, "bun.lock")))
-      cmds.push(`cd ${sandboxRoot} && bun install`);
+    if (host.exists(joinPath(root, "pnpm-lock.yaml")))
+      cmds.push(`cd ${sandboxRoot} && pnpm install --frozen-lockfile`);
+    else if (host.exists(joinPath(root, "yarn.lock")))
+      cmds.push(`cd ${sandboxRoot} && yarn install --frozen-lockfile`);
     else if (host.exists(joinPath(root, "package-lock.json")))
       cmds.push(`cd ${sandboxRoot} && npm ci`);
-    else cmds.push(`cd ${sandboxRoot} && npm install`);
+    else if (
+      host.exists(joinPath(root, "bun.lock")) ||
+      host.exists(joinPath(root, "bun.lockb"))
+    )
+      cmds.push(`cd ${sandboxRoot} && bun install --frozen-lockfile`);
   }
-  if (
-    host.exists(joinPath(root, "pyproject.toml")) ||
-    host.exists(joinPath(root, "uv.lock"))
-  )
+  if (host.exists(joinPath(root, "poetry.lock")))
+    cmds.push(`cd ${sandboxRoot} && poetry install`);
+  else if (host.exists(joinPath(root, "pdm.lock")))
+    cmds.push(`cd ${sandboxRoot} && pdm install`);
+  else if (host.exists(joinPath(root, "uv.lock")))
     cmds.push(`cd ${sandboxRoot} && uv sync`);
   else if (host.exists(joinPath(root, "requirements.txt")))
     cmds.push(
@@ -305,4 +313,7 @@ export const rewriteServer = (
     ? {}
     : { cwd: remapValue(server.cwd, host, sandboxHome, mappings) }),
   ...(server.url === undefined ? {} : { url: server.url }),
+  ...(server.startupTimeoutSec === undefined
+    ? {}
+    : { startupTimeoutSec: server.startupTimeoutSec }),
 });

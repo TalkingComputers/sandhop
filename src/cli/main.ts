@@ -57,7 +57,7 @@ const runPush = async (
   let agent: Agent;
   if (args.agent === undefined) {
     if (detected === undefined) throw new Error("Agent detection failed");
-    agent = selectDefaultAgent(detected);
+    agent = selectDefaultAgent(host, args.cwd, detected);
   } else {
     agent = pickAgent(args.agent);
   }
@@ -104,6 +104,7 @@ const runPush = async (
       "--provider",
       args.provider,
       ...(args.profile ? [] : ["--no-profile"]),
+      ...(args.strict ? ["--strict"] : []),
     ],
     { cwd: args.cwd, env: process.env },
   );

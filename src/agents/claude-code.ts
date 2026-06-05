@@ -1,7 +1,6 @@
 import { projectDirName } from "../core/encode.js";
 import { collectEnvRefs } from "../core/env.js";
 import { isRecord } from "../core/json.js";
-import { MCP_TIMEOUT_MS } from "../core/mcp-timeout.js";
 import { basename } from "../core/paths.js";
 import { buildClaudePreSeedScript } from "../core/sandbox-scripts.js";
 import type {
@@ -54,10 +53,10 @@ const parseVersion = makeVersionParser("claude-code");
 
 const authEnv = (deps: AgentHostDeps): AuthBundle => {
   const envKey = deps.env.ANTHROPIC_API_KEY;
-  if (envKey !== undefined && envKey.startsWith("sk-ant-"))
+  if (envKey !== undefined && envKey.length > 0)
     return { envs: { ANTHROPIC_API_KEY: envKey }, files: [] };
   const keychainKey = deps.keychain("Claude Code", null);
-  if (keychainKey !== null && keychainKey.startsWith("sk-ant-"))
+  if (keychainKey !== null && keychainKey.length > 0)
     return { envs: { ANTHROPIC_API_KEY: keychainKey }, files: [] };
   const oauth = deps.env.CLAUDE_CODE_OAUTH_TOKEN;
   if (oauth !== undefined)
@@ -201,6 +200,8 @@ export const CLAUDE_CODE: Agent = {
   ],
   remoteTranscriptPath: (home, remoteEnc, transcriptName) =>
     `${home}/${CLAUDE_PROJECTS_PATH}/${remoteEnc}/${transcriptName}`,
-  resumeCmd: (sessionId, remoteProj) =>
-    `cd "${remoteProj}" && MCP_TIMEOUT=${MCP_TIMEOUT_MS} claude --resume ${sessionId}`,
+  resumeCmd: (sessionId, remoteProj, mcpTimeout) => {
+    const env = mcpTimeout === undefined ? "" : `MCP_TIMEOUT=${mcpTimeout} `;
+    return `cd "${remoteProj}" && ${env}claude --resume ${sessionId}`;
+  },
 };

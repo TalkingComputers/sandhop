@@ -38,6 +38,10 @@ test("SecretsService excludes host system env vars from MCP references", () => {
       npm_config_prefix: "/Users/parsa/.npm-global",
       MY_API_KEY: "secret",
     },
+    execValues: {
+      "sh -lc env":
+        "HOME=/Users/parsa\nPATH=/opt/homebrew/bin\nnpm_config_prefix=/Users/parsa/.npm-global\n",
+    },
     files: {
       "/home/local/.codex/config.toml": `[mcp_servers.fetch]
 command = "npx"
@@ -59,6 +63,7 @@ MY_API_KEY = "${"${MY_API_KEY}"}"
       files: [],
     },
   );
+  expect(host.execCalls).toEqual([{ bin: "sh", args: ["-lc", "env"] }]);
 });
 
 test("SecretsService includes MCP code env refs and referenced source files", () => {

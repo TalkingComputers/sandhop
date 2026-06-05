@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { TTYD_PORT } from "../../core/constants.js";
 import { dirname } from "../../core/paths.js";
 import type { HostDeps } from "../../core/ports/host.js";
 import type {
@@ -32,8 +31,21 @@ interface VercelHttpError extends Error {
 const VERCEL_INSTALL_HINT =
   "The 'vercel' provider needs @vercel/sandbox. Run: npm i @vercel/sandbox";
 const VERCEL_PACKAGE = "@vercel/sandbox";
+const VERCEL_NODE_MAJORS = [22, 24, 26] as const;
+type VercelNodeRuntime = `node${(typeof VERCEL_NODE_MAJORS)[number]}`;
 
 const sandboxName = (): string => `sandhop-${randomUUID()}`;
+
+const vercelRuntime = (): VercelNodeRuntime => {
+  const major = Number(process.versions.node.split(".", 1)[0]);
+  if (!Number.isInteger(major))
+    throw new Error(`Invalid Node version ${process.versions.node}`);
+  let nearest: (typeof VERCEL_NODE_MAJORS)[number] = VERCEL_NODE_MAJORS[0];
+  for (const candidate of VERCEL_NODE_MAJORS)
+    if (Math.abs(candidate - major) < Math.abs(nearest - major))
+      nearest = candidate;
+  return `node${nearest}`;
+};
 
 const isNotFoundError = (error: unknown): boolean => {
   if (!(error instanceof Error)) return false;
@@ -125,8 +137,8 @@ export class VercelSandboxProvider implements SandboxProvider {
       ...credentials,
       name,
       timeout: opts.timeoutMs,
-      ports: opts.ports ?? [TTYD_PORT],
-      runtime: "node22",
+      ports: opts.ports,
+      runtime: vercelRuntime(),
     });
     return new VercelSandboxAdapter(
       name,

@@ -5,7 +5,6 @@ import {
   readFileSync,
   writeFileSync,
 } from "node:fs";
-import { SANDHOP_AUTH_USER } from "../core/constants.js";
 import { joinPath } from "../core/paths.js";
 import type { ProviderId } from "../providers/index.js";
 
@@ -20,11 +19,12 @@ export interface SandhopConfig {
 
 const DIR_MODE = 0o700;
 const FILE_MODE = 0o600;
+const CONFIG_NAMESPACE = "sandhop";
 
 export const configDir = (home: string): string =>
   joinPath(
     process.env["XDG_CONFIG_HOME"] ?? joinPath(home, ".config"),
-    SANDHOP_AUTH_USER,
+    CONFIG_NAMESPACE,
   );
 
 export const configPath = (home: string): string =>

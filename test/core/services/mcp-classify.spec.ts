@@ -1,6 +1,9 @@
 import { expect, test } from "vitest";
 import type { McpServer } from "../../../src/core/ports/agent.js";
-import { classify } from "../../../src/core/services/mcp-classify.js";
+import {
+  classify,
+  installCmd,
+} from "../../../src/core/services/mcp-classify.js";
 import { FakeHost } from "../../fakes/host.js";
 
 const host = new FakeHost({ home: "/home/local", env: {} });
@@ -55,4 +58,70 @@ test("classify keeps plain npx MCP servers remote-installable", () => {
       [],
     ),
   ).toEqual({ kind: "remote-installable" });
+});
+
+test("installCmd chooses JavaScript install command from the root lockfile", () => {
+  const cases: [string, string[], string[]][] = [
+    [
+      "pnpm",
+      ["package.json", "pnpm-lock.yaml"],
+      ["cd /home/user/app && pnpm install --frozen-lockfile"],
+    ],
+    [
+      "yarn",
+      ["package.json", "yarn.lock"],
+      ["cd /home/user/app && yarn install --frozen-lockfile"],
+    ],
+    [
+      "npm",
+      ["package.json", "package-lock.json"],
+      ["cd /home/user/app && npm ci"],
+    ],
+    [
+      "bun",
+      ["package.json", "bun.lockb"],
+      ["cd /home/user/app && bun install --frozen-lockfile"],
+    ],
+    ["none", ["package.json"], []],
+  ];
+
+  for (const [name, files, expected] of cases) {
+    const testHost = new FakeHost({
+      home: "/home/local",
+      env: {},
+      files: Object.fromEntries(
+        files.map((file) => [`/home/local/${name}/${file}`, ""]),
+      ),
+    });
+    expect(
+      installCmd(testHost, `/home/local/${name}`, "/home/user/app"),
+    ).toEqual(expected);
+  }
+});
+
+test("installCmd chooses Python install command from the root lockfile", () => {
+  const cases: [string, string[], string[]][] = [
+    ["poetry", ["poetry.lock"], ["cd /home/user/app && poetry install"]],
+    ["pdm", ["pdm.lock"], ["cd /home/user/app && pdm install"]],
+    ["uv", ["uv.lock"], ["cd /home/user/app && uv sync"]],
+    [
+      "requirements",
+      ["requirements.txt"],
+      ["cd /home/user/app && uv pip install -r requirements.txt --system"],
+    ],
+    ["pyproject", ["pyproject.toml"], []],
+  ];
+
+  for (const [name, files, expected] of cases) {
+    const testHost = new FakeHost({
+      home: "/home/local",
+      env: {},
+      files: Object.fromEntries(
+        files.map((file) => [`/home/local/${name}/${file}`, ""]),
+      ),
+    });
+    expect(
+      installCmd(testHost, `/home/local/${name}`, "/home/user/app"),
+    ).toEqual(expected);
+  }
 });

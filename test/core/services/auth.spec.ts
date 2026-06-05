@@ -9,23 +9,23 @@ test("AuthService extracts Claude API key from env or keychain", () => {
     new AuthService(
       new FakeHost({
         home: "/home/local",
-        env: { ANTHROPIC_API_KEY: "sk-ant-api03-env" },
+        env: { ANTHROPIC_API_KEY: "proxy-env-key" },
       }),
       CLAUDE_CODE,
     ).extract(),
-  ).toEqual({ envs: { ANTHROPIC_API_KEY: "sk-ant-api03-env" }, files: [] });
+  ).toEqual({ envs: { ANTHROPIC_API_KEY: "proxy-env-key" }, files: [] });
 
   expect(
     new AuthService(
       new FakeHost({
         home: "/home/local",
         env: {},
-        keychainValues: { "Claude Code": "sk-ant-api03-keychain" },
+        keychainValues: { "Claude Code": "bedrock-keychain-key" },
       }),
       CLAUDE_CODE,
     ).extract(),
   ).toEqual({
-    envs: { ANTHROPIC_API_KEY: "sk-ant-api03-keychain" },
+    envs: { ANTHROPIC_API_KEY: "bedrock-keychain-key" },
     files: [],
   });
 });

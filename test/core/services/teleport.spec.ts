@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { CLAUDE_CODE } from "../../../src/agents/claude-code.js";
-import { SANDHOP_AUTH_USER, TTYD_PORT } from "../../../src/core/constants.js";
+import { TTYD_PORT } from "../../../src/core/constants.js";
 import type { AuthBundle, SessionRef } from "../../../src/core/ports/agent.js";
 import type { Transport } from "../../../src/core/ports/transport.js";
 import { BootstrapService } from "../../../src/core/services/bootstrap.js";
@@ -116,26 +116,27 @@ test("TeleportService fast core fans out collection, transfers one gzip bundle, 
   );
   expect(provider.sandbox.execs[2]).not.toContain("tar -xzf /tmp/bundle.tgz");
   expect(provider.sandbox.spawns[0]).toContain(
-    `ttyd -p ${TTYD_PORT} -W -c ${SANDHOP_AUTH_USER}:`,
+    `ttyd -p ${TTYD_PORT} -W -c host-user:`,
   );
   expect(provider.sandbox.spawns[0]).not.toContain("-i 127.0.0.1");
   expect(provider.sandbox.spawns[0]).toContain(
-    "bash -lc 'cd \"/workspace/project\" && MCP_TIMEOUT=120000 claude --resume session-id'",
+    "bash -lc 'cd \"/workspace/project\" && claude --resume session-id'",
   );
+  expect(provider.sandbox.spawns[0]).not.toContain("MCP_TIMEOUT=");
   expect(provider.sandbox.spawns[0]).not.toContain("for f in");
   expect(provider.sandbox.execs).toHaveLength(3);
   expect(provider.sandbox.execs[2]).not.toContain("profile");
   expect(provider.sandbox.execs[2]).not.toContain("mcp");
   expect(provider.sandbox.exposedPorts).toEqual([TTYD_PORT]);
   expect(result.url).toBe(`https://sandbox-sbx-1-${TTYD_PORT}.example`);
-  expect(result.user).toBe(SANDHOP_AUTH_USER);
+  expect(result.user).toBe("host-user");
   expect(result.pass).toMatch(/^[A-Za-z0-9_-]{24}$/);
 });
 
 test("TeleportService injects transport bootstrap steps and loopback ttyd bind", async () => {
   const host = new FakeHost({
     home: "/home/local",
-    env: {},
+    env: { MCP_TIMEOUT: "120000" },
     bytes: {
       "/home/local/.claude/projects/-workspace-project/session-id.jsonl":
         encoder.encode("transcript"),
@@ -178,7 +179,10 @@ test("TeleportService injects transport bootstrap steps and loopback ttyd bind",
   });
   expect(provider.sandbox.execs[2]).toContain("install cloudflared");
   expect(provider.sandbox.spawns[0]).toContain(
-    `ttyd -i 127.0.0.1 -p ${TTYD_PORT} -W -c ${SANDHOP_AUTH_USER}:`,
+    `ttyd -i 127.0.0.1 -p ${TTYD_PORT} -W -c host-user:`,
+  );
+  expect(provider.sandbox.spawns[0]).toContain(
+    "bash -lc 'cd \"/workspace/project\" && MCP_TIMEOUT=120000 claude --resume session-id'",
   );
   expect(provider.sandbox.exposedPorts).toEqual([]);
   expect(result.url).toBe("https://cloudflared-sbx-1");

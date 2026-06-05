@@ -93,6 +93,17 @@ test("runSetup keeps stored credentials when clack returns undefined for a blank
   expect(readSavedConfig(home).credentials.E2B_API_KEY).toBe("stored-e2b-key");
 });
 
+test("runSetup does not preselect a provider without existing credentials", async () => {
+  const home = mkdtempSync(join(tmpdir(), "sandhop-home-"));
+  promptMocks.multiselect.mockResolvedValue(promptMocks.cancel);
+
+  await runSetup({ home, env: {} });
+
+  expect(promptMocks.multiselect).toHaveBeenCalledWith(
+    expect.objectContaining({ initialValues: [] }),
+  );
+});
+
 test("runSetup keeps stored Cloudflare values when clack returns undefined for blank prompts", async () => {
   const home = mkdtempSync(join(tmpdir(), "sandhop-home-"));
   saveConfig(home, storedConfig());

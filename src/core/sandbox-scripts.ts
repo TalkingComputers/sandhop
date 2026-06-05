@@ -8,7 +8,6 @@ export const buildClaudePreSeedScript = (remoteProj: string): string =>
     "j.hasCompletedOnboarding=true",
     'if(!Object.hasOwn(j,"projects"))j.projects={}',
     `j.projects[${JSON.stringify(remoteProj)}]={hasTrustDialogAccepted:true,hasCompletedProjectOnboarding:true}`,
-    'if(process.env.ANTHROPIC_API_KEY){if(!Object.hasOwn(j,"customApiKeyResponses"))j.customApiKeyResponses={};j.customApiKeyResponses.approved=[process.env.ANTHROPIC_API_KEY.slice(-20)];j.customApiKeyResponses.rejected=[]}',
     "fs.writeFileSync(f,JSON.stringify(j))",
   ].join(";");
 

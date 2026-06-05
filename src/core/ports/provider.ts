@@ -7,7 +7,7 @@ export interface RunResult {
 export interface CreateOptions {
   envs: Record<string, string>;
   timeoutMs: number;
-  ports?: number[];
+  ports: number[];
 }
 
 export interface ExposedPort {

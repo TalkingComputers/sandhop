@@ -14,6 +14,7 @@ export interface ParsedArgs {
   provider?: ProviderId;
   transport?: SandhopTransport;
   profile: boolean;
+  strict: boolean;
 }
 
 export interface EnrichArgs {
@@ -55,7 +56,8 @@ const readRequiredAgent = (value: string): AgentId => {
 };
 
 export const readTransport = (value: string | undefined): SandhopTransport => {
-  if (value === undefined) return "public";
+  if (value === undefined)
+    throw new Error("pass --tunnel or run `sandhop setup`");
   if (value === "public" || value === "cloudflared") return value;
   throw new Error("--tunnel must be 'public' or 'cloudflared'");
 };
@@ -69,7 +71,8 @@ const isProviderId = (value: string): value is ProviderId =>
   PROVIDER_IDS.includes(value as ProviderId);
 
 export const readProvider = (value: string | undefined): ProviderId => {
-  if (value === undefined) return "e2b";
+  if (value === undefined)
+    throw new Error("pass --provider or run `sandhop setup`");
   if (isProviderId(value)) return value;
   throw new Error(`--provider must be one of: ${PROVIDER_IDS.join(", ")}`);
 };
@@ -97,6 +100,7 @@ export const parseArgs = (argv: string[], cwd: string): ParsedArgs => {
       argv.includes("--tunnel") ? readFlag(argv, "--tunnel") : undefined,
     ),
     profile: !argv.includes("--no-profile"),
+    strict: argv.includes("--strict"),
   };
 };
 
@@ -110,12 +114,14 @@ export const parseEnrichArgs = (argv: string[]): ParsedEnrichArgs => ({
 });
 
 export const buildTransport = (
-  args: ParsedArgs,
+  args: { transport: SandhopTransport },
   hostEnv: Record<string, string | undefined>,
 ): Transport => {
-  if (args.transport !== "cloudflared") return new PublicTransport();
-  return new CloudflaredTransport({
-    token: hostEnv.CLOUDFLARE_TUNNEL_TOKEN,
-    hostname: hostEnv.CLOUDFLARE_TUNNEL_HOSTNAME,
-  });
+  if (args.transport === "public") return new PublicTransport();
+  if (args.transport === "cloudflared")
+    return new CloudflaredTransport({
+      token: hostEnv.CLOUDFLARE_TUNNEL_TOKEN,
+      hostname: hostEnv.CLOUDFLARE_TUNNEL_HOSTNAME,
+    });
+  throw new Error(`Unknown transport ${args.transport}`);
 };

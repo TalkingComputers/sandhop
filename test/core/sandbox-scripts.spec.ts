@@ -34,16 +34,18 @@ const runNodeScript = (script: string, env: Record<string, string>): void => {
   });
 };
 
-test("buildClaudePreSeedScript merges onboarding, trust, API approval, and keeps MCP servers", () => {
+test("buildClaudePreSeedScript merges onboarding and trust while preserving Claude JSON", () => {
   const home = mkdtempSync(join(tmpdir(), "sandhop-claude-preseed-"));
-  const apiKey = "sk-ant-api03-1234567890abcdef1234567890";
   writeFileSync(
     join(home, ".claude.json"),
-    JSON.stringify({ mcpServers: { keep: { command: "node" } } }),
+    JSON.stringify({
+      customApiKeyResponses: { approved: ["real"], rejected: ["old"] },
+      mcpServers: { keep: { command: "node" } },
+    }),
   );
 
   runNodeScript(buildClaudePreSeedScript("/workspace/project"), {
-    ANTHROPIC_API_KEY: apiKey,
+    ANTHROPIC_API_KEY: "proxy-key",
     HOME: home,
   });
 
@@ -56,8 +58,8 @@ test("buildClaudePreSeedScript merges onboarding, trust, API approval, and keeps
     hasCompletedProjectOnboarding: true,
   });
   expect(parsed.customApiKeyResponses).toEqual({
-    approved: [apiKey.slice(-20)],
-    rejected: [],
+    approved: ["real"],
+    rejected: ["old"],
   });
   expect(parsed.mcpServers).toEqual({ keep: { command: "node" } });
 });

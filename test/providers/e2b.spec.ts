@@ -63,6 +63,7 @@ test("E2bSandboxProvider creates sandboxes, uploads octet-stream bytes and paths
   const sandbox = await provider.create({
     envs: { A: "1" },
     timeoutMs: 600000,
+    ports: [7681],
   });
   expect(sandbox.home).toBe("/home/e2b");
   await sandbox.uploadFile("/tmp/a", new Uint8Array([1, 2]));
@@ -125,6 +126,7 @@ test("E2bSandboxProvider returns non-zero command exits as RunResult data", asyn
   const sandbox = await provider.create({
     envs: {},
     timeoutMs: 600000,
+    ports: [7681],
   });
 
   await expect(sandbox.exec("false")).resolves.toEqual({
@@ -148,6 +150,7 @@ test("E2bSandboxProvider reconnects after adapter destroy", async () => {
   const sandbox = await provider.create({
     envs: {},
     timeoutMs: 600000,
+    ports: [7681],
   });
 
   await sandbox.destroy();

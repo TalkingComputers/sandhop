@@ -3,7 +3,7 @@ import { TransferService } from "../../../src/core/services/transfer.js";
 import { FakeHost } from "../../fakes/host.js";
 import { FakeProvider } from "../../fakes/provider.js";
 
-test("TransferService defaults to gzip, chunks locally, uploads chunks, verifies size and integrity, and extracts in one restore exec", async () => {
+test("TransferService uses required gzip codec, chunks locally, uploads chunks, verifies size and integrity, and extracts in one restore exec", async () => {
   const host = new FakeHost({ home: "/home/local", env: {} });
   const provider = new FakeProvider();
 
@@ -11,6 +11,7 @@ test("TransferService defaults to gzip, chunks locally, uploads chunks, verifies
     "/workspace/project",
     "/home/user/project",
     "bundle",
+    { codec: "gzip" },
   );
 
   expect(host.spawnPipeCalls).toHaveLength(1);
@@ -45,6 +46,7 @@ test("TransferService disables macOS AppleDouble metadata while creating archive
     "/workspace/project",
     "/home/user/project",
     "bundle",
+    { codec: "gzip" },
   );
 
   expect(host.spawnPipeCalls[0]).toContain("COPYFILE_DISABLE=1");
