@@ -1,9 +1,17 @@
-Teleport the current Codex session to a cloud sandbox.
+Teleport this Codex session to a cloud sandbox so the user can keep working in the browser. Think of it as copying the part of the user's laptop this session needs into the cloud, keeping the exact same file paths.
 
-Run this shell command from the current working directory:
+First, work out what to send:
 
-sandhop push --agent codex --cwd "$(pwd)"
+- The project we're in — its source, `.env`, config, and `.git`. All of it goes.
+- Any file outside the project that this work actually needs — a config under `~/.config`, a data file, a credential it reads — wherever it lives. Look at what this session has been doing to decide.
+- Leave out big stuff the sandbox can just rebuild: `node_modules`, `dist`, `build`, `out`, `.next`, `target`, `__pycache__`, `.venv`, caches, logs.
 
-The full working tree is sent, including gitignored `.env` files and `.git`, so commit/push works in the sandbox. SSH keys for this repo's git remotes ship automatically. You may append `--exclude <comma globs>` only for large regenerable paths like `node_modules`, `dist`, and caches, and `--include <abs paths>` for needed paths outside the cwd. Never exclude source, env/config, or `.git`.
+Then run it from the project directory:
 
-It prints `SANDHOP_URL <url>` and `SANDHOP_AUTH sandhop:<pass>` immediately, then starts background enrichment for profile, skills, and MCP servers. Report both immediately as: "Your session is live: <url> — log in with user `sandhop`, password `<pass>`. Profile/skills/MCP are still enriching in the background; check `/tmp/sandhop-enrich.log` in the session if asked." If it fails, show the stderr.
+sandhop push --agent codex --cwd "$(pwd)" --exclude node_modules,dist,build,out,.next,target,**pycache**,.venv --include <absolute paths of the outside files it needs>
+
+- Drop any excludes the project doesn't have; add other rebuildable dirs it does.
+- `--include` takes absolute paths; each file is recreated at the same path inside the sandbox.
+- Never exclude source, `.env`/config, or `.git`.
+
+It prints `SANDHOP_URL <url>` and `SANDHOP_AUTH sandhop:<pass>`. Reply with: "Your session is live: <url> — user `sandhop`, password `<pass>`." If it fails, show the stderr.
