@@ -2,6 +2,7 @@ import { tmpdir } from "node:os";
 import pLimit from "p-limit";
 import { basename, dirname } from "../paths.js";
 import type { HostDeps } from "../ports/host.js";
+import type { TransferProgress } from "../ports/progress.js";
 import type { Sandbox } from "../ports/provider.js";
 import { randomToken } from "../rand.js";
 import { LOW_PRIORITY_SETUP, shellQuote } from "../shell.js";
@@ -157,7 +158,9 @@ export class TransferService {
     sandboxDestPath: string,
     label: string,
     opts: TransferOptions,
+    onProgress?: (p: TransferProgress) => void,
   ): Promise<void> {
+    onProgress?.({ label, phase: "compress", bytesDone: 0, bytesTotal: 0 });
     const safe = safeLabel(label);
     const id = randomToken(12);
     const codec = opts.codec;
@@ -181,26 +184,46 @@ export class TransferService {
       );
       chunks = await this.host.splitFile(archive, CHUNK_BYTES, prefix);
       const chunkSizes = chunks.map((chunk) => this.host.fileSize(chunk));
+      const totalBytes = chunkSizes.reduce((sum, size) => sum + size, 0);
+      onProgress?.({
+        label,
+        phase: "upload",
+        bytesDone: 0,
+        bytesTotal: totalBytes,
+      });
       const remoteChunks = chunks.map((chunk) => `/tmp/${basename(chunk)}`);
       const limit = pLimit(this.host.cpuCount());
+      let uploadedBytes = 0;
       await Promise.all(
         chunks.map((chunk, index) =>
           limit(
             async (localChunk: string, remoteChunk: string): Promise<void> => {
               await this.sandbox.uploadPath(remoteChunk, localChunk);
+              uploadedBytes += chunkSizes[index]!;
+              onProgress?.({
+                label,
+                phase: "upload",
+                bytesDone: uploadedBytes,
+                bytesTotal: totalBytes,
+              });
             },
             chunk,
             remoteChunks[index]!,
           ),
         ),
       );
-      const totalBytes = chunkSizes.reduce((sum, size) => sum + size, 0);
       const remoteArchive = makeRemoteArchivePath(safe, id, codec);
       const catInputs = remoteChunks.map(shellQuote).join(" ");
       const cleanup = [remoteArchive, ...remoteChunks]
         .map(shellQuote)
         .join(" ");
       const lowPriority = opts?.lowPriority === true;
+      onProgress?.({
+        label,
+        phase: "extract",
+        bytesDone: totalBytes,
+        bytesTotal: totalBytes,
+      });
       const restore = await this.sandbox.exec(
         [
           "set -e",

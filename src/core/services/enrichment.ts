@@ -2,6 +2,7 @@ import { formatErrorStack } from "../errors.js";
 import { expandHome, makeTempPath } from "../paths.js";
 import type { Agent } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
+import type { PushListener } from "../ports/progress.js";
 import type { RunResult, Sandbox } from "../ports/provider.js";
 import type { BootstrapService, EnrichmentStepResult } from "./bootstrap.js";
 import type { CodePlan } from "./mcp-code.js";
@@ -36,13 +37,16 @@ const recordStep = async <T>(
   steps: EnrichmentStepResult[],
   name: string,
   run: () => Promise<T>,
+  onEvent?: PushListener,
 ): Promise<T | null> => {
+  onEvent?.({ kind: "enrichStep", name, status: "start" });
   await appendLog(sandbox, `[sandhop] step started: ${name}`).catch(
     () => undefined,
   );
   try {
     const value = await run();
     steps.push({ name, ok: true });
+    onEvent?.({ kind: "enrichStep", name, status: "ok" });
     await appendLog(sandbox, `[sandhop] step ok: ${name}`).catch(
       () => undefined,
     );
@@ -50,6 +54,7 @@ const recordStep = async <T>(
   } catch (error: unknown) {
     const text = formatErrorStack(error);
     steps.push({ name, ok: false, error: text });
+    onEvent?.({ kind: "enrichStep", name, status: "fail" });
     await appendLog(sandbox, `[sandhop] step failed: ${name}\n${text}`).catch(
       () => undefined,
     );
@@ -63,12 +68,19 @@ const recordScriptStep = async (
   name: string,
   script: string,
   opts?: { timeoutMs?: number },
+  onEvent?: PushListener,
 ): Promise<void> => {
-  await recordStep(sandbox, steps, name, async (): Promise<void> => {
-    const result = await runLogged(sandbox, script, opts);
-    if (result.exitCode !== 0)
-      throw new Error(`${name} failed: ${result.stderr}`);
-  });
+  await recordStep(
+    sandbox,
+    steps,
+    name,
+    async (): Promise<void> => {
+      const result = await runLogged(sandbox, script, opts);
+      if (result.exitCode !== 0)
+        throw new Error(`${name} failed: ${result.stderr}`);
+    },
+    onEvent,
+  );
 };
 
 export class EnrichmentService {
@@ -98,7 +110,11 @@ export class EnrichmentService {
     this.excludes = excludes;
   }
 
-  async run(cwd: string, profile: boolean): Promise<EnrichmentStepResult[]> {
+  async run(
+    cwd: string,
+    profile: boolean,
+    onEvent?: PushListener,
+  ): Promise<EnrichmentStepResult[]> {
     const steps: EnrichmentStepResult[] = [];
     try {
       await appendLog(
@@ -110,6 +126,8 @@ export class EnrichmentService {
         steps,
         "enrichment setup",
         this.bootstrap.renderEnrichmentSetup(),
+        undefined,
+        onEvent,
       );
       await recordStep(
         this.sandbox,
@@ -117,14 +135,16 @@ export class EnrichmentService {
         "profile transfer + extract",
         async (): Promise<void> => {
           if (!profile) return;
-          await this.sendProfile();
+          await this.sendProfile(onEvent);
         },
+        onEvent,
       );
       const scriptPlan = await recordStep(
         this.sandbox,
         steps,
         "settings scripts transfer + rewrite",
-        () => this.sendScripts(cwd),
+        () => this.sendScripts(cwd, onEvent),
+        onEvent,
       );
       await recordScriptStep(
         this.sandbox,
@@ -132,12 +152,14 @@ export class EnrichmentService {
         "settings script dependency installs",
         this.bootstrap.renderSettingsScriptInstalls(scriptPlan),
         { timeoutMs: ENRICHMENT_EXEC_TIMEOUT_MS },
+        onEvent,
       );
       const codePlan = await recordStep(
         this.sandbox,
         steps,
         "mcp code transfer + config rewrite",
-        () => this.sendMcpCode(cwd),
+        () => this.sendMcpCode(cwd, onEvent),
+        onEvent,
       );
       await recordScriptStep(
         this.sandbox,
@@ -145,6 +167,7 @@ export class EnrichmentService {
         "per-MCP dependency installs",
         this.bootstrap.renderEnrichmentInstalls({ codePlan }),
         { timeoutMs: ENRICHMENT_EXEC_TIMEOUT_MS },
+        onEvent,
       );
       await recordScriptStep(
         this.sandbox,
@@ -152,6 +175,7 @@ export class EnrichmentService {
         "plugin and git skill reinstall",
         this.bootstrap.renderReinstall(this.reinstall.plan().commands),
         { timeoutMs: ENRICHMENT_EXEC_TIMEOUT_MS },
+        onEvent,
       );
       await runLogged(
         this.sandbox,
@@ -170,19 +194,28 @@ export class EnrichmentService {
     }
   }
 
-  private async sendProfile(): Promise<void> {
+  private async sendProfile(onEvent?: PushListener): Promise<void> {
     const profileTree = await this.profile.build(
       makeTempPath("profile"),
       this.excludes,
     );
     if (profileTree !== null)
-      await this.transfer.send(profileTree, this.sandbox.home, "profile", {
-        codec: this.host.hasZstd() ? "zstd" : "gzip",
-        lowPriority: true,
-      });
+      await this.transfer.send(
+        profileTree,
+        this.sandbox.home,
+        "profile",
+        {
+          codec: this.host.hasZstd() ? "zstd" : "gzip",
+          lowPriority: true,
+        },
+        (transfer) => onEvent?.({ kind: "transfer", transfer }),
+      );
   }
 
-  private async sendScripts(cwd: string): Promise<ScriptCapturePlan> {
+  private async sendScripts(
+    cwd: string,
+    onEvent?: PushListener,
+  ): Promise<ScriptCapturePlan> {
     if (!this.agent.supportsSettingsScripts())
       return { mappings: [], rewrites: [], installCmds: [] };
     const scriptPlan = this.scripts.plan(cwd, this.sandbox.home);
@@ -199,6 +232,7 @@ export class EnrichmentService {
             lowPriority: true,
             excludes: this.excludes,
           },
+          (transfer) => onEvent?.({ kind: "transfer", transfer }),
         ),
       ),
     );
@@ -207,7 +241,10 @@ export class EnrichmentService {
     return scriptPlan;
   }
 
-  private async sendMcpCode(cwd: string): Promise<CodePlan | null> {
+  private async sendMcpCode(
+    cwd: string,
+    onEvent?: PushListener,
+  ): Promise<CodePlan | null> {
     const codePlan = await this.mcpCode.build(
       cwd,
       this.sandbox.home,
@@ -225,6 +262,7 @@ export class EnrichmentService {
             lowPriority: true,
             excludes: this.excludes,
           },
+          (transfer) => onEvent?.({ kind: "transfer", transfer }),
         ),
       ),
     );

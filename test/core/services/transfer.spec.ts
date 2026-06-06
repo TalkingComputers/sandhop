@@ -4,6 +4,39 @@ import { TransferService } from "../../../src/core/services/transfer.js";
 import { FakeHost } from "../../fakes/host.js";
 import { FakeProvider } from "../../fakes/provider.js";
 
+test("TransferService emits compression, upload, and extraction progress", async () => {
+  const host = new FakeHost({ home: "/home/local", env: {} });
+  const provider = new FakeProvider();
+  const events: {
+    label: string;
+    phase: string;
+    bytesDone: number;
+    bytesTotal: number;
+  }[] = [];
+
+  await new TransferService(host, provider.sandbox).send(
+    "/workspace/project",
+    "/home/user/project",
+    "bundle",
+    { codec: "gzip" },
+    (event: {
+      label: string;
+      phase: string;
+      bytesDone: number;
+      bytesTotal: number;
+    }): void => {
+      events.push(event);
+    },
+  );
+
+  expect(events).toEqual([
+    { label: "bundle", phase: "compress", bytesDone: 0, bytesTotal: 0 },
+    { label: "bundle", phase: "upload", bytesDone: 0, bytesTotal: 7 },
+    { label: "bundle", phase: "upload", bytesDone: 7, bytesTotal: 7 },
+    { label: "bundle", phase: "extract", bytesDone: 7, bytesTotal: 7 },
+  ]);
+});
+
 test("TransferService uses required gzip codec, chunks locally, uploads chunks, verifies size and integrity, and extracts in one restore exec", async () => {
   const host = new FakeHost({ home: "/home/local", env: {} });
   const provider = new FakeProvider();

@@ -23,7 +23,10 @@ export interface HostDeps {
   spawnDetached(
     bin: string,
     args: string[],
-    opts: { cwd: string; env: Record<string, string | undefined> },
+    opts: {
+      cwd: string;
+      env: Record<string, string | undefined>;
+    },
   ): void;
   splitFile(
     path: string,

@@ -11,6 +11,7 @@ test("parseArgs keeps push defaults and flags", () => {
   expect(parseArgs([], "/workspace/project")).toMatchObject({
     cmd: "push",
     cwd: "/workspace/project",
+    detach: false,
     excludes: [],
     includes: [],
     profile: true,
@@ -32,6 +33,10 @@ test("parseArgs keeps push defaults and flags", () => {
   ).toMatchObject({
     cmd: "push",
     cwd: "/workspace/other",
+  });
+  expect(parseArgs(["push", "--detach"], "/workspace/project")).toMatchObject({
+    cmd: "push",
+    detach: true,
   });
 });
 
@@ -118,6 +123,8 @@ test("parseEnrichArgs reads required enrich flags", () => {
       "/workspace/project",
       "--provider",
       "modal",
+      "--progress-file",
+      "/tmp/sandhop-progress-sbx-1.jsonl",
       "--exclude",
       "dist,.cache",
       "--no-profile",
@@ -128,6 +135,7 @@ test("parseEnrichArgs reads required enrich flags", () => {
     agent: "codex",
     cwd: "/workspace/project",
     provider: "modal",
+    progressFile: "/tmp/sandhop-progress-sbx-1.jsonl",
     excludes: ["dist", ".cache"],
     profile: false,
     strict: true,

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { intro, note, outro, progress } from "@clack/prompts";
-import { realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   detectAgents,
@@ -9,6 +9,7 @@ import {
 } from "../agents/index.js";
 import { CredentialError } from "../core/errors.js";
 import type { Agent } from "../core/ports/agent.js";
+import type { PushEvent } from "../core/ports/progress.js";
 import { AuthService } from "../core/services/auth.js";
 import { BootstrapService } from "../core/services/bootstrap.js";
 import { GitSshService } from "../core/services/git-ssh.js";
@@ -38,6 +39,25 @@ type PushProgressBar = ReturnType<typeof progress> & {
   stop(msg?: string, code?: number): void;
 };
 
+type EnrichmentProgressBar = PushProgressBar & {
+  message(msg: string): void;
+};
+
+const ENRICHMENT_STEPS = 7;
+const PROGRESS_POLL_MS = 200;
+const PROGRESS_IDLE_TIMEOUT_MS = 20 * 60 * 1000;
+const BYTES_PER_MB = 1_048_576;
+
+const FRIENDLY_LABELS: Record<string, string> = {
+  "enrichment setup": "Preparing",
+  "profile transfer + extract": "Transferring profile & skills",
+  "settings scripts transfer + rewrite": "Transferring settings scripts",
+  "settings script dependency installs": "Installing settings-script deps",
+  "mcp code transfer + config rewrite": "Transferring MCP servers",
+  "per-MCP dependency installs": "Installing MCP deps",
+  "plugin and git skill reinstall": "Reinstalling plugins & skills",
+};
+
 export const withRuntimeDefaults = (
   args: ParsedArgs,
   host: NodeHost,
@@ -58,6 +78,82 @@ const formatPushProgress = (msg: string): string => {
   if (msg.startsWith("installing"))
     return "Installing agent runtime + terminal";
   return msg;
+};
+
+const friendly = (name: string): string => {
+  const label = FRIENDLY_LABELS[name];
+  return label === undefined ? name : label;
+};
+
+const tailEnrichment = async (progressPath: string): Promise<void> => {
+  const bar = progress({
+    style: "heavy",
+    max: ENRICHMENT_STEPS,
+  }) as EnrichmentProgressBar;
+  bar.start("Setting up your environment…");
+  let offset = 0;
+  let lineBuffer = "";
+  let lastStep = "enrichment setup";
+  let lastActivity = Date.now();
+  await new Promise<void>((finish) => {
+    let interval: ReturnType<typeof setInterval>;
+    const stop = (message: string): void => {
+      clearInterval(interval);
+      process.off("SIGINT", onSigint);
+      bar.stop(message);
+      finish();
+    };
+    const onSigint = (): void => {
+      stop("Enrichment continues in the background");
+      process.exit(0);
+    };
+    const applyEvent = (event: PushEvent): void => {
+      if (event.kind === "enrichStep") {
+        lastStep = event.name;
+        if (event.status === "start") {
+          bar.message(friendly(event.name));
+          return;
+        }
+        bar.advance(1, friendly(event.name));
+        return;
+      }
+      if (event.kind === "transfer") {
+        const transfer = event.transfer;
+        bar.message(
+          `${friendly(lastStep)} · ${Math.round(transfer.bytesDone / BYTES_PER_MB)}MB`,
+        );
+        return;
+      }
+      stop(`Environment ready · ${event.okSteps}/${event.totalSteps}`);
+    };
+    const readProgress = (): void => {
+      if (existsSync(progressPath)) {
+        const bytes = readFileSync(progressPath);
+        if (bytes.byteLength > offset) {
+          lineBuffer += bytes.subarray(offset).toString("utf8");
+          offset = bytes.byteLength;
+          lastActivity = Date.now();
+          const lines = lineBuffer.split("\n");
+          lineBuffer = lines.pop()!;
+          for (const line of lines) {
+            if (line.length === 0) continue;
+            let event: PushEvent;
+            try {
+              event = JSON.parse(line) as PushEvent;
+            } catch {
+              continue;
+            }
+            applyEvent(event);
+          }
+        }
+      }
+      if (Date.now() - lastActivity > PROGRESS_IDLE_TIMEOUT_MS)
+        stop("still running in the background");
+    };
+    process.once("SIGINT", onSigint);
+    interval = setInterval(readProgress, PROGRESS_POLL_MS);
+    readProgress();
+  });
 };
 
 const runPush = async (args: RuntimeArgs, host: NodeHost): Promise<void> => {
@@ -128,7 +224,6 @@ const runPush = async (args: RuntimeArgs, host: NodeHost): Promise<void> => {
       `${result.url}\n\n  user   ${result.user}\n  pass   ${result.pass}\n  kill   sandhop kill ${result.sandboxId}`,
       "Open in your browser",
     );
-    outro("Skills, MCP servers & plugins are installing in the background.");
   } else {
     console.log(`SANDHOP_URL ${result.url}`);
     console.log(`SANDHOP_AUTH ${result.user}:${result.pass}`);
@@ -137,6 +232,7 @@ const runPush = async (args: RuntimeArgs, host: NodeHost): Promise<void> => {
       "enrichment running in background (profile, skills, MCP servers)",
     );
   }
+  const progressPath = `/tmp/sandhop-progress-${result.sandboxId}.jsonl`;
   const enrichPath = fileURLToPath(new URL("./enrich.js", import.meta.url));
   host.spawnDetached(
     process.execPath,
@@ -150,12 +246,21 @@ const runPush = async (args: RuntimeArgs, host: NodeHost): Promise<void> => {
       args.cwd,
       "--provider",
       args.provider,
+      "--progress-file",
+      progressPath,
       ...args.excludes.flatMap((exclude) => ["--exclude", exclude]),
       ...(args.profile ? [] : ["--no-profile"]),
       ...(args.strict ? ["--strict"] : []),
     ],
     { cwd: args.cwd, env: process.env },
   );
+  if (tty && !args.detach) {
+    await tailEnrichment(progressPath);
+    outro("Environment ready.");
+    return;
+  }
+  if (tty)
+    outro("Skills, MCP servers & plugins are installing in the background.");
 };
 
 export const main = async (argv: string[]): Promise<void> => {

@@ -172,7 +172,10 @@ export class NodeHost implements HostDeps {
   spawnDetached(
     bin: string,
     args: string[],
-    opts: { cwd: string; env: Record<string, string | undefined> },
+    opts: {
+      cwd: string;
+      env: Record<string, string | undefined>;
+    },
   ): void {
     spawn(bin, args, {
       cwd: opts.cwd,

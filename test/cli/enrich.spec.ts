@@ -1,4 +1,6 @@
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, expect, test, vi } from "vitest";
 import type { ExecOptions, RunResult } from "../../src/core/ports/provider.js";
 import type { EnrichmentStepResult } from "../../src/core/services/bootstrap.js";
@@ -73,6 +75,7 @@ test("runEnrichCli returns one in strict mode when an enrichment step fails", as
   const { runEnrichCli: runCli } = await loadRunEnrichCli([
     { name: "mcp", ok: false, error: "failed" },
   ]);
+  vi.spyOn(process.stdout, "write").mockImplementation((): boolean => true);
 
   await expect(runCli(enrichArgv(["--strict"]))).resolves.toBe(1);
 });
@@ -81,8 +84,102 @@ test("runEnrichCli returns zero outside strict mode when an enrichment step fail
   const { runEnrichCli: runCli } = await loadRunEnrichCli([
     { name: "mcp", ok: false, error: "failed" },
   ]);
+  vi.spyOn(process.stdout, "write").mockImplementation((): boolean => true);
 
   await expect(runCli(enrichArgv())).resolves.toBe(0);
+});
+
+test("runEnrichCli appends enrichment events and final done event as JSONL to progress file", async () => {
+  vi.resetModules();
+  vi.doMock("../../src/providers/index.js", () => ({
+    PROVIDER_IDS: ["e2b", "modal", "daytona", "vercel"],
+    buildProvider: () => ({
+      connect: async () => new FakeSandbox("sbx-1", "/home/user"),
+    }),
+  }));
+  vi.doMock("../../src/core/services/enrichment.js", () => ({
+    EnrichmentService: class {
+      async run(
+        cwd: string,
+        profile: boolean,
+        onEvent?: (event: {
+          kind: "enrichStep";
+          name: string;
+          status: "start";
+        }) => void,
+      ): Promise<EnrichmentStepResult[]> {
+        expect(cwd).toBe("/workspace/project");
+        expect(profile).toBe(true);
+        onEvent!({
+          kind: "enrichStep",
+          name: "enrichment setup",
+          status: "start",
+        });
+        return [{ name: "enrichment setup", ok: true }];
+      }
+    },
+  }));
+  const dir = mkdtempSync(join(tmpdir(), "sandhop-enrich-progress-"));
+  const progressFile = join(dir, "events.jsonl");
+  const write = vi
+    .spyOn(process.stdout, "write")
+    .mockImplementation((): boolean => true);
+  const { runEnrichCli: runCli } = await import("../../src/cli/enrich.js");
+
+  try {
+    await expect(
+      runCli(enrichArgv(["--progress-file", progressFile])),
+    ).resolves.toBe(0);
+
+    expect(readFileSync(progressFile, "utf8").split("\n")).toEqual([
+      '{"kind":"enrichStep","name":"enrichment setup","status":"start"}',
+      '{"kind":"done","okSteps":1,"totalSteps":1}',
+      "",
+    ]);
+    expect(write).not.toHaveBeenCalled();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runEnrichCli drops enrichment events without progress file", async () => {
+  vi.resetModules();
+  let receivedOnEvent:
+    | ((event: { kind: "enrichStep"; name: string; status: "start" }) => void)
+    | undefined;
+  vi.doMock("../../src/providers/index.js", () => ({
+    PROVIDER_IDS: ["e2b", "modal", "daytona", "vercel"],
+    buildProvider: () => ({
+      connect: async () => new FakeSandbox("sbx-1", "/home/user"),
+    }),
+  }));
+  vi.doMock("../../src/core/services/enrichment.js", () => ({
+    EnrichmentService: class {
+      async run(
+        cwd: string,
+        profile: boolean,
+        onEvent?: (event: {
+          kind: "enrichStep";
+          name: string;
+          status: "start";
+        }) => void,
+      ): Promise<EnrichmentStepResult[]> {
+        expect(cwd).toBe("/workspace/project");
+        expect(profile).toBe(true);
+        receivedOnEvent = onEvent;
+        return [{ name: "enrichment setup", ok: true }];
+      }
+    },
+  }));
+  const write = vi
+    .spyOn(process.stdout, "write")
+    .mockImplementation((): boolean => true);
+  const { runEnrichCli: runCli } = await import("../../src/cli/enrich.js");
+
+  await expect(runCli(enrichArgv())).resolves.toBe(0);
+
+  expect(receivedOnEvent).toBeUndefined();
+  expect(write).not.toHaveBeenCalled();
 });
 
 test("runEnrichment sends profile and MCP roots with TransferService, uploads sourced files, writes config, and marks completion", async () => {
@@ -109,6 +206,18 @@ cwd = "/home/local/mcp"
     },
   });
   const provider = new FakeProvider();
+  const events: (
+    | { kind: "enrichStep"; name: string; status: string }
+    | {
+        kind: "transfer";
+        transfer: {
+          label: string;
+          phase: string;
+          bytesDone: number;
+          bytesTotal: number;
+        };
+      }
+  )[] = [];
 
   await runEnrichment(
     {
@@ -120,8 +229,39 @@ cwd = "/home/local/mcp"
     },
     host,
     provider.sandbox,
+    (event: (typeof events)[number]): void => {
+      events.push(event);
+    },
   );
 
+  expect(events).toContainEqual({
+    kind: "enrichStep",
+    name: "enrichment setup",
+    status: "start",
+  });
+  expect(events).toContainEqual({
+    kind: "enrichStep",
+    name: "enrichment setup",
+    status: "ok",
+  });
+  expect(events).toContainEqual({
+    kind: "transfer",
+    transfer: {
+      label: "profile",
+      phase: "compress",
+      bytesDone: 0,
+      bytesTotal: 0,
+    },
+  });
+  expect(events).toContainEqual({
+    kind: "transfer",
+    transfer: {
+      label: "mcp-0",
+      phase: "extract",
+      bytesDone: 7,
+      bytesTotal: 7,
+    },
+  });
   expect(provider.sandbox.pathUploads).toEqual(
     expect.arrayContaining([
       {

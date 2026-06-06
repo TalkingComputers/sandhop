@@ -17,6 +17,7 @@ export interface ParsedArgs {
   includes: string[];
   profile: boolean;
   strict: boolean;
+  detach: boolean;
 }
 
 export interface EnrichArgs {
@@ -24,6 +25,7 @@ export interface EnrichArgs {
   cwd: string;
   excludes: string[];
   profile: boolean;
+  progressFile?: string;
 }
 
 export interface ParsedEnrichArgs extends EnrichArgs {
@@ -124,6 +126,7 @@ export const parseArgs = (argv: string[], cwd: string): ParsedArgs => {
     includes: readIncludes(argv),
     profile: !argv.includes("--no-profile"),
     strict: argv.includes("--strict"),
+    detach: argv.includes("--detach"),
   };
 };
 
@@ -132,6 +135,7 @@ export const parseEnrichArgs = (argv: string[]): ParsedEnrichArgs => ({
   agent: readRequiredAgent(readRequiredFlag(argv, "--agent")),
   cwd: readRequiredFlag(argv, "--cwd"),
   provider: readProvider(readRequiredFlag(argv, "--provider")),
+  progressFile: readFlag(argv, "--progress-file"),
   excludes: readExcludes(argv),
   profile: !argv.includes("--no-profile"),
   strict: argv.includes("--strict"),

@@ -1,7 +1,9 @@
+import { appendFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { pickAgent } from "../agents/index.js";
 import type { Agent } from "../core/ports/agent.js";
 import type { HostDeps } from "../core/ports/host.js";
+import type { PushListener } from "../core/ports/progress.js";
 import type { Sandbox } from "../core/ports/provider.js";
 import {
   BootstrapService,
@@ -55,16 +57,20 @@ export const runEnrichment = async (
   args: EnrichArgs,
   host: HostDeps,
   sandbox: Sandbox,
+  onEvent?: PushListener,
 ): Promise<EnrichmentStepResult[]> => {
   const agent = pickAgent(args.agent);
   return new EnrichmentService(
     agent,
     buildEnrichmentServices(host, agent, sandbox),
     args.excludes,
-  ).run(args.cwd, args.profile);
+  ).run(args.cwd, args.profile, onEvent);
 };
 
-export const runEnrich = async (argv: string[]): Promise<EnrichRunResult> => {
+export const runEnrich = async (
+  argv: string[],
+  onEvent?: PushListener,
+): Promise<EnrichRunResult> => {
   const args = parseEnrichArgs(argv);
   const host = buildHost();
   const sandbox = await buildProvider(args.provider, host).connect(
@@ -72,13 +78,27 @@ export const runEnrich = async (argv: string[]): Promise<EnrichRunResult> => {
   );
   return {
     strict: args.strict,
-    steps: await runEnrichment(args, host, sandbox),
+    steps: await runEnrichment(args, host, sandbox, onEvent),
   };
 };
 
 export const runEnrichCli = async (argv: string[]): Promise<number> => {
   try {
-    const result = await runEnrich(argv);
+    const args = parseEnrichArgs(argv);
+    const progressFile = args.progressFile;
+    const onEvent: PushListener | undefined =
+      progressFile === undefined
+        ? undefined
+        : (event): void => {
+            appendFileSync(progressFile, `${JSON.stringify(event)}\n`);
+          };
+    const result = await runEnrich(argv, onEvent);
+    if (onEvent !== undefined)
+      onEvent({
+        kind: "done",
+        okSteps: result.steps.filter((step) => step.ok).length,
+        totalSteps: result.steps.length,
+      });
     return isStrict(result.strict) && hasFailedStep(result.steps) ? 1 : 0;
   } catch (error: unknown) {
     console.error(error instanceof Error ? error.message : String(error));
