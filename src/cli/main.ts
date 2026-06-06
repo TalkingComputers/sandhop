@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { intro, note, outro, progress } from "@clack/prompts";
 import { realpathSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
@@ -33,6 +34,10 @@ type RuntimeArgs = Omit<ParsedArgs, "provider"> & {
   provider: ProviderId;
 };
 
+type PushProgressBar = ReturnType<typeof progress> & {
+  stop(msg?: string, code?: number): void;
+};
+
 export const withRuntimeDefaults = (
   args: ParsedArgs,
   host: NodeHost,
@@ -45,11 +50,17 @@ export const withRuntimeDefaults = (
   };
 };
 
-const runPush = async (
-  args: RuntimeArgs,
-  host: NodeHost,
-  onProgress: (msg: string) => void,
-): Promise<void> => {
+const formatPushProgress = (msg: string): string => {
+  if (msg === "snapshotting") return "Snapshotting session";
+  if (msg === "creating sandbox") return "Creating cloud sandbox";
+  if (msg === "uploading bundle") return "Shipping working tree + session";
+  if (msg === "restoring session") return "Restoring your session";
+  if (msg.startsWith("installing"))
+    return "Installing agent runtime + terminal";
+  return msg;
+};
+
+const runPush = async (args: RuntimeArgs, host: NodeHost): Promise<void> => {
   const provider = buildProvider(args.provider, host);
   const transport =
     args.transport ?? readTransport(host.env["SANDHOP_TRANSPORT"]);
@@ -82,20 +93,50 @@ const runPush = async (
     gitSsh: new GitSshService(host),
     multiplexer,
   });
-  const result = await service.run(args.cwd, {
-    sessionId: args.session,
-    transport: buildTransport({ transport }, host.env),
-    excludes: args.excludes,
-    includes: args.includes,
-    timeoutMs: 3_600_000,
-    onProgress,
-  });
-  console.log(`SANDHOP_URL ${result.url}`);
-  console.log(`SANDHOP_AUTH ${result.user}:${result.pass}`);
-  console.log(`SANDHOP_ENRICHING ${result.sandboxId}`);
-  console.log(
-    "enrichment running in background (profile, skills, MCP servers)",
-  );
+  const tty = process.stdout.isTTY === true;
+  let bar: PushProgressBar | undefined;
+  let onProgress: (msg: string) => void;
+  if (tty) {
+    intro("sandhop push");
+    const ttyBar: PushProgressBar = progress({ style: "heavy", max: 6 });
+    bar = ttyBar;
+    ttyBar.start("Teleporting your session…");
+    onProgress = (msg: string): void => {
+      if (msg === "ready") return;
+      ttyBar.advance(1, formatPushProgress(msg));
+    };
+  } else {
+    onProgress = (msg: string): void => console.error(msg);
+  }
+  let result: Awaited<ReturnType<TeleportService["run"]>>;
+  try {
+    result = await service.run(args.cwd, {
+      sessionId: args.session,
+      transport: buildTransport({ transport }, host.env),
+      excludes: args.excludes,
+      includes: args.includes,
+      timeoutMs: 3_600_000,
+      onProgress,
+    });
+  } catch (error: unknown) {
+    if (tty) bar!.stop("Teleport failed", 1);
+    throw error;
+  }
+  if (tty) {
+    bar!.stop("Session teleported");
+    note(
+      `${result.url}\n\n  user   ${result.user}\n  pass   ${result.pass}\n  kill   sandhop kill ${result.sandboxId}`,
+      "Open in your browser",
+    );
+    outro("Skills, MCP servers & plugins are installing in the background.");
+  } else {
+    console.log(`SANDHOP_URL ${result.url}`);
+    console.log(`SANDHOP_AUTH ${result.user}:${result.pass}`);
+    console.log(`SANDHOP_ENRICHING ${result.sandboxId}`);
+    console.log(
+      "enrichment running in background (profile, skills, MCP servers)",
+    );
+  }
   const enrichPath = fileURLToPath(new URL("./enrich.js", import.meta.url));
   host.spawnDetached(
     process.execPath,
@@ -138,7 +179,7 @@ export const main = async (argv: string[]): Promise<void> => {
     console.log((await provider.destroy(args.killId)) ? "killed" : "not found");
     return;
   }
-  await runPush(runtimeArgs, host, (msg) => console.error(msg));
+  await runPush(runtimeArgs, host);
   process.exit(0);
 };
 
