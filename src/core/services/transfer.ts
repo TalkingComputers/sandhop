@@ -7,7 +7,9 @@ import type { Sandbox } from "../ports/provider.js";
 import { randomToken } from "../rand.js";
 import { LOW_PRIORITY_SETUP, shellQuote } from "../shell.js";
 
-const CHUNK_BYTES = 90 * 1024 * 1024;
+// 16MB: benchmarked fastest on bandwidth-limited links (more parallel chunks
+// saturate the upload than a few 90MB ones) and gives finer transfer progress.
+const CHUNK_BYTES = 16 * 1024 * 1024;
 
 type TransferHost = Pick<
   HostDeps,
