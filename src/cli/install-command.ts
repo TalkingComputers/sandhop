@@ -1,24 +1,17 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { joinPath } from "../core/paths.js";
 
 export type InstalledAgent = "Claude Code" | "Codex";
 
-export const CLAUDE_COMMAND = `---
-description: Teleport this Claude Code session to a cloud sandbox (sandhop)
-allowed-tools: Bash
----
+export const CLAUDE_COMMAND = readFileSync(
+  new URL("../../plugin/commands/sandhop.md", import.meta.url),
+  "utf8",
+);
 
-Run \`sandhop push\` in the current working directory. Surface the SANDHOP_URL and
-SANDHOP_AUTH from its output prominently so the user can open the web terminal.
-`;
-
-export const CODEX_PROMPT = `---
-description: Teleport this Codex session to a cloud sandbox (sandhop)
----
-
-Run the shell command \`sandhop push\` in the current working directory and show me the
-resulting SANDHOP_URL and SANDHOP_AUTH so I can open the web terminal.
-`;
+export const CODEX_PROMPT = readFileSync(
+  new URL("../../plugin/prompts/sandhop.md", import.meta.url),
+  "utf8",
+);
 
 export const installCommands = (home: string): InstalledAgent[] => {
   const installed: InstalledAgent[] = [];

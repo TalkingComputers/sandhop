@@ -10,22 +10,15 @@ import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { installCommands } from "../../src/cli/install-command.js";
 
-const EXPECTED_CLAUDE_COMMAND = `---
-description: Teleport this Claude Code session to a cloud sandbox (sandhop)
-allowed-tools: Bash
----
+const EXPECTED_CLAUDE_COMMAND = readFileSync(
+  new URL("../../plugin/commands/sandhop.md", import.meta.url),
+  "utf8",
+);
 
-Run \`sandhop push\` in the current working directory. Surface the SANDHOP_URL and
-SANDHOP_AUTH from its output prominently so the user can open the web terminal.
-`;
-
-const EXPECTED_CODEX_PROMPT = `---
-description: Teleport this Codex session to a cloud sandbox (sandhop)
----
-
-Run the shell command \`sandhop push\` in the current working directory and show me the
-resulting SANDHOP_URL and SANDHOP_AUTH so I can open the web terminal.
-`;
+const EXPECTED_CODEX_PROMPT = readFileSync(
+  new URL("../../plugin/prompts/sandhop.md", import.meta.url),
+  "utf8",
+);
 
 const tempRoots: string[] = [];
 
