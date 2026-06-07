@@ -9,6 +9,7 @@ import {
   buildPruneMcpTablesScript,
 } from "../sandbox-scripts.js";
 import {
+  SANDHOP_OWNER_SETUP,
   SUDO_SETUP,
   nonFatal,
   quoteHomePath,
@@ -107,8 +108,9 @@ export class BootstrapService {
     return [
       "set -e",
       SUDO_SETUP,
+      SANDHOP_OWNER_SETUP,
       `$SUDO mkdir -p ${shellQuote(path)}`,
-      `$SUDO chown -R "$(id -u):$(id -g)" ${shellQuote(path)}`,
+      `$SUDO chown -R "$SANDHOP_OWNER" ${shellQuote(path)}`,
     ].join("\n");
   }
 
@@ -131,7 +133,8 @@ export class BootstrapService {
       [
         "set -e",
         SUDO_SETUP,
-        `$SUDO chown "$(id -u):$(id -g)" ${shellQuote(path)}`,
+        SANDHOP_OWNER_SETUP,
+        `$SUDO chown "$SANDHOP_OWNER" ${shellQuote(path)}`,
       ].join("\n"),
     );
     if (ownership.exitCode !== 0)

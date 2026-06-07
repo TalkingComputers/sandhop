@@ -35,6 +35,8 @@ const manifest = buildManifest({
 });
 const ZSTD_INSTALL =
   "command -v zstd || $SUDO sh -lc 'command -v apt-get >/dev/null && (apt-get update && apt-get install -y zstd) || (command -v dnf >/dev/null && dnf install -y zstd) || (command -v apk >/dev/null && apk add zstd) || (command -v yum >/dev/null && yum install -y zstd)'";
+const OWNER_SETUP =
+  'SANDHOP_OWNER="$(id -u):$(id -g)"; if [ "${SANDHOP_RUNTIME_USER:-}" != "" ]; then SANDHOP_OWNER="$(id -u "$SANDHOP_RUNTIME_USER"):$(id -g "$SANDHOP_RUNTIME_USER")"; fi';
 test("BootstrapService project prep sudo-creates and owns remote project before transfer", () => {
   const bootstrap = createBootstrap(CLAUDE_CODE);
   const script = bootstrap.renderPathPrep(manifest.remoteProj);
@@ -42,8 +44,9 @@ test("BootstrapService project prep sudo-creates and owns remote project before 
   expect(script.split("\n")).toEqual([
     "set -e",
     'SUDO=""; if [ "$(id -u)" != 0 ] && command -v sudo >/dev/null 2>&1; then SUDO="sudo"; fi',
+    OWNER_SETUP,
     "$SUDO mkdir -p '/private/tmp/sandhop-codex2'",
-    "$SUDO chown -R \"$(id -u):$(id -g)\" '/private/tmp/sandhop-codex2'",
+    "$SUDO chown -R \"$SANDHOP_OWNER\" '/private/tmp/sandhop-codex2'",
   ]);
   expect(bootstrap.renderProjectPrep(manifest)).toBe(script);
 });
@@ -64,7 +67,7 @@ test("BootstrapService prepAndUpload owns uploaded files after provider writes",
   expect(sandbox.execs).toEqual([
     expect.stringContaining("$SUDO mkdir -p '/Users/local/.claude'"),
     expect.stringContaining(
-      `$SUDO chown "$(id -u):$(id -g)" '/Users/local/.claude/.credentials.json'`,
+      `$SUDO chown "$SANDHOP_OWNER" '/Users/local/.claude/.credentials.json'`,
     ),
   ]);
 });
@@ -102,7 +105,7 @@ test("BootstrapService core installs exact CLI version, places transcript, and i
     ),
   ).toBeLessThan(script.indexOf('cp /tmp/transcript.jsonl "$dest"'));
   expect(script).not.toContain(
-    "$SUDO chown -R \"$(id -u):$(id -g)\" '/private/tmp/sandhop-codex2'",
+    "$SUDO chown -R \"$SANDHOP_OWNER\" '/private/tmp/sandhop-codex2'",
   );
   expect(script).not.toContain("tar -xzf /tmp/bundle.tgz");
   expect(script).toContain('cp /tmp/transcript.jsonl "$dest"');
@@ -128,9 +131,7 @@ test("BootstrapService quotes remote project shell paths with metacharacters", (
   const quotedRemoteProj = "'/Users/alice/My Project;$(touch pwn)'\\'''";
 
   expect(prep).toContain(`$SUDO mkdir -p ${quotedRemoteProj}`);
-  expect(prep).toContain(
-    `$SUDO chown -R "$(id -u):$(id -g)" ${quotedRemoteProj}`,
-  );
+  expect(prep).toContain(`$SUDO chown -R "$SANDHOP_OWNER" ${quotedRemoteProj}`);
   expect(script).toContain(
     `git config --global --add safe.directory ${quotedRemoteProj}`,
   );

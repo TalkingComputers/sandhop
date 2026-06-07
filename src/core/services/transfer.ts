@@ -5,7 +5,7 @@ import type { HostDeps } from "../ports/host.js";
 import type { TransferProgress } from "../ports/progress.js";
 import type { Sandbox } from "../ports/provider.js";
 import { randomToken } from "../rand.js";
-import { shellQuote } from "../shell.js";
+import { SANDHOP_OWNER_SETUP, SUDO_SETUP, shellQuote } from "../shell.js";
 
 // 16MB: benchmarked fastest on bandwidth-limited links (more parallel chunks
 // saturate the upload than a few 90MB ones) and gives finer transfer progress.
@@ -217,9 +217,12 @@ export class TransferService {
       const restore = await this.sandbox.exec(
         [
           "set -e",
+          SUDO_SETUP,
+          SANDHOP_OWNER_SETUP,
           `cat ${catInputs} > ${shellQuote(remoteArchive)}`,
           makeSizeCheckCommand(remoteArchive, totalBytes),
           ...makeExtractionCommands(remoteArchive, sandboxDestDir),
+          `$SUDO chown -R "$SANDHOP_OWNER" ${shellQuote(sandboxDestPath)}`,
           `rm -f ${cleanup}`,
         ].join("\n"),
       );

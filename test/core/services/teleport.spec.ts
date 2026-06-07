@@ -137,7 +137,7 @@ test("TeleportService fans out collection, transfers one zstd bundle, and starts
     "$SUDO mkdir -p '/workspace/project'",
   );
   expect(provider.sandbox.execs[0]).toContain(
-    "$SUDO chown -R \"$(id -u):$(id -g)\" '/workspace/project'",
+    "$SUDO chown -R \"$SANDHOP_OWNER\" '/workspace/project'",
   );
   expect(provider.sandbox.execs[1]).toContain("zstd -t");
   expect(provider.sandbox.execs[1]).toContain("wc -c");
