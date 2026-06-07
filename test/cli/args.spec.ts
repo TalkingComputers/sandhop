@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
 import {
   buildTransport,
@@ -5,6 +6,15 @@ import {
   readProvider,
   readTransport,
 } from "../../src/cli/args.js";
+
+test("args parser uses a CLI parsing SDK", () => {
+  const source = readFileSync("src/cli/args.ts", "utf8");
+
+  expect(source).toContain('from "citty"');
+  expect(source).not.toContain("readFlag");
+  expect(source).not.toContain("readCsvFlags");
+  expect(source).not.toContain("KNOWN_FLAGS");
+});
 
 test("parseArgs keeps push defaults and flags", () => {
   expect(parseArgs([], "/workspace/project")).toMatchObject({

@@ -1,3 +1,4 @@
+import { parseArgs as parseCliArgs, type ArgsDef } from "citty";
 import type { AgentId } from "../core/ports/agent.js";
 import type { Transport } from "../core/ports/transport.js";
 import type { SandhopTransport } from "./config.js";
@@ -19,13 +20,40 @@ export interface ParsedArgs {
   strict: boolean;
 }
 
-export const readFlag = (argv: string[], name: string): string | undefined => {
-  const index = argv.indexOf(name);
-  if (index < 0) return undefined;
-  const value = argv[index + 1];
-  if (!value) throw new Error(`${name} requires a value`);
-  return value;
-};
+const CLI_ARGS = {
+  command: { type: "positional", required: false },
+  agent: { type: "string" },
+  session: { type: "string" },
+  cwd: { type: "string" },
+  provider: { type: "string" },
+  tunnel: { type: "string" },
+  exclude: { type: "string" },
+  include: { type: "string" },
+  profile: { type: "boolean", default: true },
+  strict: { type: "boolean", default: false },
+} as const satisfies ArgsDef;
+
+const COMMANDS = new Set<ParsedArgs["cmd"]>(["push", "list", "kill", "setup"]);
+
+const VALUE_OPTIONS = new Set([
+  "--agent",
+  "--session",
+  "--cwd",
+  "--provider",
+  "--tunnel",
+  "--exclude",
+  "--include",
+]);
+
+const BOOLEAN_OPTIONS = new Set([
+  "--profile",
+  "--no-profile",
+  "--strict",
+  "--help",
+  "-h",
+  "--version",
+  "-v",
+]);
 
 export const readAgent = (value: string | undefined): AgentId | undefined => {
   if (value === undefined) return undefined;
@@ -60,70 +88,79 @@ const readOptionalProvider = (
 ): ProviderId | undefined =>
   value === undefined ? undefined : readProvider(value);
 
-const readCsvFlags = (argv: string[], name: string): string[] => {
-  const values: string[] = [];
-  for (let index = 0; index < argv.length; index += 1) {
-    if (argv[index] !== name) continue;
+const readOptionName = (token: string): string => {
+  const equalsIndex = token.indexOf("=");
+  return equalsIndex < 0 ? token : token.slice(0, equalsIndex);
+};
+
+const hasUnknownOption = (argv: string[]): boolean =>
+  argv.some((token) => {
+    if (!token.startsWith("-") || token === "--") return false;
+    const name = readOptionName(token);
+    return !VALUE_OPTIONS.has(name) && !BOOLEAN_OPTIONS.has(name);
+  });
+
+const assertOptionValues = (argv: string[]): void => {
+  for (const [index, token] of argv.entries()) {
+    const name = readOptionName(token);
+    if (!VALUE_OPTIONS.has(name) || token.includes("=")) continue;
     const value = argv[index + 1];
     if (value === undefined || value === "" || value.startsWith("--"))
       throw new Error(`${name} requires a value`);
+  }
+};
+
+const readCsvOptionValues = (argv: string[], name: string): string[] => {
+  const values: string[] = [];
+  for (const [index, token] of argv.entries()) {
+    if (token === name) {
+      const value = argv[index + 1];
+      if (value === undefined || value === "" || value.startsWith("--"))
+        throw new Error(`${name} requires a value`);
+      values.push(...value.split(",").filter((item) => item.length > 0));
+      continue;
+    }
+    if (!token.startsWith(`${name}=`)) continue;
+    const value = token.slice(name.length + 1);
+    if (value === "") throw new Error(`${name} requires a value`);
     values.push(...value.split(",").filter((item) => item.length > 0));
   }
   return values;
 };
 
 export const readExcludes = (argv: string[]): string[] =>
-  readCsvFlags(argv, "--exclude");
+  readCsvOptionValues(argv, "--exclude");
 
 export const readIncludes = (argv: string[]): string[] =>
-  readCsvFlags(argv, "--include");
-
-const KNOWN_FLAGS = new Set([
-  "--agent",
-  "--session",
-  "--cwd",
-  "--provider",
-  "--tunnel",
-  "--exclude",
-  "--include",
-  "--no-profile",
-  "--strict",
-]);
-
-const hasUnknownFlag = (argv: string[]): boolean =>
-  argv.some((token) => token.startsWith("-") && !KNOWN_FLAGS.has(token));
+  readCsvOptionValues(argv, "--include");
 
 const readCmd = (argv: string[]): ParsedArgs["cmd"] => {
   if (argv.includes("--version") || argv.includes("-v")) return "version";
   if (argv.includes("--help") || argv.includes("-h") || argv[0] === "help")
     return "help";
-  const first = argv[0];
-  if (
-    first === "push" ||
-    first === "list" ||
-    first === "kill" ||
-    first === "setup"
-  )
-    return hasUnknownFlag(argv) ? "help" : first;
+  const parsed = parseCliArgs(argv, CLI_ARGS);
+  const command = parsed.command;
+  if (typeof command === "string" && COMMANDS.has(command))
+    return hasUnknownOption(argv) ? "help" : command;
   return "help";
 };
 
 export const parseArgs = (argv: string[], cwd: string): ParsedArgs => {
+  assertOptionValues(argv);
   const cmd = readCmd(argv);
+  const parsed = parseCliArgs(argv, CLI_ARGS);
   return {
     cmd,
-    agent: readAgent(readFlag(argv, "--agent")),
-    session: readFlag(argv, "--session"),
+    agent: readAgent(parsed.agent),
+    session: parsed.session,
     killId: cmd === "kill" ? argv[1] : undefined,
-    cwd: readFlag(argv, "--cwd") ?? cwd,
-    provider: readOptionalProvider(readFlag(argv, "--provider")),
-    transport: readOptionalTransport(
-      argv.includes("--tunnel") ? readFlag(argv, "--tunnel") : undefined,
-    ),
+    cwd: parsed.cwd ?? cwd,
+    provider: readOptionalProvider(parsed.provider),
+    transport: readOptionalTransport(parsed.tunnel),
     excludes: readExcludes(argv),
     includes: readIncludes(argv),
-    profile: !argv.includes("--no-profile"),
-    strict: argv.includes("--strict"),
+    profile: parsed.profile !== false,
+    strict: parsed.strict === true,
   };
 };
 
