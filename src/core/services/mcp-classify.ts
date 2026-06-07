@@ -257,12 +257,7 @@ export const classify = (
       kind: "excluded",
       reason: "binds to localhost / loopback (unreachable from sandbox)",
     };
-  if (
-    server.url !== undefined ||
-    server.transport === "http" ||
-    server.transport === "sse"
-  )
-    return { kind: "remote-url" };
+  if (server.transport !== "stdio") return { kind: "remote-url" };
   const appPath = paths.find(isAppBundlePath);
   if (appPath !== undefined)
     return { kind: "excluded", reason: "path inside an app bundle" };
@@ -278,44 +273,52 @@ export const rewriteServer = (
   server: McpServer,
   sandboxHome: string,
   mappings: PathMapping[],
-): McpServer => ({
-  name: server.name,
-  transport: server.transport,
-  ...(server.command === undefined
-    ? {}
-    : { command: remapValue(server.command, host, sandboxHome, mappings) }),
-  ...(server.args === undefined
-    ? {}
-    : {
-        args: server.args.map((arg) =>
-          remapValue(arg, host, sandboxHome, mappings),
-        ),
-      }),
-  ...(server.env === undefined
-    ? {}
-    : {
-        env: Object.fromEntries(
-          Object.entries(server.env).map(([key, value]) => [
-            key,
-            remapValue(value, host, sandboxHome, mappings),
-          ]),
-        ),
-      }),
-  ...(server.cwd === undefined
-    ? {}
-    : { cwd: remapValue(server.cwd, host, sandboxHome, mappings) }),
-  ...(server.url === undefined ? {} : { url: server.url }),
-  ...(server.headers === undefined ? {} : { headers: server.headers }),
-  ...(server.bearerTokenEnvVar === undefined
-    ? {}
-    : { bearerTokenEnvVar: server.bearerTokenEnvVar }),
-  ...(server.httpHeaders === undefined
-    ? {}
-    : { httpHeaders: server.httpHeaders }),
-  ...(server.envHttpHeaders === undefined
-    ? {}
-    : { envHttpHeaders: server.envHttpHeaders }),
-  ...(server.startupTimeoutSec === undefined
-    ? {}
-    : { startupTimeoutSec: server.startupTimeoutSec }),
-});
+): McpServer => {
+  if (server.transport !== "stdio")
+    return {
+      name: server.name,
+      transport: server.transport,
+      url: server.url,
+      ...(server.headers === undefined ? {} : { headers: server.headers }),
+      ...(server.bearerTokenEnvVar === undefined
+        ? {}
+        : { bearerTokenEnvVar: server.bearerTokenEnvVar }),
+      ...(server.httpHeaders === undefined
+        ? {}
+        : { httpHeaders: server.httpHeaders }),
+      ...(server.envHttpHeaders === undefined
+        ? {}
+        : { envHttpHeaders: server.envHttpHeaders }),
+      ...(server.startupTimeoutSec === undefined
+        ? {}
+        : { startupTimeoutSec: server.startupTimeoutSec }),
+    };
+  return {
+    name: server.name,
+    transport: "stdio",
+    command: remapValue(server.command, host, sandboxHome, mappings),
+    ...(server.args === undefined
+      ? {}
+      : {
+          args: server.args.map((arg) =>
+            remapValue(arg, host, sandboxHome, mappings),
+          ),
+        }),
+    ...(server.env === undefined
+      ? {}
+      : {
+          env: Object.fromEntries(
+            Object.entries(server.env).map(([key, value]) => [
+              key,
+              remapValue(value, host, sandboxHome, mappings),
+            ]),
+          ),
+        }),
+    ...(server.cwd === undefined
+      ? {}
+      : { cwd: remapValue(server.cwd, host, sandboxHome, mappings) }),
+    ...(server.startupTimeoutSec === undefined
+      ? {}
+      : { startupTimeoutSec: server.startupTimeoutSec }),
+  };
+};

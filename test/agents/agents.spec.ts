@@ -284,6 +284,33 @@ test("Claude MCP parsing skips malformed JSON files and keeps valid servers", ()
   ]);
 });
 
+test("Claude MCP parsing keeps command-only servers as stdio even with remote type metadata", () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: {
+      "/home/local/.claude.json": JSON.stringify({
+        mcpServers: {
+          malformedRemote: {
+            type: "http",
+            command: "node",
+            args: ["server.js"],
+          },
+        },
+      }),
+    },
+  });
+
+  expect(CLAUDE_CODE.parseMcpServers(host, "/workspace/project")).toEqual([
+    {
+      name: "malformedRemote",
+      transport: "stdio",
+      command: "node",
+      args: ["server.js"],
+    },
+  ]);
+});
+
 test("Codex agent parses mcp_servers TOML tables", () => {
   const host = new FakeHost({
     home: "/home/local",

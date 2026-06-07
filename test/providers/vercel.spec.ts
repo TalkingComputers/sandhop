@@ -126,6 +126,14 @@ test("VercelSandboxProvider creates a named sandbox with creds and maps exec res
   expect(sandbox.id).toBe(
     (vercelMocks.create.mock.calls[0]![0] as { name: string }).name,
   );
+  expect(vercelMocks.runCommand).toHaveBeenNthCalledWith(
+    1,
+    "bash",
+    ["-lc", 'printf %s "$HOME"'],
+    {
+      timeoutMs: 600000,
+    },
+  );
   expect(vercelMocks.runCommand).toHaveBeenCalledWith(
     "bash",
     ["-lc", "echo ok"],
@@ -140,6 +148,11 @@ test("VercelSandboxProvider creates a named sandbox with creds and maps exec res
       timeoutMs: 123000,
     },
   );
+  expect(
+    vercelMocks.runCommand.mock.calls.some((call) =>
+      JSON.stringify(call).includes("zstd"),
+    ),
+  ).toBe(false);
   expect(vercelMocks.stdout).toHaveBeenCalled();
   expect(vercelMocks.stderr).toHaveBeenCalled();
 });

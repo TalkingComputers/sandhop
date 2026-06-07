@@ -39,7 +39,8 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.5.1",
-    "e2b": "^2.27.0",
+    "@daytona/sdk": "^0.184.0",
+    "e2b": "^2.28.0",
     "p-limit": "^7.3.0",
     "smol-toml": "^1.6.1",
     "tar": "^7.5.16"
@@ -51,8 +52,7 @@
     "vitest": "^3.0.0"
   },
   "optionalDependencies": {
-    "@daytonaio/sdk": "^0.184.0",
-    "@vercel/sandbox": "^2.1.0",
+    "@vercel/sandbox": "^2.1.1",
     "modal": "^0.7.6"
   }
 }

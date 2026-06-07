@@ -1,9 +1,7 @@
-import { appendFileSync } from "node:fs";
-import { pathToFileURL } from "node:url";
 import { pickAgent } from "../agents/index.js";
 import type { Agent } from "../core/ports/agent.js";
 import type { HostDeps } from "../core/ports/host.js";
-import type { PushListener } from "../core/ports/progress.js";
+import type { EnrichmentProgressListener } from "../core/ports/progress.js";
 import type { Sandbox } from "../core/ports/provider.js";
 import {
   BootstrapService,
@@ -20,19 +18,13 @@ import { SecretsService } from "../core/services/secrets.js";
 import { ScriptCaptureService } from "../core/services/scripts.js";
 import { TransferService } from "../core/services/transfer.js";
 import { TmuxMultiplexer } from "../multiplexers/tmux.js";
-import { buildProvider } from "../providers/index.js";
-import { parseEnrichArgs, type EnrichArgs } from "./args.js";
-import { buildHost } from "./host.js";
 
-interface EnrichRunResult {
-  strict: boolean;
-  steps: EnrichmentStepResult[];
+export interface EnrichArgs {
+  agent: Agent["id"];
+  cwd: string;
+  excludes: string[];
+  profile: boolean;
 }
-
-const hasFailedStep = (steps: EnrichmentStepResult[]): boolean =>
-  steps.some((step) => !step.ok);
-
-const isStrict = (strict: boolean): boolean => strict;
 
 const buildEnrichmentServices = (
   host: HostDeps,
@@ -41,7 +33,6 @@ const buildEnrichmentServices = (
 ): EnrichmentServices => {
   const multiplexer = new TmuxMultiplexer();
   return {
-    host,
     sandbox,
     transfer: new TransferService(host, sandbox),
     profile: new ProfileService(host, agent),
@@ -57,7 +48,7 @@ export const runEnrichment = async (
   args: EnrichArgs,
   host: HostDeps,
   sandbox: Sandbox,
-  onEvent?: PushListener,
+  onEvent?: EnrichmentProgressListener,
 ): Promise<EnrichmentStepResult[]> => {
   const agent = pickAgent(args.agent);
   return new EnrichmentService(
@@ -66,45 +57,3 @@ export const runEnrichment = async (
     args.excludes,
   ).run(args.cwd, args.profile, onEvent);
 };
-
-export const runEnrich = async (
-  argv: string[],
-  onEvent?: PushListener,
-): Promise<EnrichRunResult> => {
-  const args = parseEnrichArgs(argv);
-  const host = buildHost();
-  const sandbox = await buildProvider(args.provider, host).connect(
-    args.sandboxId,
-  );
-  return {
-    strict: args.strict,
-    steps: await runEnrichment(args, host, sandbox, onEvent),
-  };
-};
-
-export const runEnrichCli = async (argv: string[]): Promise<number> => {
-  try {
-    const args = parseEnrichArgs(argv);
-    const progressFile = args.progressFile;
-    const onEvent: PushListener | undefined =
-      progressFile === undefined
-        ? undefined
-        : (event): void => {
-            appendFileSync(progressFile, `${JSON.stringify(event)}\n`);
-          };
-    const result = await runEnrich(argv, onEvent);
-    if (onEvent !== undefined)
-      onEvent({
-        kind: "done",
-        okSteps: result.steps.filter((step) => step.ok).length,
-        totalSteps: result.steps.length,
-      });
-    return isStrict(result.strict) && hasFailedStep(result.steps) ? 1 : 0;
-  } catch (error: unknown) {
-    console.error(error instanceof Error ? error.message : String(error));
-    return 1;
-  }
-};
-
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
-  runEnrichCli(process.argv.slice(2)).then((code) => process.exit(code));

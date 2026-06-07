@@ -6,7 +6,7 @@ import { CloudflaredTransport } from "../transports/cloudflared.js";
 import { PublicTransport } from "../transports/public.js";
 
 export interface ParsedArgs {
-  cmd: "push" | "list" | "kill" | "setup";
+  cmd: "push" | "list" | "kill" | "setup" | "help" | "version";
   agent?: AgentId;
   session?: string;
   killId?: string;
@@ -16,21 +16,6 @@ export interface ParsedArgs {
   excludes: string[];
   includes: string[];
   profile: boolean;
-  strict: boolean;
-  detach: boolean;
-}
-
-export interface EnrichArgs {
-  agent: AgentId;
-  cwd: string;
-  excludes: string[];
-  profile: boolean;
-  progressFile?: string;
-}
-
-export interface ParsedEnrichArgs extends EnrichArgs {
-  sandboxId: string;
-  provider: ProviderId;
   strict: boolean;
 }
 
@@ -42,22 +27,10 @@ export const readFlag = (argv: string[], name: string): string | undefined => {
   return value;
 };
 
-const readRequiredFlag = (argv: string[], name: string): string => {
-  const value = readFlag(argv, name);
-  if (value === undefined) throw new Error(`${name} is required`);
-  return value;
-};
-
 export const readAgent = (value: string | undefined): AgentId | undefined => {
   if (value === undefined) return undefined;
   if (value === "claude-code" || value === "codex") return value;
   throw new Error(`Unknown agent ${value}`);
-};
-
-const readRequiredAgent = (value: string): AgentId => {
-  const agent = readAgent(value);
-  if (agent === undefined) throw new Error("--agent is required");
-  return agent;
 };
 
 export const readTransport = (value: string | undefined): SandhopTransport => {
@@ -105,13 +78,38 @@ export const readExcludes = (argv: string[]): string[] =>
 export const readIncludes = (argv: string[]): string[] =>
   readCsvFlags(argv, "--include");
 
-const readCmd = (value: string | undefined): ParsedArgs["cmd"] => {
-  if (value === "list" || value === "kill" || value === "setup") return value;
-  return "push";
+const KNOWN_FLAGS = new Set([
+  "--agent",
+  "--session",
+  "--cwd",
+  "--provider",
+  "--tunnel",
+  "--exclude",
+  "--include",
+  "--no-profile",
+  "--strict",
+]);
+
+const hasUnknownFlag = (argv: string[]): boolean =>
+  argv.some((token) => token.startsWith("-") && !KNOWN_FLAGS.has(token));
+
+const readCmd = (argv: string[]): ParsedArgs["cmd"] => {
+  if (argv.includes("--version") || argv.includes("-v")) return "version";
+  if (argv.includes("--help") || argv.includes("-h") || argv[0] === "help")
+    return "help";
+  const first = argv[0];
+  if (
+    first === "push" ||
+    first === "list" ||
+    first === "kill" ||
+    first === "setup"
+  )
+    return hasUnknownFlag(argv) ? "help" : first;
+  return "help";
 };
 
 export const parseArgs = (argv: string[], cwd: string): ParsedArgs => {
-  const cmd = readCmd(argv[0]);
+  const cmd = readCmd(argv);
   return {
     cmd,
     agent: readAgent(readFlag(argv, "--agent")),
@@ -126,20 +124,8 @@ export const parseArgs = (argv: string[], cwd: string): ParsedArgs => {
     includes: readIncludes(argv),
     profile: !argv.includes("--no-profile"),
     strict: argv.includes("--strict"),
-    detach: argv.includes("--detach"),
   };
 };
-
-export const parseEnrichArgs = (argv: string[]): ParsedEnrichArgs => ({
-  sandboxId: readRequiredFlag(argv, "--sandbox-id"),
-  agent: readRequiredAgent(readRequiredFlag(argv, "--agent")),
-  cwd: readRequiredFlag(argv, "--cwd"),
-  provider: readProvider(readRequiredFlag(argv, "--provider")),
-  progressFile: readFlag(argv, "--progress-file"),
-  excludes: readExcludes(argv),
-  profile: !argv.includes("--no-profile"),
-  strict: argv.includes("--strict"),
-});
 
 export const buildTransport = (
   args: { transport: SandhopTransport },

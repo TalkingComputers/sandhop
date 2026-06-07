@@ -2,6 +2,8 @@ import type { Manifest } from "../manifest.js";
 import { dirname } from "../paths.js";
 import type { Agent } from "../ports/agent.js";
 import type { Multiplexer } from "../ports/multiplexer.js";
+import { EnrichmentStepId } from "../ports/progress.js";
+import type { Sandbox } from "../ports/provider.js";
 import {
   buildMergeClaudeMcpScript,
   buildPruneMcpTablesScript,
@@ -30,13 +32,15 @@ export interface EnrichmentBootstrapOptions {
 }
 
 export type EnrichmentStepResult =
-  | { name: string; ok: true }
-  | { name: string; ok: false; error: string };
+  | { step: EnrichmentStepId; ok: true }
+  | { step: EnrichmentStepId; ok: false; error: string };
 
 const ARCH_SETUP =
   'ARCH=$(uname -m); case "$ARCH" in aarch64|arm64) TTYD_ARCH=aarch64; CF_ARCH=arm64;; *) TTYD_ARCH=x86_64; CF_ARCH=amd64;; esac';
 const ZSTD_INSTALL =
   "command -v zstd || $SUDO sh -lc 'command -v apt-get >/dev/null && (apt-get update && apt-get install -y zstd) || (command -v dnf >/dev/null && dnf install -y zstd) || (command -v apk >/dev/null && apk add zstd) || (command -v yum >/dev/null && yum install -y zstd)'";
+const TTYD_INSTALL =
+  "command -v ttyd || { $SUDO curl -fsSL https://github.com/tsl0922/ttyd/releases/latest/download/ttyd.${TTYD_ARCH} -o /usr/local/bin/ttyd && $SUDO chmod +x /usr/local/bin/ttyd; }";
 const REINSTALL_CMD_TIMEOUT_SECONDS = 180;
 
 const renderMcpConfig = (agent: Agent, codePlan: CodePlan): string[] => {
@@ -87,8 +91,8 @@ const renderSummary = (steps: EnrichmentStepResult[]): string[] => [
   'echo "[sandhop] enrichment summary"',
   ...steps.map((step) =>
     step.ok
-      ? `echo "[sandhop] ok: ${shellLog(step.name)}"`
-      : `echo "[sandhop] failed: ${shellLog(step.name)}: ${shellLog(step.error)}"`,
+      ? `echo "[sandhop] ok: ${shellLog(step.step)}"`
+      : `echo "[sandhop] failed: ${shellLog(step.step)}: ${shellLog(step.error)}"`,
   ),
 ];
 
@@ -114,6 +118,19 @@ export class BootstrapService {
     return this.renderPathPrep(manifest.remoteProj);
   }
 
+  async prepAndUpload(
+    sandbox: Sandbox,
+    path: string,
+    content: Uint8Array | string,
+  ): Promise<void> {
+    const prep = await sandbox.exec(this.renderPathPrep(dirname(path)));
+    if (prep.exitCode !== 0)
+      throw new Error(
+        `Path prep failed for ${dirname(path)}: stderr=${JSON.stringify(prep.stderr)} stdout=${JSON.stringify(prep.stdout)}`,
+      );
+    await sandbox.uploadFile(path, content);
+  }
+
   render(manifest: Manifest, opts: BootstrapOptions): string {
     const installCmd = this.agent.installCmd(manifest.cliVersion);
     const dest = this.agent.remoteTranscriptPath(
@@ -125,8 +142,7 @@ export class BootstrapService {
       "set -e",
       SUDO_SETUP,
       ARCH_SETUP,
-      "$SUDO curl -fsSL https://github.com/tsl0922/ttyd/releases/latest/download/ttyd.${TTYD_ARCH} -o /usr/local/bin/ttyd",
-      "$SUDO chmod +x /usr/local/bin/ttyd",
+      TTYD_INSTALL,
       ...this.multiplexer.install(),
       ...(opts.transportSteps ?? []),
       `${installCmd} || $SUDO env PATH="$PATH" ${installCmd}`,

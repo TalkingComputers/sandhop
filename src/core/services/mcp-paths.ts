@@ -7,6 +7,20 @@ export interface PathMapping {
   sandboxPath: string;
 }
 
+export const mapHomePath = (
+  home: string,
+  target: string,
+  localPath: string,
+  outside: "passthrough" | "mcp-root",
+): string => {
+  if (localPath === home) return target;
+  if (localPath.startsWith(`${home}/`))
+    return `${target}${localPath.slice(home.length)}`;
+  return outside === "passthrough"
+    ? localPath
+    : `${target}/.sandhop/mcp-roots/${projectDirName(localPath)}`;
+};
+
 export const maybeRealpath = (host: HostDeps, path: string): string | null => {
   if (!host.exists(path)) return null;
   return host.realpath(path);
@@ -38,10 +52,7 @@ export const sandboxPath = (
   sandboxHome: string,
   localPath: string,
 ): string => {
-  if (localPath === host.home) return sandboxHome;
-  if (localPath.startsWith(`${host.home}/`))
-    return `${sandboxHome}${localPath.slice(host.home.length)}`;
-  return `${sandboxHome}/.sandhop/mcp-roots/${projectDirName(localPath)}`;
+  return mapHomePath(host.home, sandboxHome, localPath, "mcp-root");
 };
 
 const replaceAll = (value: string, from: string, to: string): string =>

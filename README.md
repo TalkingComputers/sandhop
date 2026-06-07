@@ -25,7 +25,7 @@ It runs `sandhop push` for the current session and prints the web-terminal URL:
 
 ```text
 SANDHOP_URL  https://<host>
-SANDHOP_AUTH sandhop:<password>
+SANDHOP_AUTH <user>:<password>
 ```
 
 Open `SANDHOP_URL` and sign in with the `SANDHOP_AUTH` user/password to continue your session in the browser.
@@ -50,7 +50,6 @@ sandhop push                              # teleport the latest session in $(pwd
 sandhop push --provider modal             # choose a provider for this run
 sandhop push --tunnel cloudflared         # private/portable URL (see below)
 sandhop push --agent codex --session <id> # pin the agent and a specific session
-sandhop push --no-profile                 # core only: working tree + transcript
 sandhop list                              # list running sandboxes
 sandhop kill <sandbox-id>                 # destroy a sandbox
 ```
@@ -63,8 +62,11 @@ sandhop kill <sandbox-id>                 # destroy a sandbox
 - `--tunnel public|cloudflared` — URL transport (default: configured / `public`).
 - `--agent claude-code|codex` — force the agent (default: auto-detect from the cwd's sessions).
 - `--session <id>` — resume a specific session instead of the newest for the cwd.
-- `--no-profile` — skip profile/plugin/skill/MCP enrichment; the working tree + transcript still move.
 - `--cwd <path>` — operate on a directory other than the process cwd.
+- `--exclude <patterns>` — comma-split archive excludes; repeatable.
+- `--include <absolute paths>` — comma-split extra files/directories to recreate at the same absolute path; repeatable.
+- `--no-profile` — skip inline profile/skill transfer; settings-script, MCP, and plugin enrichment still run.
+- `--strict` — fail the push if an inline enrichment step fails.
 
 ## Transports / private access
 
@@ -78,13 +80,16 @@ sandhop kill <sandbox-id>                 # destroy a sandbox
 - **Working tree** — full dirty/uncommitted state, restored at its original absolute path so the resumed session's recorded cwd matches.
 - **Transcript** — the exact session file; resumed natively (`claude --resume` / `codex resume`), not re-injected.
 - **Agent auth** — Claude/Codex credentials shipped as sandbox env/credential files over TLS, never inside the project tarball.
-- **Profile** (enrichment) — settings, `CLAUDE.md`/`AGENTS.md`, commands, skills, plugins; plugins/skills are rebuilt from manifests/refs in-cloud (byte-equivalent versions) rather than bulk-uploaded.
-- **MCP servers** — config + referenced env/secrets + local-path server code, with a raised startup timeout so `npx`-based servers finish installing. Servers that cannot run in a fresh sandbox (localhost/loopback DSNs, etc.) are excluded with a logged reason.
+- **Referenced secrets** — env vars and credential files needed by the detected agent/MCP config.
+- **Explicit includes** — each `--include <absolute path>` is recreated at the same absolute path in the sandbox.
 
 ## How it works
 
-1. **Fast core**: collect the working-tree root, transcript, auth, secrets, and local CLI version in parallel; create a single-tenant ephemeral sandbox; upload the bundle + transcript; install the matching agent CLI; restore the transcript; start ttyd; return the URL. Target: under ~2 minutes for ordinary projects.
-2. **Detached enrichment**: transfer portable profile + MCP local code, then rebuild reproducible plugins/skills/deps from manifests so the URL stays fast.
+1. Collect the working-tree root, transcript, auth, secrets, and local CLI version in parallel.
+2. Create a single-tenant ephemeral sandbox.
+3. Upload the bundle, transcript, credential files, SSH files, project memory, and explicit includes.
+4. Install the matching agent CLI, restore the transcript, and start ttyd.
+5. Run inline enrichment for agent profile, settings scripts, MCP code/deps, plugins, and skills before printing `SANDHOP_URL` / `SANDHOP_AUTH`.
 
 ## Security model
 
@@ -97,7 +102,7 @@ sandhop kill <sandbox-id>                 # destroy a sandbox
 
 TypeScript modular monolith with a hexagonal core.
 
-- `src/core`: ports, pure data types, orchestration services (teleport, enrichment, snapshot, profile, secrets, MCP).
+- `src/core`: ports, pure data types, orchestration services (teleport, snapshot, secrets, MCP).
 - `src/host`: local Node filesystem/process/keychain/tar adapter.
 - `src/providers`: sandbox provider adapters — E2B, Modal, Daytona, Vercel — behind one `SandboxProvider` port + registry.
 - `src/agents`: Claude Code and Codex adapters behind one `Agent` port.
@@ -109,7 +114,6 @@ TypeScript modular monolith with a hexagonal core.
 
 - You need an existing local Claude Code or Codex session for the target cwd.
 - Large dirty trees take time to archive and upload.
-- Enrichment can finish after the terminal is usable; check `/tmp/sandhop-enrich.log` inside the sandbox.
 - MCP servers that depend on local-only resources (localhost databases, local data files, a browser) or that require interactive OAuth (e.g. Notion, Ramp) won't function in a fresh sandbox — log in inside the sandbox, or expect them absent/unauthenticated.
 - **Codex resume is org-bound**: it replays the session's encrypted reasoning to the API, so the shipped credential must belong to the org that created the rollout. The default `~/.codex/auth.json` ships as-is (fine for ordinary OpenAI logins). Sessions created under a custom provider profile (e.g. Azure) resume only with that provider's credential; ChatGPT-OAuth `auth.json` (no `OPENAI_API_KEY`) is unverified for cross-machine resume.
 - The agent CLI installs at your exact local version, so Codex may show its standard "update available" notice — informational; choose "skip" to continue.

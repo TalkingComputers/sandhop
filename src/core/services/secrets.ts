@@ -5,9 +5,10 @@ import {
   joinClaudeLocalPath,
 } from "../../agents/claude-paths.js";
 import { collectEnvRefs } from "../env.js";
-import { isRecord } from "../json.js";
+import { isRecord, parseJsonRecord } from "../json.js";
 import type { Agent } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
+import { mapHomePath } from "./mcp-paths.js";
 import { ProfileService } from "./profile.js";
 
 export interface SecretsInputs {
@@ -45,24 +46,12 @@ const SYSTEM_ENV_NAMES = new Set([
   "_",
 ]);
 
-const remotePath = (home: string, path: string): string => {
-  if (path === home) return "$HOME";
-  if (path.startsWith(`${home}/`)) return `$HOME${path.slice(home.length)}`;
-  return path;
-};
-
 const readJsonRecord = (
   host: HostDeps,
   path: string,
 ): Record<string, unknown> | null => {
   const text = host.readFile(path);
-  if (text === null) return null;
-  try {
-    const parsed = JSON.parse(text) as unknown;
-    return isRecord(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
+  return text === null ? null : parseJsonRecord(text);
 };
 
 const readDisabledPlugins = (host: HostDeps): Set<string> => {
@@ -172,7 +161,10 @@ export class SecretsService implements SecretsCollector {
         const content = this.host.readFile(path);
         if (content === null)
           throw new Error(`Referenced MCP file not found: ${path}`);
-        files.push({ path: remotePath(this.host.home, path), content });
+        files.push({
+          path: mapHomePath(this.host.home, "$HOME", path, "passthrough"),
+          content,
+        });
       }
     }
     return { envs, files };

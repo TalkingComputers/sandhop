@@ -15,20 +15,38 @@ export interface AuthBundle {
 
 export type McpTransport = "stdio" | "http" | "sse" | "ws";
 
-export interface McpServer {
+interface BaseMcpServer {
   name: string;
-  transport: McpTransport;
-  command?: string;
+  startupTimeoutSec?: number;
+}
+
+export interface StdioMcpServer extends BaseMcpServer {
+  transport: "stdio";
+  command: string;
   args?: string[];
   env?: Record<string, string>;
   cwd?: string;
-  url?: string;
+  url?: never;
+  headers?: never;
+  bearerTokenEnvVar?: never;
+  httpHeaders?: never;
+  envHttpHeaders?: never;
+}
+
+export interface RemoteMcpServer extends BaseMcpServer {
+  transport: Exclude<McpTransport, "stdio">;
+  url: string;
+  command?: never;
+  args?: never;
+  env?: never;
+  cwd?: never;
   headers?: Record<string, string>;
   bearerTokenEnvVar?: string;
   httpHeaders?: Record<string, string>;
   envHttpHeaders?: Record<string, string>;
-  startupTimeoutSec?: number;
 }
+
+export type McpServer = StdioMcpServer | RemoteMcpServer;
 
 export type McpConfigWrite =
   | { path: string; content: string; mode: "append" }

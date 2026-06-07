@@ -12,15 +12,21 @@ const modalMocks = vi.hoisted(() => {
           stderr: { readText: vi.fn(async () => "") },
           wait: vi.fn(async () => 0),
         }
-      : {
-          stdout: { readText: stdoutReadText },
-          stderr: { readText: stderrReadText },
-          wait,
-        },
+      : command[2]?.startsWith("mkdir -p ")
+        ? {
+            stdout: { readText: vi.fn(async () => "") },
+            stderr: { readText: vi.fn(async () => "") },
+            wait: vi.fn(async () => 0),
+          }
+        : {
+            stdout: { readText: stdoutReadText },
+            stderr: { readText: stderrReadText },
+            wait,
+          },
   );
-  const write = vi.fn(async () => undefined);
-  const close = vi.fn(async () => undefined);
-  const open = vi.fn(async () => ({ write, close }));
+  const writeText = vi.fn(async () => undefined);
+  const writeBytes = vi.fn(async () => undefined);
+  const copyFromLocal = vi.fn(async () => undefined);
   const tunnels = vi.fn(async () => ({
     7681: { host: "modal-host.example" },
   }));
@@ -28,12 +34,19 @@ const modalMocks = vi.hoisted(() => {
   const sandbox = {
     sandboxId: "modal-sbx",
     exec,
-    open,
+    filesystem: { writeText, writeBytes, copyFromLocal },
     tunnels,
     terminate,
   };
   const fromName = vi.fn(async () => ({ appId: "app-id" }));
-  const fromRegistry = vi.fn((image: string) => ({ image }));
+  const image = {
+    image: "node-image",
+    dockerfileCommands: vi.fn((commands: string[]) => ({
+      image: "node-image",
+      commands,
+    })),
+  };
+  const fromRegistry = vi.fn(() => image);
   const create = vi.fn(async () => sandbox);
   const fromId = vi.fn(async () => sandbox);
   const list = vi.fn(async function* () {
@@ -48,21 +61,22 @@ const modalMocks = vi.hoisted(() => {
   }));
   return {
     ModalClient,
-    close,
+    copyFromLocal,
     create,
     exec,
     fromId,
     fromName,
     fromRegistry,
+    image,
     list,
-    open,
     sandbox,
     stderrReadText,
     stdoutReadText,
     terminate,
     tunnels,
     wait,
-    write,
+    writeBytes,
+    writeText,
   };
 });
 
@@ -104,9 +118,17 @@ test("ModalSandboxProvider creates a sandhop sandbox and maps exec results", asy
     createIfMissing: true,
   });
   expect(modalMocks.fromRegistry).toHaveBeenCalledWith(NODE_IMAGE);
+  expect(modalMocks.image.dockerfileCommands).toHaveBeenCalledWith([
+    "RUN apt-get update && apt-get install -y --no-install-recommends zstd",
+  ]);
   expect(modalMocks.create).toHaveBeenCalledWith(
     { appId: "app-id" },
-    { image: NODE_IMAGE },
+    {
+      image: "node-image",
+      commands: [
+        "RUN apt-get update && apt-get install -y --no-install-recommends zstd",
+      ],
+    },
     {
       command: ["sleep", "infinity"],
       cpu: 4,
@@ -190,23 +212,23 @@ test("ModalSandboxProvider uploads files, exposes ports, and destroys", async ()
     ports: [7681],
   });
 
-  await sandbox.uploadFile("/tmp/a", "hello");
+  await sandbox.uploadFile("/tmp/nested/a", "hello");
   await sandbox.uploadFile("/tmp/b", new Uint8Array([1, 2]));
-  await sandbox.uploadPath("/tmp/profile.tgz", "/tmp/profile.tgz");
+  await sandbox.uploadPath("/tmp/nested/profile.tgz", "/tmp/profile.tgz");
   await expect(sandbox.exposePort(7681)).resolves.toEqual({
     url: "https://modal-host.example",
   });
   await sandbox.destroy();
 
-  expect(modalMocks.open).toHaveBeenCalledWith("/tmp/a", "w");
-  expect(modalMocks.open).toHaveBeenCalledWith("/tmp/b", "w");
-  expect(modalMocks.open).toHaveBeenCalledWith("/tmp/profile.tgz", "w");
-  expect(modalMocks.write).toHaveBeenCalledWith(
-    new TextEncoder().encode("hello"),
+  expect(modalMocks.writeText).toHaveBeenCalledWith("hello", "/tmp/nested/a");
+  expect(modalMocks.writeBytes).toHaveBeenCalledWith(
+    new Uint8Array([1, 2]),
+    "/tmp/b",
   );
-  expect(modalMocks.write).toHaveBeenCalledWith(new Uint8Array([1, 2]));
-  expect(modalMocks.write).toHaveBeenCalledWith(new Uint8Array([9, 8]));
-  expect(modalMocks.close).toHaveBeenCalledTimes(3);
+  expect(modalMocks.copyFromLocal).toHaveBeenCalledWith(
+    "/tmp/profile.tgz",
+    "/tmp/nested/profile.tgz",
+  );
   expect(modalMocks.tunnels).toHaveBeenCalledWith(60000);
   expect(modalMocks.terminate).toHaveBeenCalled();
 });

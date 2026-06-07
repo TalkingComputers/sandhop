@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { intro, note, outro, progress } from "@clack/prompts";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { realpathSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import {
   detectAgents,
   pickAgent,
@@ -9,7 +9,12 @@ import {
 } from "../agents/index.js";
 import { CredentialError } from "../core/errors.js";
 import type { Agent } from "../core/ports/agent.js";
-import type { PushEvent } from "../core/ports/progress.js";
+import {
+  EnrichmentStepId,
+  PushProgressId,
+  type EnrichmentProgressListener,
+  type PushProgressListener,
+} from "../core/ports/progress.js";
 import { AuthService } from "../core/services/auth.js";
 import { BootstrapService } from "../core/services/bootstrap.js";
 import { GitSshService } from "../core/services/git-ssh.js";
@@ -28,34 +33,126 @@ import {
   type ParsedArgs,
 } from "./args.js";
 import { applyConfigToEnv, loadConfig } from "./config.js";
+import { runEnrichment } from "./enrich.js";
 import { buildHost } from "./host.js";
+import {
+  formatEnrichmentProgress,
+  formatPushProgress,
+} from "./progress-labels.js";
 import { runSetup } from "./setup.js";
+import { HELP_TEXT, VERSION } from "./usage.js";
 
 type RuntimeArgs = Omit<ParsedArgs, "provider"> & {
   provider: ProviderId;
 };
 
-type PushProgressBar = ReturnType<typeof progress> & {
-  stop(msg?: string, code?: number): void;
+type PushReporter = {
+  onPushProgress: PushProgressListener;
+  onEnrichmentProgress: EnrichmentProgressListener;
+  finishTeleport(): void;
+  failTeleport(): void;
+  startEnrichment(): void;
+  failEnrichment(): void;
+  finishEnrichment(
+    enrichment: Awaited<ReturnType<typeof runEnrichment>>,
+    strict: boolean,
+    failed: boolean,
+  ): void;
+  printResult(result: Awaited<ReturnType<TeleportService["run"]>>): void;
 };
 
-type EnrichmentProgressBar = PushProgressBar & {
-  message(msg: string): void;
-};
-
-const ENRICHMENT_STEPS = 7;
-const PROGRESS_POLL_MS = 200;
-const PROGRESS_IDLE_TIMEOUT_MS = 20 * 60 * 1000;
+const ENRICHMENT_STEP_COUNT = Object.keys(EnrichmentStepId).length;
 const BYTES_PER_MB = 1_048_576;
 
-const FRIENDLY_LABELS: Record<string, string> = {
-  "enrichment setup": "Preparing",
-  "profile transfer + extract": "Transferring profile & skills",
-  "settings scripts transfer + rewrite": "Transferring settings scripts",
-  "settings script dependency installs": "Installing settings-script deps",
-  "mcp code transfer + config rewrite": "Transferring MCP servers",
-  "per-MCP dependency installs": "Installing MCP deps",
-  "plugin and git skill reinstall": "Reinstalling plugins & skills",
+const hasFailedStep = (
+  steps: Awaited<ReturnType<typeof runEnrichment>>,
+): boolean => steps.some((step) => !step.ok);
+
+const formatStrictFailure = (
+  steps: Awaited<ReturnType<typeof runEnrichment>>,
+): string => {
+  const failed = steps.filter((step) => !step.ok);
+  return `Enrichment failed in strict mode: ${failed.map((step) => step.step).join(", ")}`;
+};
+
+const createPushReporter = (tty: boolean): PushReporter => {
+  if (!tty)
+    return {
+      onPushProgress: (event): void => console.error(formatPushProgress(event)),
+      onEnrichmentProgress: (event): void => {
+        if (event.kind === "enrichStep") {
+          console.error(formatEnrichmentProgress(event));
+          return;
+        }
+        console.error(
+          `${event.transfer.label} ${event.transfer.phase} ${event.transfer.bytesDone}/${event.transfer.bytesTotal}`,
+        );
+      },
+      finishTeleport: (): void => undefined,
+      failTeleport: (): void => undefined,
+      startEnrichment: (): void => undefined,
+      failEnrichment: (): void => undefined,
+      finishEnrichment: (): void => undefined,
+      printResult: (result): void => {
+        console.log(`SANDHOP_URL ${result.url}`);
+        console.log(`SANDHOP_AUTH ${result.user}:${result.pass}`);
+      },
+    };
+
+  intro("sandhop push");
+  const pushProgress = progress({ style: "heavy", max: 6 });
+  const enrichmentProgress = progress({
+    style: "heavy",
+    max: ENRICHMENT_STEP_COUNT,
+  });
+  let lastEnrichmentLabel = "Preparing";
+  pushProgress.start("Teleporting your session…");
+
+  return {
+    onPushProgress: (event): void => {
+      if (event.step === PushProgressId.Ready) return;
+      pushProgress.advance(1, formatPushProgress(event));
+    },
+    onEnrichmentProgress: (event): void => {
+      if (event.kind === "enrichStep") {
+        const label = formatEnrichmentProgress(event);
+        lastEnrichmentLabel = label;
+        if (event.status === "start") {
+          enrichmentProgress.message(label);
+          return;
+        }
+        enrichmentProgress.advance(1, label);
+        return;
+      }
+      enrichmentProgress.message(
+        `${lastEnrichmentLabel} · ${Math.round(event.transfer.bytesDone / BYTES_PER_MB)}MB`,
+      );
+    },
+    finishTeleport: (): void => pushProgress.stop("Session teleported"),
+    failTeleport: (): void => pushProgress.error("Teleport failed"),
+    startEnrichment: (): void =>
+      enrichmentProgress.start("Syncing profile, MCP servers & skills…"),
+    failEnrichment: (): void => enrichmentProgress.error("Enrichment failed"),
+    finishEnrichment: (enrichment, strict, failed): void => {
+      const completedSteps = enrichment.filter((step) => step.ok).length;
+      if (failed && strict) {
+        enrichmentProgress.error(
+          `Enrichment failed · ${completedSteps}/${enrichment.length}`,
+        );
+        return;
+      }
+      enrichmentProgress.stop(
+        `Environment ready · ${completedSteps}/${enrichment.length}`,
+      );
+    },
+    printResult: (result): void => {
+      note(
+        `${result.url}\n\n  user   ${result.user}\n  pass   ${result.pass}\n  kill   sandhop kill ${result.sandboxId}`,
+        "Open in your browser",
+      );
+      outro("Environment ready.");
+    },
+  };
 };
 
 export const withRuntimeDefaults = (
@@ -68,92 +165,6 @@ export const withRuntimeDefaults = (
     ...args,
     provider: args.provider ?? readProvider(host.env["SANDHOP_PROVIDER"]),
   };
-};
-
-const formatPushProgress = (msg: string): string => {
-  if (msg === "snapshotting") return "Snapshotting session";
-  if (msg === "creating sandbox") return "Creating cloud sandbox";
-  if (msg === "uploading bundle") return "Shipping working tree + session";
-  if (msg === "restoring session") return "Restoring your session";
-  if (msg.startsWith("installing"))
-    return "Installing agent runtime + terminal";
-  return msg;
-};
-
-const friendly = (name: string): string => {
-  const label = FRIENDLY_LABELS[name];
-  return label === undefined ? name : label;
-};
-
-const tailEnrichment = async (progressPath: string): Promise<void> => {
-  const bar = progress({
-    style: "heavy",
-    max: ENRICHMENT_STEPS,
-  }) as EnrichmentProgressBar;
-  bar.start("Setting up your environment…");
-  let offset = 0;
-  let lineBuffer = "";
-  let lastStep = "enrichment setup";
-  let lastActivity = Date.now();
-  await new Promise<void>((finish) => {
-    let interval: ReturnType<typeof setInterval>;
-    const stop = (message: string): void => {
-      clearInterval(interval);
-      process.off("SIGINT", onSigint);
-      bar.stop(message);
-      finish();
-    };
-    const onSigint = (): void => {
-      stop("Enrichment continues in the background");
-      process.exit(0);
-    };
-    const applyEvent = (event: PushEvent): void => {
-      if (event.kind === "enrichStep") {
-        lastStep = event.name;
-        if (event.status === "start") {
-          bar.message(friendly(event.name));
-          return;
-        }
-        bar.advance(1, friendly(event.name));
-        return;
-      }
-      if (event.kind === "transfer") {
-        const transfer = event.transfer;
-        bar.message(
-          `${friendly(lastStep)} · ${Math.round(transfer.bytesDone / BYTES_PER_MB)}MB`,
-        );
-        return;
-      }
-      stop(`Environment ready · ${event.okSteps}/${event.totalSteps}`);
-    };
-    const readProgress = (): void => {
-      if (existsSync(progressPath)) {
-        const bytes = readFileSync(progressPath);
-        if (bytes.byteLength > offset) {
-          lineBuffer += bytes.subarray(offset).toString("utf8");
-          offset = bytes.byteLength;
-          lastActivity = Date.now();
-          const lines = lineBuffer.split("\n");
-          lineBuffer = lines.pop()!;
-          for (const line of lines) {
-            if (line.length === 0) continue;
-            let event: PushEvent;
-            try {
-              event = JSON.parse(line) as PushEvent;
-            } catch {
-              continue;
-            }
-            applyEvent(event);
-          }
-        }
-      }
-      if (Date.now() - lastActivity > PROGRESS_IDLE_TIMEOUT_MS)
-        stop("still running in the background");
-    };
-    process.once("SIGINT", onSigint);
-    interval = setInterval(readProgress, PROGRESS_POLL_MS);
-    readProgress();
-  });
 };
 
 const runPush = async (args: RuntimeArgs, host: NodeHost): Promise<void> => {
@@ -189,21 +200,7 @@ const runPush = async (args: RuntimeArgs, host: NodeHost): Promise<void> => {
     gitSsh: new GitSshService(host),
     multiplexer,
   });
-  const tty = process.stdout.isTTY === true;
-  let bar: PushProgressBar | undefined;
-  let onProgress: (msg: string) => void;
-  if (tty) {
-    intro("sandhop push");
-    const ttyBar: PushProgressBar = progress({ style: "heavy", max: 6 });
-    bar = ttyBar;
-    ttyBar.start("Teleporting your session…");
-    onProgress = (msg: string): void => {
-      if (msg === "ready") return;
-      ttyBar.advance(1, formatPushProgress(msg));
-    };
-  } else {
-    onProgress = (msg: string): void => console.error(msg);
-  }
+  const reporter = createPushReporter(process.stdout.isTTY === true);
   let result: Awaited<ReturnType<TeleportService["run"]>>;
   try {
     result = await service.run(args.cwd, {
@@ -212,59 +209,47 @@ const runPush = async (args: RuntimeArgs, host: NodeHost): Promise<void> => {
       excludes: args.excludes,
       includes: args.includes,
       timeoutMs: 3_600_000,
-      onProgress,
+      onProgress: reporter.onPushProgress,
     });
   } catch (error: unknown) {
-    if (tty) bar!.stop("Teleport failed", 1);
+    reporter.failTeleport();
     throw error;
   }
-  if (tty) {
-    bar!.stop("Session teleported");
-    note(
-      `${result.url}\n\n  user   ${result.user}\n  pass   ${result.pass}\n  kill   sandhop kill ${result.sandboxId}`,
-      "Open in your browser",
+  reporter.finishTeleport();
+  reporter.startEnrichment();
+  let enrichment: Awaited<ReturnType<typeof runEnrichment>>;
+  try {
+    enrichment = await runEnrichment(
+      {
+        agent: agent.id,
+        cwd: args.cwd,
+        excludes: args.excludes,
+        profile: args.profile,
+      },
+      host,
+      result.sandbox,
+      reporter.onEnrichmentProgress,
     );
-  } else {
-    console.log(`SANDHOP_URL ${result.url}`);
-    console.log(`SANDHOP_AUTH ${result.user}:${result.pass}`);
-    console.log(`SANDHOP_ENRICHING ${result.sandboxId}`);
-    console.log(
-      "enrichment running in background (profile, skills, MCP servers)",
-    );
+  } catch (error: unknown) {
+    reporter.failEnrichment();
+    throw error;
   }
-  const progressPath = `/tmp/sandhop-progress-${result.sandboxId}.jsonl`;
-  const enrichPath = fileURLToPath(new URL("./enrich.js", import.meta.url));
-  host.spawnDetached(
-    process.execPath,
-    [
-      enrichPath,
-      "--sandbox-id",
-      result.sandboxId,
-      "--agent",
-      agent.id,
-      "--cwd",
-      args.cwd,
-      "--provider",
-      args.provider,
-      "--progress-file",
-      progressPath,
-      ...args.excludes.flatMap((exclude) => ["--exclude", exclude]),
-      ...(args.profile ? [] : ["--no-profile"]),
-      ...(args.strict ? ["--strict"] : []),
-    ],
-    { cwd: args.cwd, env: process.env },
-  );
-  if (tty && !args.detach) {
-    await tailEnrichment(progressPath);
-    outro("Environment ready.");
-    return;
-  }
-  if (tty)
-    outro("Skills, MCP servers & plugins are installing in the background.");
+  const failed = hasFailedStep(enrichment);
+  reporter.finishEnrichment(enrichment, args.strict, failed);
+  if (failed && args.strict) throw new Error(formatStrictFailure(enrichment));
+  reporter.printResult(result);
 };
 
 export const main = async (argv: string[]): Promise<void> => {
   const args = parseArgs(argv, process.cwd());
+  if (args.cmd === "version") {
+    console.log(VERSION);
+    return;
+  }
+  if (args.cmd === "help") {
+    console.log(HELP_TEXT);
+    return;
+  }
   if (args.cmd === "setup") {
     await runSetup(buildHost());
     return;

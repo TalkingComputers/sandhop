@@ -91,6 +91,7 @@ const configBlock = (config: SshHostConfig, bases: string[]): string =>
     ...bases.map((base) => `  IdentityFile ~/.ssh/${base}`),
     "  IdentitiesOnly yes",
     "  StrictHostKeyChecking accept-new",
+    "  RequestTTY no",
   ].join("\n");
 
 export class GitSshService implements SshCollector {
@@ -161,7 +162,7 @@ export class GitSshService implements SshCollector {
 
   private readConfig(token: string): SshHostConfig | null {
     try {
-      return parseSshConfig(token, this.host.exec("ssh", ["-G", token]));
+      return parseSshConfig(token, this.host.exec("ssh", ["-T", "-G", token]));
     } catch {
       return null;
     }

@@ -1,188 +1,27 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, expect, test, vi } from "vitest";
+import { expect, test } from "vitest";
+import { runEnrichment } from "../../src/cli/enrich.js";
+import {
+  EnrichmentStepId,
+  type EnrichmentProgressEvent,
+} from "../../src/core/ports/progress.js";
 import type { ExecOptions, RunResult } from "../../src/core/ports/provider.js";
-import type { EnrichmentStepResult } from "../../src/core/services/bootstrap.js";
-import { runEnrichCli, runEnrichment } from "../../src/cli/enrich.js";
 import { FakeHost } from "../fakes/host.js";
-import { FakeProvider, FakeSandbox } from "../fakes/provider.js";
+import { FakeSandbox } from "../fakes/provider.js";
 
 class FailingMcpSandbox extends FakeSandbox {
   async exec(cmd: string, opts?: ExecOptions): Promise<RunResult> {
     if (cmd.includes("/tmp/sandhop-mcp-0-") && cmd.includes("zstd -d")) {
       this.execs.push(cmd);
       this.execOptions.push(opts);
-      return {
-        exitCode: 1,
-        stdout: "",
-        stderr: "npm run build failed",
-      };
+      return { exitCode: 1, stdout: "", stderr: "npm run build failed" };
     }
     return super.exec(cmd, opts);
   }
 }
 
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.doUnmock("../../src/providers/index.js");
-  vi.doUnmock("../../src/core/services/enrichment.js");
-  vi.resetModules();
-});
-
-const loadRunEnrichCli = async (steps: EnrichmentStepResult[]) => {
-  vi.resetModules();
-  vi.doMock("../../src/providers/index.js", () => ({
-    PROVIDER_IDS: ["e2b", "modal", "daytona", "vercel"],
-    buildProvider: () => ({
-      connect: async () => new FakeSandbox("sbx-1", "/home/user"),
-    }),
-  }));
-  vi.doMock("../../src/core/services/enrichment.js", () => ({
-    EnrichmentService: class {
-      async run(): Promise<EnrichmentStepResult[]> {
-        return steps;
-      }
-    },
-  }));
-  return import("../../src/cli/enrich.js");
-};
-
-const enrichArgv = (extra: string[] = []): string[] => [
-  "--sandbox-id",
-  "sbx-1",
-  "--agent",
-  "codex",
-  "--cwd",
-  "/workspace/project",
-  "--provider",
-  "e2b",
-  ...extra,
-];
-
-test("runEnrichCli returns non-zero on top-level failure", async () => {
-  const error = vi
-    .spyOn(console, "error")
-    .mockImplementation((): void => undefined);
-
-  await expect(runEnrichCli([])).resolves.toBe(1);
-
-  expect(error).toHaveBeenCalledWith("--sandbox-id is required");
-  error.mockRestore();
-});
-
-test("runEnrichCli returns one in strict mode when an enrichment step fails", async () => {
-  const { runEnrichCli: runCli } = await loadRunEnrichCli([
-    { name: "mcp", ok: false, error: "failed" },
-  ]);
-  vi.spyOn(process.stdout, "write").mockImplementation((): boolean => true);
-
-  await expect(runCli(enrichArgv(["--strict"]))).resolves.toBe(1);
-});
-
-test("runEnrichCli returns zero outside strict mode when an enrichment step fails", async () => {
-  const { runEnrichCli: runCli } = await loadRunEnrichCli([
-    { name: "mcp", ok: false, error: "failed" },
-  ]);
-  vi.spyOn(process.stdout, "write").mockImplementation((): boolean => true);
-
-  await expect(runCli(enrichArgv())).resolves.toBe(0);
-});
-
-test("runEnrichCli appends enrichment events and final done event as JSONL to progress file", async () => {
-  vi.resetModules();
-  vi.doMock("../../src/providers/index.js", () => ({
-    PROVIDER_IDS: ["e2b", "modal", "daytona", "vercel"],
-    buildProvider: () => ({
-      connect: async () => new FakeSandbox("sbx-1", "/home/user"),
-    }),
-  }));
-  vi.doMock("../../src/core/services/enrichment.js", () => ({
-    EnrichmentService: class {
-      async run(
-        cwd: string,
-        profile: boolean,
-        onEvent?: (event: {
-          kind: "enrichStep";
-          name: string;
-          status: "start";
-        }) => void,
-      ): Promise<EnrichmentStepResult[]> {
-        expect(cwd).toBe("/workspace/project");
-        expect(profile).toBe(true);
-        onEvent!({
-          kind: "enrichStep",
-          name: "enrichment setup",
-          status: "start",
-        });
-        return [{ name: "enrichment setup", ok: true }];
-      }
-    },
-  }));
-  const dir = mkdtempSync(join(tmpdir(), "sandhop-enrich-progress-"));
-  const progressFile = join(dir, "events.jsonl");
-  const write = vi
-    .spyOn(process.stdout, "write")
-    .mockImplementation((): boolean => true);
-  const { runEnrichCli: runCli } = await import("../../src/cli/enrich.js");
-
-  try {
-    await expect(
-      runCli(enrichArgv(["--progress-file", progressFile])),
-    ).resolves.toBe(0);
-
-    expect(readFileSync(progressFile, "utf8").split("\n")).toEqual([
-      '{"kind":"enrichStep","name":"enrichment setup","status":"start"}',
-      '{"kind":"done","okSteps":1,"totalSteps":1}',
-      "",
-    ]);
-    expect(write).not.toHaveBeenCalled();
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test("runEnrichCli drops enrichment events without progress file", async () => {
-  vi.resetModules();
-  let receivedOnEvent:
-    | ((event: { kind: "enrichStep"; name: string; status: "start" }) => void)
-    | undefined;
-  vi.doMock("../../src/providers/index.js", () => ({
-    PROVIDER_IDS: ["e2b", "modal", "daytona", "vercel"],
-    buildProvider: () => ({
-      connect: async () => new FakeSandbox("sbx-1", "/home/user"),
-    }),
-  }));
-  vi.doMock("../../src/core/services/enrichment.js", () => ({
-    EnrichmentService: class {
-      async run(
-        cwd: string,
-        profile: boolean,
-        onEvent?: (event: {
-          kind: "enrichStep";
-          name: string;
-          status: "start";
-        }) => void,
-      ): Promise<EnrichmentStepResult[]> {
-        expect(cwd).toBe("/workspace/project");
-        expect(profile).toBe(true);
-        receivedOnEvent = onEvent;
-        return [{ name: "enrichment setup", ok: true }];
-      }
-    },
-  }));
-  const write = vi
-    .spyOn(process.stdout, "write")
-    .mockImplementation((): boolean => true);
-  const { runEnrichCli: runCli } = await import("../../src/cli/enrich.js");
-
-  await expect(runCli(enrichArgv())).resolves.toBe(0);
-
-  expect(receivedOnEvent).toBeUndefined();
-  expect(write).not.toHaveBeenCalled();
-});
-
-test("runEnrichment sends profile and MCP roots with TransferService, uploads sourced files, writes config, and marks completion", async () => {
+test("runEnrichment sends profile and MCP roots inline, uploads sourced files, writes config, and marks completion", async () => {
   const host = new FakeHost({
     home: "/home/local",
     env: {},
@@ -205,43 +44,33 @@ cwd = "/home/local/mcp"
       "/home/local/mcp/server.js": "",
     },
   });
-  const provider = new FakeProvider();
-  const events: (
-    | { kind: "enrichStep"; name: string; status: string }
-    | {
-        kind: "transfer";
-        transfer: {
-          label: string;
-          phase: string;
-          bytesDone: number;
-          bytesTotal: number;
-        };
-      }
-  )[] = [];
+  const sandbox = new FakeSandbox("sbx-1", "/home/user");
+  const events: EnrichmentProgressEvent[] = [];
 
-  await runEnrichment(
+  const steps = await runEnrichment(
     {
-      sandboxId: "sbx-1",
       agent: "codex",
       cwd: "/workspace/project",
       excludes: ["node_modules"],
       profile: true,
     },
     host,
-    provider.sandbox,
-    (event: (typeof events)[number]): void => {
+    sandbox,
+    (event): void => {
       events.push(event);
     },
   );
 
+  expect(steps).toHaveLength(7);
+  expect(steps.every((step) => step.ok)).toBe(true);
   expect(events).toContainEqual({
     kind: "enrichStep",
-    name: "enrichment setup",
+    step: EnrichmentStepId.Setup,
     status: "start",
   });
   expect(events).toContainEqual({
     kind: "enrichStep",
-    name: "enrichment setup",
+    step: EnrichmentStepId.Setup,
     status: "ok",
   });
   expect(events).toContainEqual({
@@ -262,7 +91,7 @@ cwd = "/home/local/mcp"
       bytesTotal: 7,
     },
   });
-  expect(provider.sandbox.pathUploads).toEqual(
+  expect(sandbox.pathUploads).toEqual(
     expect.arrayContaining([
       {
         remotePath: expect.stringMatching(
@@ -282,11 +111,7 @@ cwd = "/home/local/mcp"
       },
     ]),
   );
-  const enrichmentExec = provider.sandbox.execs.find((cmd) =>
-    cmd.includes("/tmp/sandhop-enriched"),
-  );
-  const execLog = provider.sandbox.execs.join("\n");
-  expect(provider.sandbox.uploads).toContainEqual({
+  expect(sandbox.uploads).toContainEqual({
     path: "/home/user/.env.d/mcp.env",
     data: "TOKEN=value\n",
   });
@@ -297,97 +122,29 @@ cwd = "/home/local/mcp"
     ]),
   );
   expect(host.copyCalls[0]!.excludes).toEqual(["node_modules"]);
-  expect(execLog).toContain("command -v dnf >/dev/null && dnf install -y zstd");
+  const execLog = sandbox.execs.join("\n");
   expect(execLog).toContain('SANDHOP_LOW_PRIORITY="nice -n 19"');
   expect(execLog).toContain("nice -n 19 ionice -c3");
   expect(execLog).toContain(
     "$SANDHOP_LOW_PRIORITY sh -lc 'cd '\\''/home/user/mcp'\\'' && npm ci'",
   );
-  expect(execLog).toContain(
-    "$SANDHOP_LOW_PRIORITY sh -lc 'zstd -d --long=27 -c",
-  );
   expect(execLog).toContain('cat >> "$HOME/.codex/config.toml"');
   expect(execLog).toContain("/home/user/mcp/server.js");
-  expect(enrichmentExec).toContain("[sandhop] enrichment summary");
+  expect(execLog).toContain("[sandhop] enrichment summary");
+  expect(execLog).toContain("touch /tmp/sandhop-enriched");
 });
 
-test("runEnrichment uses gzip transfers when host zstd is unavailable", async () => {
-  const host = new FakeHost({
-    home: "/home/local",
-    env: {},
-    zstdAvailable: false,
-    files: {
-      "/home/local/.codex/config.toml": `
-[mcp_servers.local]
-command = "node"
-args = ["/home/local/mcp/server.js"]
-cwd = "/home/local/mcp"
-`,
-      "/home/local/mcp/package.json": "{}",
-      "/home/local/mcp/package-lock.json": "{}",
-      "/home/local/mcp/server.js": "",
-    },
-  });
-  const sandbox = new FakeSandbox("sbx-1", "/home/user");
+test("progress contract has only inline enrichment events", () => {
+  const source = readFileSync("src/core/ports/progress.ts", "utf8");
 
-  await runEnrichment(
-    {
-      sandboxId: "sbx-1",
-      agent: "codex",
-      cwd: "/workspace/project",
-      excludes: [],
-      profile: true,
-    },
-    host,
-    sandbox,
-  );
-
-  expect(host.spawnPipeCalls.join("\n")).not.toContain("zstd");
-  expect(host.spawnPipeCalls).toEqual(
-    expect.arrayContaining([expect.stringContaining("-czf ")]),
-  );
-  expect(sandbox.execs.join("\n")).toContain("gzip -t");
+  expect(source).not.toContain(["kind: ", JSON.stringify("done")].join(""));
+  expect(source).not.toContain(["ok", "Steps"].join(""));
+  expect(source).not.toContain(["total", "Steps"].join(""));
+  expect(source).not.toContain(["Push", "Event"].join(""));
+  expect(source).not.toContain(["Push", "Listener"].join(""));
 });
 
-test("runEnrichment does not re-apply Codex preseed after profile transfer", async () => {
-  const host = new FakeHost({
-    home: "/home/local",
-    env: {},
-    files: {
-      "/home/local/.codex/config.toml": 'model = "gpt-5.4"\n',
-      "/home/local/.codex/AGENTS.md": "agents",
-    },
-  });
-  const sandbox = new FakeSandbox("sbx-1", "/home/user");
-
-  await runEnrichment(
-    {
-      sandboxId: "sbx-1",
-      agent: "codex",
-      cwd: "/workspace/project",
-      excludes: [],
-      profile: true,
-    },
-    host,
-    sandbox,
-  );
-
-  const profileIndex = sandbox.execs.findIndex(
-    (cmd) => cmd.includes("/tmp/sandhop-profile-") && cmd.includes("zstd -d"),
-  );
-  const preseedIndex = sandbox.execs.findIndex(
-    (cmd, index) =>
-      index > profileIndex &&
-      cmd.includes("/workspace/project") &&
-      cmd.includes("trust_level") &&
-      cmd.includes("cli_auth_credentials_store"),
-  );
-
-  expect(profileIndex).toBeGreaterThan(-1);
-  expect(preseedIndex).toBe(-1);
-});
-
-test("runEnrichment finishes profile and marker after MCP transfer failure", async () => {
+test("runEnrichment keeps best-effort steps isolated and marks completion after MCP transfer failure", async () => {
   const host = new FakeHost({
     home: "/home/local",
     env: {},
@@ -410,9 +167,8 @@ test("runEnrichment finishes profile and marker after MCP transfer failure", asy
   });
   const sandbox = new FailingMcpSandbox("sbx-1", "/home/user");
 
-  await runEnrichment(
+  const steps = await runEnrichment(
     {
-      sandboxId: "sbx-1",
       agent: "claude-code",
       cwd: "/workspace/project",
       excludes: [],
@@ -422,10 +178,11 @@ test("runEnrichment finishes profile and marker after MCP transfer failure", asy
     sandbox,
   );
 
-  expect(host.copyCalls[0]!.entries).toEqual([
-    ".claude/settings.json",
-    ".claude/skills/ship",
-  ]);
+  expect(steps).toContainEqual({
+    step: EnrichmentStepId.McpCodeTransfer,
+    ok: false,
+    error: expect.stringContaining("Transfer failed for mcp-0"),
+  });
   const profileIndex = sandbox.execs.findIndex(
     (cmd) => cmd.includes("/tmp/sandhop-profile-") && cmd.includes("zstd -d"),
   );
@@ -440,144 +197,11 @@ test("runEnrichment finishes profile and marker after MCP transfer failure", asy
   expect(profileIndex).toBeGreaterThan(-1);
   expect(mcpIndex).toBeGreaterThan(profileIndex);
   expect(markerIndex).toBeGreaterThan(mcpIndex);
-  expect(log).toContain(
-    "[sandhop] step failed: mcp code transfer + config rewrite",
-  );
+  expect(log).toContain("[sandhop] step failed: mcp_code_transfer");
   expect(log).not.toContain(
     "$SANDHOP_LOW_PRIORITY sh -lc 'cd '\\''/home/user/mcp'\\'' && npm ci'",
   );
   expect(log).toContain("[sandhop] enrichment summary");
-});
-
-test("runEnrichment runs reinstall commands nice, HTTPS-preferred, fault-isolated, and logged", async () => {
-  const host = new FakeHost({
-    home: "/home/local",
-    env: {},
-    files: {
-      "/home/local/.claude/settings.json": JSON.stringify({
-        enabledPlugins: { "serena@official": false },
-      }),
-      "/home/local/.claude/plugins/known_marketplaces.json": JSON.stringify({
-        official: {
-          source: { source: "github", repo: "anthropics/claude-plugins" },
-        },
-      }),
-      "/home/local/.claude/plugins/installed_plugins.json": JSON.stringify({
-        version: 2,
-        plugins: { "serena@official": [{ scope: "user" }] },
-      }),
-    },
-  });
-  const sandbox = new FakeSandbox("sbx-1", "/home/user");
-
-  await runEnrichment(
-    {
-      sandboxId: "sbx-1",
-      agent: "claude-code",
-      cwd: "/workspace/project",
-      excludes: [],
-      profile: true,
-    },
-    host,
-    sandbox,
-  );
-
-  const log = sandbox.execs.join("\n");
-
-  expect(log).toContain("CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1");
-  expect(log).toContain(
-    "$SANDHOP_LOW_PRIORITY timeout 180 sh -lc 'claude plugin marketplace add '\\''anthropics/claude-plugins'\\'''",
-  );
-  expect(log).toContain(
-    "$SANDHOP_LOW_PRIORITY timeout 180 sh -lc 'claude plugin install '\\''serena@official'\\'' --scope user'",
-  );
-  expect(log).toContain(
-    "$SANDHOP_LOW_PRIORITY timeout 180 sh -lc 'claude plugin disable '\\''serena@official'\\'''",
-  );
-  expect(log).toContain("[sandhop] reinstall step failed:");
-  expect(log).toContain("touch /tmp/sandhop-enriched");
-});
-
-test("runEnrichment gives dependency and reinstall steps a generous exec timeout", async () => {
-  const host = new FakeHost({
-    home: "/home/local",
-    env: {},
-    files: {
-      "/home/local/.claude/settings.json": JSON.stringify({
-        hooks: {
-          PreToolUse: [
-            {
-              hooks: [
-                {
-                  type: "command",
-                  command: "/home/local/hook/bin/hook.sh",
-                },
-              ],
-            },
-          ],
-        },
-      }),
-      "/home/local/.claude.json": JSON.stringify({
-        mcpServers: {
-          local: {
-            command: "node",
-            args: ["/home/local/mcp/server.js"],
-            cwd: "/home/local/mcp",
-          },
-        },
-      }),
-      "/home/local/.claude/plugins/installed_plugins.json": JSON.stringify({
-        version: 2,
-        plugins: { "serena@official": [{ scope: "user" }] },
-      }),
-      "/home/local/hook/.git/config": "",
-      "/home/local/hook/package.json": "{}",
-      "/home/local/hook/package-lock.json": "",
-      "/home/local/hook/bin/hook.sh": "#!/bin/sh\n",
-      "/home/local/mcp/package.json": "{}",
-      "/home/local/mcp/package-lock.json": "{}",
-      "/home/local/mcp/server.js": "",
-    },
-    execValues: {
-      "git -C /home/local/hook/bin rev-parse --show-toplevel":
-        "/home/local/hook\n",
-      "git -C /home/local/hook rev-parse --show-toplevel": "/home/local/hook\n",
-    },
-  });
-  const sandbox = new FakeSandbox("sbx-1", "/home/user");
-
-  await runEnrichment(
-    {
-      sandboxId: "sbx-1",
-      agent: "claude-code",
-      cwd: "/workspace/project",
-      excludes: [],
-      profile: true,
-    },
-    host,
-    sandbox,
-  );
-
-  const calls = sandbox.execs.map((cmd, index) => ({
-    cmd,
-    opts: sandbox.execOptions[index],
-  }));
-  const heavyCalls = calls.filter(
-    (call) =>
-      call.cmd.includes("cd '\\''/home/user/hook'\\'' && npm ci") ||
-      call.cmd.includes("cd '\\''/home/user/mcp'\\'' && npm ci") ||
-      call.cmd.includes("claude plugin install"),
-  );
-
-  expect(heavyCalls).toHaveLength(3);
-  expect(heavyCalls.map((call) => call.opts)).toEqual([
-    { timeoutMs: 1_800_000 },
-    { timeoutMs: 1_800_000 },
-    { timeoutMs: 1_800_000 },
-  ]);
-  expect(
-    calls.find((call) => call.cmd.includes("/tmp/sandhop-profile-"))!.opts,
-  ).toBeUndefined();
 });
 
 test("runEnrichment ships Claude settings scripts and uploads rewritten settings", async () => {
@@ -638,7 +262,6 @@ test("runEnrichment ships Claude settings scripts and uploads rewritten settings
 
   await runEnrichment(
     {
-      sandboxId: "sbx-1",
       agent: "claude-code",
       cwd: "/home/local/work",
       excludes: ["dist"],
@@ -662,7 +285,6 @@ test("runEnrichment ships Claude settings scripts and uploads rewritten settings
   const projectSettings = JSON.parse(String(projectUpload!.data)) as {
     hooks: { Stop: { hooks: { command: string }[] }[] };
   };
-  const log = sandbox.execs.join("\n");
 
   expect(host.spawnPipeCalls).toEqual(
     expect.arrayContaining([
@@ -672,19 +294,9 @@ test("runEnrichment ships Claude settings scripts and uploads rewritten settings
       expect.stringContaining(
         "-C '/home/local/work/scripts' 'project-hook.py'",
       ),
+      expect.stringContaining("--exclude 'dist'"),
     ]),
   );
-  expect(host.spawnPipeCalls).toEqual(
-    expect.arrayContaining([expect.stringContaining("--exclude 'dist'")]),
-  );
-  expect(host.spawnPipeCalls.join("\n")).not.toContain(
-    "--exclude 'node_modules'",
-  );
-  expect(host.spawnPipeCalls.join("\n")).not.toContain("--exclude '.venv'");
-  expect(host.spawnPipeCalls.join("\n")).not.toContain("--exclude '.git'");
-  expect(log).toContain('SANDHOP_LOW_PRIORITY="nice -n 19"');
-  expect(log).toContain("nice -n 19 ionice -c3");
-  expect(log).toContain("step ok: settings scripts transfer + rewrite");
   expect(userSettings.hooks.PreToolUse[0]!.hooks[0]!.command).toBe(
     "/home/user/hook-app/bin/hook.sh --strict",
   );

@@ -3,11 +3,12 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { CODEX } from "../../../src/agents/codex.js";
-import { CLAUDE_CODE } from "../../../src/agents/claude-code.js";
 import { BootstrapService } from "../../../src/core/services/bootstrap.js";
+import { CLAUDE_CODE } from "../../../src/agents/claude-code.js";
+import { CODEX } from "../../../src/agents/codex.js";
 import { buildManifest } from "../../../src/core/manifest.js";
 import type { Agent } from "../../../src/core/ports/agent.js";
+import { EnrichmentStepId } from "../../../src/core/ports/progress.js";
 import type { CodePlan } from "../../../src/core/services/mcp-code.js";
 
 const tmuxMultiplexer = {
@@ -33,7 +34,6 @@ const manifest = buildManifest({
 });
 const ZSTD_INSTALL =
   "command -v zstd || $SUDO sh -lc 'command -v apt-get >/dev/null && (apt-get update && apt-get install -y zstd) || (command -v dnf >/dev/null && dnf install -y zstd) || (command -v apk >/dev/null && apk add zstd) || (command -v yum >/dev/null && yum install -y zstd)'";
-
 test("BootstrapService project prep sudo-creates and owns remote project before transfer", () => {
   const bootstrap = createBootstrap(CLAUDE_CODE);
   const script = bootstrap.renderPathPrep(manifest.remoteProj);
@@ -47,7 +47,7 @@ test("BootstrapService project prep sudo-creates and owns remote project before 
   expect(bootstrap.renderProjectPrep(manifest)).toBe(script);
 });
 
-test("BootstrapService core installs exact CLI version, places transcript, and installs tmux after ttyd before project prep, enrichment, and zstd", () => {
+test("BootstrapService core installs exact CLI version, places transcript, and installs tmux after ttyd before project prep and zstd", () => {
   const script = createBootstrap(CLAUDE_CODE).render(manifest, {
     home: "/home/user",
   });
@@ -65,9 +65,8 @@ test("BootstrapService core installs exact CLI version, places transcript, and i
   expect(script).toContain(
     "curl -fsSL https://github.com/tsl0922/ttyd/releases/latest/download/ttyd.${TTYD_ARCH} -o /usr/local/bin/ttyd",
   );
-  expect(script.split("\n").slice(3, 7)).toEqual([
-    "$SUDO curl -fsSL https://github.com/tsl0922/ttyd/releases/latest/download/ttyd.${TTYD_ARCH} -o /usr/local/bin/ttyd",
-    "$SUDO chmod +x /usr/local/bin/ttyd",
+  expect(script.split("\n").slice(3, 6)).toEqual([
+    "command -v ttyd || { $SUDO curl -fsSL https://github.com/tsl0922/ttyd/releases/latest/download/ttyd.${TTYD_ARCH} -o /usr/local/bin/ttyd && $SUDO chmod +x /usr/local/bin/ttyd; }",
     "$SUDO bash -lc 'DEBIAN_FRONTEND=noninteractive apt-get install -y tmux'",
     `printf '%s\\n' 'set -g status off' 'set -g window-size latest' > "$HOME/.tmux.conf"`,
   ]);
@@ -180,9 +179,12 @@ test("BootstrapService enrichment installs runtimes and deps, writes rewritten M
 
   const bootstrap = createBootstrap(CLAUDE_CODE);
   const script = [
+    bootstrap.renderEnrichmentSetup(),
     bootstrap.renderEnrichmentInstalls({ codePlan }),
     bootstrap.renderEnrichmentConfig({ codePlan }),
-    bootstrap.renderEnrichmentCompletion([]),
+    bootstrap.renderEnrichmentCompletion([
+      { step: EnrichmentStepId.Setup, ok: true },
+    ]),
   ].join("\n");
 
   expect(script).toContain(
@@ -204,15 +206,6 @@ test("BootstrapService enrichment installs runtimes and deps, writes rewritten M
     "$SANDHOP_LOW_PRIORITY sh -lc 'cd '\\''/home/user/mcp'\\'' && npm ci'",
   );
   expect(script).toContain("set -e");
-  expect(script).toContain(
-    "|| { echo \"[sandhop] step failed: \\$SANDHOP_LOW_PRIORITY sh -lc 'curl -fsSL https://bun.sh/install | bash'\" >&2; true; }",
-  );
-  expect(script).toContain(
-    "|| { echo \"[sandhop] step failed: \\$SANDHOP_LOW_PRIORITY sh -lc 'curl -LsSf https://astral.sh/uv/install.sh | sh'\" >&2; true; }",
-  );
-  expect(script).toContain(
-    "[sandhop] step failed: \\$SANDHOP_LOW_PRIORITY sh -lc 'cd '\\\\''/home/user/mcp'\\\\'' && npm ci'",
-  );
   expect(script).toContain("node -e");
   expect(script).toContain("$HOME/.claude.json");
   expect(script).toContain("/home/user/mcp/server.js");
@@ -221,13 +214,13 @@ test("BootstrapService enrichment installs runtimes and deps, writes rewritten M
     'echo "[sandhop] mcp skipped: postgres (binds to localhost / loopback (unreachable from sandbox))"',
   );
   expect(script).toContain('echo "[sandhop] enrichment summary"');
+  expect(script).toContain('echo "[sandhop] ok: setup"');
   expect(script.indexOf("cd '\\''/home/user/mcp'\\'' && npm ci")).toBeLessThan(
     script.indexOf("$HOME/.claude.json"),
   );
   expect(script.indexOf("$HOME/.claude.json")).toBeLessThan(
     script.indexOf("touch /tmp/sandhop-enriched"),
   );
-  expect(script).not.toContain("mcp-code.tgz");
 });
 
 test("BootstrapService wraps each reinstall command with a bounded timeout", () => {
@@ -379,12 +372,7 @@ test("BootstrapService prunes stale Codex MCP tables before appending rewritten 
     classifications: [{ name: "local", kind: "local-path" }],
   };
 
-  const bootstrap = createBootstrap(CODEX);
-  const script = [
-    bootstrap.renderEnrichmentInstalls({ codePlan }),
-    bootstrap.renderEnrichmentConfig({ codePlan }),
-    bootstrap.renderEnrichmentCompletion([]),
-  ].join("\n");
+  const script = createBootstrap(CODEX).renderEnrichmentConfig({ codePlan });
 
   expect(script).toContain("node -e");
   expect(script).toContain("[mcp_servers");

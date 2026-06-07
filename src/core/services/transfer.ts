@@ -5,7 +5,7 @@ import type { HostDeps } from "../ports/host.js";
 import type { TransferProgress } from "../ports/progress.js";
 import type { Sandbox } from "../ports/provider.js";
 import { randomToken } from "../rand.js";
-import { LOW_PRIORITY_SETUP, shellQuote } from "../shell.js";
+import { shellQuote } from "../shell.js";
 
 // 16MB: benchmarked fastest on bandwidth-limited links (more parallel chunks
 // saturate the upload than a few 90MB ones) and gives finer transfer progress.
@@ -22,34 +22,22 @@ type TransferHost = Pick<
   | "splitFile"
 >;
 
-export type TransferCodec = "gzip" | "zstd";
-
 export interface TransferOptions {
-  codec: TransferCodec;
-  lowPriority?: boolean;
   excludes?: string[];
+  onProgress?: (p: TransferProgress) => void;
 }
 
 const safeLabel = (label: string): string =>
   label.replace(/[^A-Za-z0-9.-]/g, "-");
 
-const makeArchiveName = (
-  safe: string,
-  id: string,
-  codec: TransferCodec,
-): string => `sandhop-${safe}-${id}.${codec === "gzip" ? "tar.gz" : "tar.zst"}`;
+const makeArchiveName = (safe: string, id: string): string =>
+  `sandhop-${safe}-${id}.tar.zst`;
 
-const makeLocalArchivePath = (
-  safe: string,
-  id: string,
-  codec: TransferCodec,
-): string => `${tmpdir()}/${makeArchiveName(safe, id, codec)}`;
+const makeLocalArchivePath = (safe: string, id: string): string =>
+  `${tmpdir()}/${makeArchiveName(safe, id)}`;
 
-const makeRemoteArchivePath = (
-  safe: string,
-  id: string,
-  codec: TransferCodec,
-): string => `/tmp/${makeArchiveName(safe, id, codec)}`;
+const makeRemoteArchivePath = (safe: string, id: string): string =>
+  `/tmp/${makeArchiveName(safe, id)}`;
 
 const TAR_CREATE_SETUP = [
   "export COPYFILE_DISABLE=1",
@@ -78,20 +66,6 @@ const tarExcludeArgs = (excludes: string[] | undefined): string =>
 const tarEntryArg = (entry: string): string =>
   entry === "." ? "." : shellQuote(entry);
 
-export const makeTarGzipCommand = (
-  archive: string,
-  cwd: string,
-  opts?: TarCreateOptions,
-): string => {
-  const source = tarSource(cwd, opts?.isDirectory !== false);
-  return [
-    `${TAR_CREATE_SETUP}; tar $SANDHOP_TAR_MAC_FLAGS${tarExcludeArgs(opts?.excludes)}`,
-    `-czf ${shellQuote(archive)}`,
-    `-C ${shellQuote(source.cwd)}`,
-    tarEntryArg(source.entry),
-  ].join(" ");
-};
-
 const makeTarStreamCommand = (
   path: string,
   isDirectory: boolean,
@@ -107,14 +81,11 @@ const makeTarStreamCommand = (
 };
 
 const makeCompressionCommand = (
-  codec: TransferCodec,
   localPath: string,
   archive: string,
   isDirectory: boolean,
   excludes: string[] | undefined,
 ): string => {
-  if (codec === "gzip")
-    return makeTarGzipCommand(archive, localPath, { isDirectory, excludes });
   return [
     `set -o pipefail; ${makeTarStreamCommand(localPath, isDirectory, excludes)}`,
     `zstd -T0 -8 --long=27 --check -o ${shellQuote(archive)} -f`,
@@ -122,28 +93,49 @@ const makeCompressionCommand = (
 };
 
 const makeExtractionCommands = (
-  codec: TransferCodec,
   remoteArchive: string,
   sandboxDestDir: string,
-  lowPriority: boolean,
 ): string[] => {
-  const runExtract = (cmd: string): string =>
-    lowPriority ? `$SANDHOP_LOW_PRIORITY sh -lc ${shellQuote(cmd)}` : cmd;
-  if (codec === "gzip")
-    return [
-      `gzip -t ${shellQuote(remoteArchive)}`,
-      `mkdir -p ${shellQuote(sandboxDestDir)}`,
-      runExtract(
-        `tar -xzf ${shellQuote(remoteArchive)} -C ${shellQuote(sandboxDestDir)}`,
-      ),
-    ];
+  const extract = `zstd -d --long=27 -c ${shellQuote(remoteArchive)} | tar -xf - -C ${shellQuote(sandboxDestDir)}`;
   return [
     `zstd -t ${shellQuote(remoteArchive)}`,
     `mkdir -p ${shellQuote(sandboxDestDir)}`,
-    runExtract(
-      `zstd -d --long=27 -c ${shellQuote(remoteArchive)} | tar -xf - -C ${shellQuote(sandboxDestDir)}`,
-    ),
+    `bash -lc ${shellQuote(`set -o pipefail; ${extract}`)}`,
   ];
+};
+
+const makeSizeCheckCommand = (
+  remoteArchive: string,
+  totalBytes: number,
+): string =>
+  [
+    `actual="$(wc -c < ${shellQuote(remoteArchive)} | tr -d ' ')"`,
+    `if [ "$actual" != ${shellQuote(String(totalBytes))} ]; then`,
+    `  echo "archive size mismatch for ${shellQuote(remoteArchive)}: expected ${totalBytes} got $actual" >&2`,
+    "  exit 1",
+    "fi",
+  ].join("\n");
+
+const formatTransferFailure = (
+  label: string,
+  restore: { exitCode: number; stdout: string; stderr: string },
+  context: {
+    localPath: string;
+    sandboxDestPath: string;
+    totalBytes: number;
+    chunkCount: number;
+  },
+): string => {
+  return [
+    `Transfer failed for ${label}`,
+    `exit=${restore.exitCode}`,
+    `bytes=${context.totalBytes}`,
+    `chunks=${context.chunkCount}`,
+    `local=${context.localPath}`,
+    `remote=${context.sandboxDestPath}`,
+    `stderr=${JSON.stringify(restore.stderr)}`,
+    `stdout=${JSON.stringify(restore.stdout)}`,
+  ].join(": ");
 };
 
 export class TransferService {
@@ -159,35 +151,32 @@ export class TransferService {
     localPath: string,
     sandboxDestPath: string,
     label: string,
-    opts: TransferOptions,
-    onProgress?: (p: TransferProgress) => void,
+    opts: TransferOptions = {},
   ): Promise<void> {
-    onProgress?.({ label, phase: "compress", bytesDone: 0, bytesTotal: 0 });
+    opts.onProgress?.({
+      label,
+      phase: "compress",
+      bytesDone: 0,
+      bytesTotal: 0,
+    });
     const safe = safeLabel(label);
     const id = randomToken(12);
-    const codec = opts.codec;
     const isDirectory =
       !this.host.exists(localPath) || this.host.isDirectory(localPath);
     const sandboxDestDir = isDirectory
       ? sandboxDestPath
       : dirname(sandboxDestPath);
-    const archive = makeLocalArchivePath(safe, id, codec);
+    const archive = makeLocalArchivePath(safe, id);
     const prefix = `${tmpdir()}/sandhop-${safe}-${id}.part.`;
     let chunks: string[] = [];
     try {
       await this.host.spawnPipe(
-        makeCompressionCommand(
-          codec,
-          localPath,
-          archive,
-          isDirectory,
-          opts?.excludes,
-        ),
+        makeCompressionCommand(localPath, archive, isDirectory, opts?.excludes),
       );
       chunks = await this.host.splitFile(archive, CHUNK_BYTES, prefix);
       const chunkSizes = chunks.map((chunk) => this.host.fileSize(chunk));
       const totalBytes = chunkSizes.reduce((sum, size) => sum + size, 0);
-      onProgress?.({
+      opts.onProgress?.({
         label,
         phase: "upload",
         bytesDone: 0,
@@ -202,7 +191,7 @@ export class TransferService {
             async (localChunk: string, remoteChunk: string): Promise<void> => {
               await this.sandbox.uploadPath(remoteChunk, localChunk);
               uploadedBytes += chunkSizes[index]!;
-              onProgress?.({
+              opts.onProgress?.({
                 label,
                 phase: "upload",
                 bytesDone: uploadedBytes,
@@ -214,13 +203,12 @@ export class TransferService {
           ),
         ),
       );
-      const remoteArchive = makeRemoteArchivePath(safe, id, codec);
+      const remoteArchive = makeRemoteArchivePath(safe, id);
       const catInputs = remoteChunks.map(shellQuote).join(" ");
       const cleanup = [remoteArchive, ...remoteChunks]
         .map(shellQuote)
         .join(" ");
-      const lowPriority = opts?.lowPriority === true;
-      onProgress?.({
+      opts.onProgress?.({
         label,
         phase: "extract",
         bytesDone: totalBytes,
@@ -229,20 +217,21 @@ export class TransferService {
       const restore = await this.sandbox.exec(
         [
           "set -e",
-          ...(lowPriority ? [LOW_PRIORITY_SETUP] : []),
           `cat ${catInputs} > ${shellQuote(remoteArchive)}`,
-          `test "$(wc -c < ${shellQuote(remoteArchive)} | tr -d ' ')" = ${shellQuote(String(totalBytes))}`,
-          ...makeExtractionCommands(
-            codec,
-            remoteArchive,
-            sandboxDestDir,
-            lowPriority,
-          ),
+          makeSizeCheckCommand(remoteArchive, totalBytes),
+          ...makeExtractionCommands(remoteArchive, sandboxDestDir),
           `rm -f ${cleanup}`,
         ].join("\n"),
       );
       if (restore.exitCode !== 0)
-        throw new Error(`Transfer failed for ${label}: ${restore.stderr}`);
+        throw new Error(
+          formatTransferFailure(label, restore, {
+            localPath,
+            sandboxDestPath,
+            totalBytes,
+            chunkCount: chunks.length,
+          }),
+        );
     } finally {
       await Promise.all(
         [archive, ...chunks].map((path) =>

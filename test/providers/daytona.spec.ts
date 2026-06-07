@@ -3,17 +3,38 @@ import { expect, test, vi } from "vitest";
 import { FakeHost } from "../fakes/host.js";
 
 const daytonaMocks = vi.hoisted(() => {
-  const executeCommand = vi.fn(async (command: string) =>
-    command === "bash -lc 'printf %s \"$HOME\"'"
-      ? {
-          exitCode: 0,
-          result: "/home/daytona",
-        }
-      : {
-          exitCode: 3,
-          result: "combined",
-        },
+  const executeCommand = vi.fn(async () => ({
+    exitCode: 0,
+    result: "",
+  }));
+  const createSession = vi.fn(async () => undefined);
+  const executeSessionCommand = vi.fn(
+    async (sessionId: string, req: { command: string }) =>
+      req.command === "bash -lc 'printf %s \"$HOME\"'"
+        ? {
+            exitCode: 0,
+            stdout: "/home/daytona",
+            stderr: "",
+          }
+        : req.command === "bash -lc 'echo ok'"
+          ? {
+              exitCode: 0,
+              stdout: "ok\n",
+              stderr: "",
+            }
+          : req.command === "bash -lc 'echo err'"
+            ? {
+                exitCode: 3,
+                stdout: "out\n",
+                stderr: "err\n",
+              }
+            : {
+                exitCode: 0,
+                stdout: "",
+                stderr: "",
+              },
   );
+  const deleteSession = vi.fn(async () => undefined);
   const uploadFile = vi.fn(async () => undefined);
   const getPreviewLink = vi.fn(async () => ({
     url: "https://daytona-preview.example",
@@ -23,13 +44,23 @@ const daytonaMocks = vi.hoisted(() => {
   const sandbox: {
     id: string;
     createdAt?: string;
-    process: { executeCommand: typeof executeCommand };
+    process: {
+      createSession: typeof createSession;
+      deleteSession: typeof deleteSession;
+      executeCommand: typeof executeCommand;
+      executeSessionCommand: typeof executeSessionCommand;
+    };
     fs: { uploadFile: typeof uploadFile };
     getPreviewLink: typeof getPreviewLink;
     delete: typeof deleteSandbox;
   } = {
     id: "daytona-sbx",
-    process: { executeCommand },
+    process: {
+      createSession,
+      deleteSession,
+      executeCommand,
+      executeSessionCommand,
+    },
     fs: { uploadFile },
     getPreviewLink,
     delete: deleteSandbox,
@@ -41,8 +72,11 @@ const daytonaMocks = vi.hoisted(() => {
   return {
     Daytona,
     create,
+    createSession,
+    deleteSession,
     deleteSandbox,
     executeCommand,
+    executeSessionCommand,
     get,
     getPreviewLink,
     list,
@@ -55,11 +89,11 @@ const loadProvider = async () => {
   vi.resetModules();
   vi.clearAllMocks();
   daytonaMocks.sandbox.createdAt = undefined;
-  vi.doMock("@daytonaio/sdk", () => ({ Daytona: daytonaMocks.Daytona }));
+  vi.doMock("@daytona/sdk", () => ({ Daytona: daytonaMocks.Daytona }));
   return import("../../src/providers/daytona/index.js");
 };
 
-test("DaytonaSandboxProvider creates a sandbox and maps combined exec output", async () => {
+test("DaytonaSandboxProvider creates a sandbox and maps session stdout and stderr", async () => {
   const { DaytonaSandboxProvider } = await loadProvider();
   const host = new FakeHost({
     home: "/home/local",
@@ -79,9 +113,14 @@ test("DaytonaSandboxProvider creates a sandbox and maps combined exec output", a
   expect(sandbox.home).toBe("/home/daytona");
 
   await expect(sandbox.exec("echo ok")).resolves.toEqual({
+    exitCode: 0,
+    stdout: "ok\n",
+    stderr: "",
+  });
+  await expect(sandbox.exec("echo err")).resolves.toEqual({
     exitCode: 3,
-    stdout: "combined",
-    stderr: "combined",
+    stdout: "out\n",
+    stderr: "err\n",
   });
   await sandbox.exec("echo slow", { timeoutMs: 123000 });
   expect(daytonaMocks.Daytona).toHaveBeenCalledWith({
@@ -97,25 +136,55 @@ test("DaytonaSandboxProvider creates a sandbox and maps combined exec output", a
     },
     { timeout: 600 },
   );
-  expect(daytonaMocks.executeCommand).toHaveBeenCalledWith(
-    "bash -lc 'echo ok'",
-    undefined,
-    undefined,
+  expect(daytonaMocks.executeSessionCommand).toHaveBeenNthCalledWith(
+    1,
+    expect.stringMatching(/^sandhop-exec-/),
+    {
+      command: "bash -lc 'printf %s \"$HOME\"'",
+      runAsync: false,
+      suppressInputEcho: true,
+    },
     600,
   );
-  expect(daytonaMocks.executeCommand).toHaveBeenCalledWith(
-    "bash -lc 'echo slow'",
-    undefined,
-    undefined,
+  expect(daytonaMocks.executeSessionCommand).toHaveBeenNthCalledWith(
+    2,
+    expect.stringMatching(/^sandhop-exec-/),
+    {
+      command: "bash -lc 'apt-get update && apt-get install -y zstd'",
+      runAsync: false,
+      suppressInputEcho: true,
+    },
+    600,
+  );
+  expect(daytonaMocks.executeSessionCommand).toHaveBeenCalledWith(
+    expect.stringMatching(/^sandhop-exec-/),
+    {
+      command: "bash -lc 'echo ok'",
+      runAsync: false,
+      suppressInputEcho: true,
+    },
+    600,
+  );
+  expect(daytonaMocks.executeSessionCommand).toHaveBeenCalledWith(
+    expect.stringMatching(/^sandhop-exec-/),
+    {
+      command: "bash -lc 'echo slow'",
+      runAsync: false,
+      suppressInputEcho: true,
+    },
     123,
+  );
+  expect(daytonaMocks.executeCommand).not.toHaveBeenCalledWith(
+    "bash -lc 'printf %s \"$HOME\"'",
   );
 });
 
 test("DaytonaSandboxProvider deletes a created sandbox when home lookup fails", async () => {
   const { DaytonaSandboxProvider } = await loadProvider();
-  daytonaMocks.executeCommand.mockResolvedValueOnce({
+  daytonaMocks.executeSessionCommand.mockResolvedValueOnce({
     exitCode: 1,
-    result: "home failed",
+    stdout: "",
+    stderr: "home failed",
   });
   const provider = new DaytonaSandboxProvider(
     new FakeHost({ home: "/home/local", env: { DAYTONA_API_KEY: "api-key" } }),
@@ -180,19 +249,23 @@ test("DaytonaSandboxProvider uses fixed command timeout after long create", asyn
     ports: [7681],
   });
   daytonaMocks.executeCommand.mockClear();
+  daytonaMocks.executeSessionCommand.mockClear();
 
   await sandbox.exec("echo ok");
   await sandbox.spawn("ttyd");
 
-  expect(daytonaMocks.executeCommand).toHaveBeenNthCalledWith(
+  expect(daytonaMocks.executeSessionCommand).toHaveBeenNthCalledWith(
     1,
-    "bash -lc 'echo ok'",
-    undefined,
-    undefined,
+    expect.stringMatching(/^sandhop-exec-/),
+    {
+      command: "bash -lc 'echo ok'",
+      runAsync: false,
+      suppressInputEcho: true,
+    },
     600,
   );
   expect(daytonaMocks.executeCommand).toHaveBeenNthCalledWith(
-    2,
+    1,
     "nohup bash -lc 'ttyd' >/dev/null 2>&1 &",
     undefined,
     undefined,
@@ -287,8 +360,8 @@ test("DaytonaSandboxProvider connect and destroy use SDK lookups", async () => {
 
 test("DaytonaSandboxProvider missing package throws install hint", async () => {
   vi.resetModules();
-  vi.doMock("@daytonaio/sdk", () => {
-    throw new Error("Cannot find package '@daytonaio/sdk'");
+  vi.doMock("@daytona/sdk", () => {
+    throw new Error("Cannot find package '@daytona/sdk'");
   });
   const { DaytonaSandboxProvider } =
     await import("../../src/providers/daytona/index.js");
@@ -303,6 +376,6 @@ test("DaytonaSandboxProvider missing package throws install hint", async () => {
       ports: [7681],
     }),
   ).rejects.toThrow(
-    "The 'daytona' provider needs @daytonaio/sdk. Run: npm i @daytonaio/sdk",
+    "The 'daytona' provider needs @daytona/sdk. Run: npm i @daytona/sdk",
   );
 });

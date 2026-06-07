@@ -1,9 +1,13 @@
-import { existsSync, unlinkSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { afterEach, expect, test, vi } from "vitest";
 import { parseArgs } from "../../src/cli/args.js";
 import { buildHost } from "../../src/cli/host.js";
 import { withRuntimeDefaults } from "../../src/cli/main.js";
+import {
+  EnrichmentStepId,
+  type EnrichmentProgressListener,
+} from "../../src/core/ports/progress.js";
 import { NodeHost } from "../../src/host/node.js";
 import { FakeHost } from "../fakes/host.js";
 
@@ -52,7 +56,17 @@ test("buildHost uses os.homedir instead of HOME", () => {
   }
 });
 
-test("main forwards excludes to detached enrichment", async () => {
+test("main keeps progress reporting behind reporter methods", () => {
+  const source = readFileSync("src/cli/main.ts", "utf8");
+
+  expect(source).not.toContain("bar!");
+  expect(source).not.toContain("enrichmentBar!");
+  expect(source).not.toContain("as EnrichmentProgressBar");
+  expect(source).not.toContain("const ENRICHMENT_STEPS = 7");
+  expect(source.match(/hasFailedStep\(enrichment\)/g)).toHaveLength(1);
+});
+
+test("main runs enrichment inline before printing push output", async () => {
   const transcript =
     "/home/local/.codex/sessions/2026/06/05/rollout-2026-06-05T00-00-00-session.jsonl";
   const host = new FakeHost({
@@ -69,9 +83,19 @@ test("main forwards excludes to detached enrichment", async () => {
   vi.doMock("../../src/cli/host.js", () => ({
     buildHost: () => host,
   }));
+  const provider = {
+    connect: vi.fn(async () => ({ id: "sbx-1", home: "/home/user" })),
+  };
   vi.doMock("../../src/providers/index.js", () => ({
     PROVIDER_IDS: ["e2b", "modal", "daytona", "vercel"],
-    buildProvider: () => ({}),
+    buildProvider: () => provider,
+  }));
+  const sandbox = { id: "sbx-1", home: "/home/user" };
+  const runEnrichment = vi.fn(async () => [
+    { step: EnrichmentStepId.Setup, ok: true },
+  ]);
+  vi.doMock("../../src/cli/enrich.js", () => ({
+    runEnrichment,
   }));
   vi.doMock("../../src/core/services/teleport.js", () => ({
     TeleportService: class {
@@ -80,12 +104,14 @@ test("main forwards excludes to detached enrichment", async () => {
         sandboxId: string;
         user: string;
         pass: string;
+        sandbox: typeof sandbox;
       }> {
         return {
           url: "https://sandbox.example",
           sandboxId: "sbx-1",
           user: "user",
           pass: "pass",
+          sandbox,
         };
       }
     },
@@ -123,36 +149,22 @@ test("main forwards excludes to detached enrichment", async () => {
   expect(log.mock.calls.map((call) => call[0])).toEqual([
     "SANDHOP_URL https://sandbox.example",
     "SANDHOP_AUTH user:pass",
-    "SANDHOP_ENRICHING sbx-1",
-    "enrichment running in background (profile, skills, MCP servers)",
   ]);
-  expect(host.spawnDetachedCalls[0]!.opts.cwd).toBe("/workspace/project");
-  expect(Object.hasOwn(host.spawnDetachedCalls[0]!.opts, "stdoutPath")).toBe(
-    false,
+  expect(provider.connect).not.toHaveBeenCalled();
+  expect(runEnrichment).toHaveBeenCalledWith(
+    {
+      agent: "codex",
+      cwd: "/workspace/project",
+      excludes: ["node_modules", "dist", ".cache"],
+      profile: true,
+    },
+    host,
+    sandbox,
+    expect.any(Function),
   );
-  expect(host.spawnDetachedCalls[0]!.args.slice(1)).toEqual([
-    "--sandbox-id",
-    "sbx-1",
-    "--agent",
-    "codex",
-    "--cwd",
-    "/workspace/project",
-    "--provider",
-    "e2b",
-    "--progress-file",
-    "/tmp/sandhop-progress-sbx-1.jsonl",
-    "--exclude",
-    "node_modules",
-    "--exclude",
-    "dist",
-    "--exclude",
-    ".cache",
-  ]);
 });
 
-test("main tails foreground enrichment progress in TTY push", async () => {
-  const progressPath = "/tmp/sandhop-progress-sbx-tail.jsonl";
-  if (existsSync(progressPath)) unlinkSync(progressPath);
+test("main shows inline enrichment progress in TTY push", async () => {
   const transcript =
     "/home/local/.codex/sessions/2026/06/05/rollout-2026-06-05T00-00-00-session.jsonl";
   const host = new FakeHost({
@@ -165,29 +177,6 @@ test("main tails foreground enrichment progress in TTY push", async () => {
       [transcript]: 1,
     },
   });
-  host.spawnDetached = (
-    bin: string,
-    args: string[],
-    opts: {
-      cwd: string;
-      env: Record<string, string | undefined>;
-    },
-  ): void => {
-    host.spawnDetachedCalls.push({ bin, args, opts });
-    const progressFileIndex = args.indexOf("--progress-file");
-    expect(progressFileIndex).toBeGreaterThan(-1);
-    expect(args[progressFileIndex + 1]).toBe(progressPath);
-    writeFileSync(
-      args[progressFileIndex + 1]!,
-      [
-        "/*stdin*\\ : 26.11%   (  1.00 MiB =>   267 KiB, /tmp/archive.zst)",
-        '{"kind":"enrichStep","name":"enrichment setup","status":"start"}',
-        '{"kind":"enrichStep","name":"enrichment setup","status":"ok"}',
-        '{"kind":"done","okSteps":1,"totalSteps":7}',
-        "",
-      ].join("\n"),
-    );
-  };
   const bars: {
     start: ReturnType<typeof vi.fn>;
     advance: ReturnType<typeof vi.fn>;
@@ -215,7 +204,32 @@ test("main tails foreground enrichment progress in TTY push", async () => {
   }));
   vi.doMock("../../src/providers/index.js", () => ({
     PROVIDER_IDS: ["e2b", "modal", "daytona", "vercel"],
-    buildProvider: () => ({}),
+    buildProvider: () => ({
+      connect: vi.fn(async () => ({ id: "sbx-tail", home: "/home/user" })),
+    }),
+  }));
+  const sandbox = { id: "sbx-tail", home: "/home/user" };
+  vi.doMock("../../src/cli/enrich.js", () => ({
+    runEnrichment: vi.fn(
+      async (
+        argsValue: unknown,
+        hostValue: unknown,
+        sandboxValue: unknown,
+        onEvent: EnrichmentProgressListener,
+      ) => {
+        onEvent({
+          kind: "enrichStep",
+          step: EnrichmentStepId.Setup,
+          status: "start",
+        });
+        onEvent({
+          kind: "enrichStep",
+          step: EnrichmentStepId.Setup,
+          status: "ok",
+        });
+        return [{ step: EnrichmentStepId.Setup, ok: true }];
+      },
+    ),
   }));
   vi.doMock("../../src/core/services/teleport.js", () => ({
     TeleportService: class {
@@ -224,12 +238,14 @@ test("main tails foreground enrichment progress in TTY push", async () => {
         sandboxId: string;
         user: string;
         pass: string;
+        sandbox: typeof sandbox;
       }> {
         return {
           url: "https://sandbox.example",
           sandboxId: "sbx-tail",
           user: "user",
           pass: "pass",
+          sandbox,
         };
       }
     },
@@ -260,8 +276,9 @@ test("main tails foreground enrichment progress in TTY push", async () => {
     ]),
   ).rejects.toThrow("exit 0");
 
-  expect(bars[1]!.start).toHaveBeenCalledWith("Setting up your environment…");
+  expect(bars[1]!.start).toHaveBeenCalledWith(
+    "Syncing profile, MCP servers & skills…",
+  );
   expect(bars[1]!.advance).toHaveBeenCalledWith(1, "Preparing");
-  expect(bars[1]!.stop).toHaveBeenCalledWith("Environment ready · 1/7");
-  if (existsSync(progressPath)) unlinkSync(progressPath);
+  expect(bars[1]!.stop).toHaveBeenCalledWith("Environment ready · 1/1");
 });

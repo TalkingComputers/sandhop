@@ -9,49 +9,24 @@ import {
 import type { Agent } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
 import { isRecord } from "../json.js";
-import { dirname, joinPath, listSkillNames, normalizePath } from "../paths.js";
+import { dirname, listSkillNames } from "../paths.js";
 import { quoteShellPath, shellQuote } from "../shell.js";
+import {
+  type GitSkill,
+  readGitSkillState,
+  readSymlinkSource,
+  toRemoteSkillPath,
+} from "./git-skill.js";
 import { buildCommandFor, installCommandFor } from "./install-cmd.js";
-import { maybeRealpath } from "./mcp-paths.js";
+import {
+  readDisabledPlugins,
+  readMarketplaceSource,
+  readPluginInstalls,
+} from "./reinstall-manifests.js";
 
 export interface ReinstallPlan {
   commands: string[];
 }
-
-interface GitSkill {
-  name: string;
-  localDir: string;
-  remoteDir: string;
-}
-
-export interface GitSkillState {
-  copyRequired: boolean;
-  ref: string | null;
-}
-
-const readLinkedPath = (path: string, target: string): string =>
-  normalizePath(
-    target.startsWith("/") ? target : joinPath(dirname(path), target),
-  );
-
-const readGitHead = (host: HostDeps, localDir: string): string =>
-  host.exec("git", ["-C", localDir, "rev-parse", "HEAD"]).trim();
-
-export const readGitSkillState = (
-  host: HostDeps,
-  localDir: string,
-): GitSkillState => {
-  if (host.exec("git", ["-C", localDir, "status", "--porcelain"]).trim())
-    return { copyRequired: true, ref: null };
-  const ref = readGitHead(host, localDir);
-  return {
-    copyRequired:
-      host
-        .exec("git", ["-C", localDir, "branch", "-r", "--contains", ref])
-        .trim().length === 0,
-    ref,
-  };
-};
 
 const readJsonRecord = (
   host: HostDeps,
@@ -68,94 +43,6 @@ const readJsonRecord = (
   }
   if (!isRecord(parsed)) throw new Error(`Expected JSON object at ${path}`);
   return parsed;
-};
-
-const readMarketplaceSource = (
-  path: string,
-  name: string,
-  value: unknown,
-): string => {
-  if (!isRecord(value)) throw new Error(`Expected marketplace object ${name}`);
-  const source = value.source;
-  if (!isRecord(source)) throw new Error(`Expected marketplace source ${name}`);
-  const repo = source.repo;
-  if (typeof repo === "string") return repo;
-  const url = source.url;
-  if (typeof url === "string") return url;
-  throw new Error(`Expected marketplace repo or url in ${path} for ${name}`);
-};
-
-const readPluginKeys = (path: string, value: unknown): string[] => {
-  if (!isRecord(value))
-    throw new Error(`Expected installed plugins object at ${path}`);
-  const plugins = value.plugins;
-  if (!isRecord(plugins)) throw new Error(`Expected plugins map at ${path}`);
-  return Object.keys(plugins);
-};
-
-const readDisabledPlugins = (path: string, value: unknown): string[] => {
-  if (!isRecord(value)) throw new Error(`Expected settings object at ${path}`);
-  const enabled = value.enabledPlugins;
-  if (enabled === undefined) return [];
-  if (!isRecord(enabled))
-    throw new Error(`Expected enabledPlugins object at ${path}`);
-  return Object.entries(enabled)
-    .map(([name, state]) => {
-      if (state === false) return name;
-      if (state === true) return null;
-      throw new Error(`Expected boolean enabledPlugins.${name} at ${path}`);
-    })
-    .filter((name): name is string => name !== null);
-};
-
-const toRemoteSkillPath = (
-  localPath: string,
-  gitSkills: GitSkill[],
-): string | null => {
-  for (const skill of gitSkills) {
-    if (localPath === skill.localDir) return skill.remoteDir;
-    if (localPath.startsWith(`${skill.localDir}/`))
-      return `${skill.remoteDir}${localPath.slice(skill.localDir.length)}`;
-  }
-  return null;
-};
-
-interface SymlinkSkillSource {
-  localPath: string;
-  realDir: string;
-  isDirectory: boolean;
-}
-
-const readSymlinkSource = (
-  host: HostDeps,
-  skillDir: string,
-): SymlinkSkillSource | null => {
-  if (host.isSymlink(skillDir)) {
-    const target = readLinkedPath(skillDir, host.readlink(skillDir));
-    const realPath = maybeRealpath(host, skillDir);
-    if (realPath === null) return null;
-    const isDirectory = host.isDirectory(realPath);
-    return {
-      localPath: isDirectory
-        ? target
-        : target.endsWith("/SKILL.md")
-          ? target
-          : `${target}/SKILL.md`,
-      realDir: isDirectory ? realPath : dirname(realPath),
-      isDirectory,
-    };
-  }
-  const skillFile = `${skillDir}/SKILL.md`;
-  if (host.exists(skillFile) && host.isSymlink(skillFile)) {
-    const realPath = maybeRealpath(host, skillFile);
-    if (realPath === null) return null;
-    return {
-      localPath: readLinkedPath(skillFile, host.readlink(skillFile)),
-      realDir: dirname(realPath),
-      isDirectory: false,
-    };
-  }
-  return null;
 };
 
 const inRemoteDir = (remoteDir: string, cmd: string): string =>
@@ -216,8 +103,9 @@ export class ReinstallService {
     );
     const record = readJsonRecord(this.host, path);
     if (record === null) return [];
-    return readPluginKeys(path, record).map(
-      (plugin) => `claude plugin install ${shellQuote(plugin)} --scope user`,
+    return readPluginInstalls(path, record).map(
+      (plugin) =>
+        `claude plugin install ${shellQuote(plugin.name)} --scope ${plugin.scope}`,
     );
   }
 

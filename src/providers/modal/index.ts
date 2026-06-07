@@ -5,18 +5,19 @@ import type {
 import type { HostDeps } from "../../core/ports/host.js";
 import type {
   CreateOptions,
-  ExecOptions,
-  ExposedPort,
-  RunResult,
   Sandbox,
   SandboxInfo,
   SandboxProvider,
 } from "../../core/ports/provider.js";
+import { shellQuote } from "../../core/shell.js";
 import { destroyOrFalse } from "../destroy.js";
-import { toBytes } from "../encode.js";
 import { requireCred } from "../index.js";
 import { lazyImport, lazyOnce } from "../lazy-import.js";
-import { shellQuote } from "../../core/shell.js";
+import {
+  GenericSandbox,
+  readSandboxHome,
+  type SandboxOps,
+} from "../sandbox-adapter.js";
 
 type ModalModule = typeof import("modal");
 
@@ -40,44 +41,19 @@ const nodeImage = (): string => {
   return `node:${major}`;
 };
 
-class ModalSandboxAdapter implements Sandbox {
-  readonly id: string;
-  readonly home: string;
-  readonly sandbox: ModalSandboxInstance;
-  readonly host: Pick<HostDeps, "openBlob">;
+const makeOps = (sandbox: ModalSandboxInstance): SandboxOps => ({
+  uploadFile: async (path, data) => {
+    if (typeof data === "string")
+      await sandbox.filesystem.writeText(data, path);
+    else await sandbox.filesystem.writeBytes(data, path);
+  },
 
-  constructor(
-    sandbox: ModalSandboxInstance,
-    host: Pick<HostDeps, "openBlob">,
-    home: string,
-  ) {
-    this.sandbox = sandbox;
-    this.host = host;
-    this.id = sandbox.sandboxId;
-    this.home = home;
-  }
+  uploadPath: async (remotePath, localPath) => {
+    await sandbox.filesystem.copyFromLocal(localPath, remotePath);
+  },
 
-  async uploadFile(path: string, data: Uint8Array | string): Promise<void> {
-    const file = await this.sandbox.open(path, "w");
-    try {
-      await file.write(toBytes(data));
-    } finally {
-      await file.close();
-    }
-  }
-
-  async uploadPath(remotePath: string, localPath: string): Promise<void> {
-    const file = await this.sandbox.open(remotePath, "w");
-    try {
-      for await (const chunk of (await this.host.openBlob(localPath)).stream())
-        await file.write(chunk);
-    } finally {
-      await file.close();
-    }
-  }
-
-  async exec(cmd: string, opts?: ExecOptions): Promise<RunResult> {
-    const process = await this.sandbox.exec(["bash", "-lc", cmd], {
+  exec: async (cmd, opts) => {
+    const process = await sandbox.exec(["bash", "-lc", cmd], {
       timeoutMs: opts?.timeoutMs ?? COMMAND_TIMEOUT_MS,
     });
     const [stdout, stderr, exitCode] = await Promise.all([
@@ -86,27 +62,27 @@ class ModalSandboxAdapter implements Sandbox {
       process.wait(),
     ]);
     return { exitCode, stdout, stderr };
-  }
+  },
 
-  async spawn(cmd: string): Promise<void> {
-    await this.sandbox.exec([
+  spawn: async (cmd) => {
+    await sandbox.exec([
       "bash",
       "-lc",
       `nohup bash -lc ${shellQuote(cmd)} >/dev/null 2>&1 &`,
     ]);
-  }
+  },
 
-  async exposePort(port: number): Promise<ExposedPort> {
-    const tunnels = await this.sandbox.tunnels(TUNNEL_TIMEOUT_MS);
+  exposePort: async (port) => {
+    const tunnels = await sandbox.tunnels(TUNNEL_TIMEOUT_MS);
     const tunnel = tunnels[port];
     if (tunnel === undefined) throw new Error(`Modal tunnel ${port} not found`);
     return { url: `https://${tunnel.host}` };
-  }
+  },
 
-  async destroy(): Promise<void> {
-    await this.sandbox.terminate();
-  }
-}
+  destroy: async () => {
+    await sandbox.terminate();
+  },
+});
 
 export class ModalSandboxProvider implements SandboxProvider {
   readonly name = "modal";
@@ -123,7 +99,11 @@ export class ModalSandboxProvider implements SandboxProvider {
     const app = await client.apps.fromName("sandhop", {
       createIfMissing: true,
     });
-    const image = client.images.fromRegistry(nodeImage());
+    const image = client.images
+      .fromRegistry(nodeImage())
+      .dockerfileCommands([
+        "RUN apt-get update && apt-get install -y --no-install-recommends zstd",
+      ]);
     const sandbox = await client.sandboxes.create(app, image, {
       command: ["sleep", "infinity"],
       cpu: MODAL_SANDBOX_CPU_CORES,
@@ -133,10 +113,11 @@ export class ModalSandboxProvider implements SandboxProvider {
       timeoutMs: opts.timeoutMs,
     });
     try {
-      return new ModalSandboxAdapter(
-        sandbox,
-        this.host,
-        await this.readHome(sandbox),
+      const ops = makeOps(sandbox);
+      return new GenericSandbox(
+        sandbox.sandboxId,
+        await readSandboxHome(ops.exec),
+        ops,
       );
     } catch (error: unknown) {
       await sandbox.terminate().catch(() => undefined);
@@ -146,11 +127,8 @@ export class ModalSandboxProvider implements SandboxProvider {
 
   async connect(id: string): Promise<Sandbox> {
     const sandbox = await (await this.client()).sandboxes.fromId(id);
-    return new ModalSandboxAdapter(
-      sandbox,
-      this.host,
-      await this.readHome(sandbox),
-    );
+    const ops = makeOps(sandbox);
+    return new GenericSandbox(id, await readSandboxHome(ops.exec), ops);
   }
 
   async list(): Promise<SandboxInfo[]> {
@@ -189,19 +167,5 @@ export class ModalSandboxProvider implements SandboxProvider {
       tokenId: credentials.tokenId,
       tokenSecret: credentials.tokenSecret,
     });
-  }
-
-  private async readHome(sandbox: ModalSandboxInstance): Promise<string> {
-    const process = await sandbox.exec(["bash", "-lc", 'printf %s "$HOME"'], {
-      timeoutMs: COMMAND_TIMEOUT_MS,
-    });
-    const [stdout, stderr, exitCode] = await Promise.all([
-      process.stdout.readText(),
-      process.stderr.readText(),
-      process.wait(),
-    ]);
-    if (exitCode !== 0)
-      throw new Error(`Home lookup failed: ${stderr || stdout}`);
-    return stdout.trim();
   }
 }

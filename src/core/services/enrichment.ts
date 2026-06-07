@@ -1,16 +1,17 @@
 import { formatErrorStack } from "../errors.js";
 import { expandHome, makeTempPath } from "../paths.js";
 import type { Agent } from "../ports/agent.js";
-import type { HostDeps } from "../ports/host.js";
-import type { PushListener } from "../ports/progress.js";
+import {
+  EnrichmentStepId,
+  type EnrichmentProgressListener,
+} from "../ports/progress.js";
 import type { RunResult, Sandbox } from "../ports/provider.js";
 import type { BootstrapService, EnrichmentStepResult } from "./bootstrap.js";
-import type { CodePlan } from "./mcp-code.js";
-import type { McpCodeService } from "./mcp-code.js";
+import type { CodePlan, McpCodeService } from "./mcp-code.js";
 import type { ProfileService } from "./profile.js";
 import type { ReinstallService } from "./reinstall.js";
 import type { SecretsService } from "./secrets.js";
-import type { ScriptCaptureService, ScriptCapturePlan } from "./scripts.js";
+import type { ScriptCapturePlan, ScriptCaptureService } from "./scripts.js";
 import type { TransferService } from "./transfer.js";
 
 const ENRICHMENT_EXEC_TIMEOUT_MS = 1_800_000;
@@ -35,27 +36,27 @@ const runLogged = async (
 const recordStep = async <T>(
   sandbox: Sandbox,
   steps: EnrichmentStepResult[],
-  name: string,
+  step: EnrichmentStepId,
   run: () => Promise<T>,
-  onEvent?: PushListener,
+  onEvent?: EnrichmentProgressListener,
 ): Promise<T | null> => {
-  onEvent?.({ kind: "enrichStep", name, status: "start" });
-  await appendLog(sandbox, `[sandhop] step started: ${name}`).catch(
+  onEvent?.({ kind: "enrichStep", step, status: "start" });
+  await appendLog(sandbox, `[sandhop] step started: ${step}`).catch(
     () => undefined,
   );
   try {
     const value = await run();
-    steps.push({ name, ok: true });
-    onEvent?.({ kind: "enrichStep", name, status: "ok" });
-    await appendLog(sandbox, `[sandhop] step ok: ${name}`).catch(
+    steps.push({ step, ok: true });
+    onEvent?.({ kind: "enrichStep", step, status: "ok" });
+    await appendLog(sandbox, `[sandhop] step ok: ${step}`).catch(
       () => undefined,
     );
     return value;
   } catch (error: unknown) {
     const text = formatErrorStack(error);
-    steps.push({ name, ok: false, error: text });
-    onEvent?.({ kind: "enrichStep", name, status: "fail" });
-    await appendLog(sandbox, `[sandhop] step failed: ${name}\n${text}`).catch(
+    steps.push({ step, ok: false, error: text });
+    onEvent?.({ kind: "enrichStep", step, status: "fail" });
+    await appendLog(sandbox, `[sandhop] step failed: ${step}\n${text}`).catch(
       () => undefined,
     );
     return null;
@@ -65,19 +66,19 @@ const recordStep = async <T>(
 const recordScriptStep = async (
   sandbox: Sandbox,
   steps: EnrichmentStepResult[],
-  name: string,
+  step: EnrichmentStepId,
   script: string,
   opts?: { timeoutMs?: number },
-  onEvent?: PushListener,
+  onEvent?: EnrichmentProgressListener,
 ): Promise<void> => {
   await recordStep(
     sandbox,
     steps,
-    name,
+    step,
     async (): Promise<void> => {
       const result = await runLogged(sandbox, script, opts);
       if (result.exitCode !== 0)
-        throw new Error(`${name} failed: ${result.stderr}`);
+        throw new Error(`${step} failed: ${result.stderr || result.stdout}`);
     },
     onEvent,
   );
@@ -85,7 +86,6 @@ const recordScriptStep = async (
 
 export class EnrichmentService {
   readonly agent: Agent;
-  readonly host: Pick<HostDeps, "hasZstd">;
   readonly sandbox: Sandbox;
   readonly transfer: TransferService;
   readonly profile: ProfileService;
@@ -98,7 +98,6 @@ export class EnrichmentService {
 
   constructor(agent: Agent, services: EnrichmentServices, excludes: string[]) {
     this.agent = agent;
-    this.host = services.host;
     this.sandbox = services.sandbox;
     this.transfer = services.transfer;
     this.profile = services.profile;
@@ -113,7 +112,7 @@ export class EnrichmentService {
   async run(
     cwd: string,
     profile: boolean,
-    onEvent?: PushListener,
+    onEvent?: EnrichmentProgressListener,
   ): Promise<EnrichmentStepResult[]> {
     const steps: EnrichmentStepResult[] = [];
     try {
@@ -124,7 +123,7 @@ export class EnrichmentService {
       await recordScriptStep(
         this.sandbox,
         steps,
-        "enrichment setup",
+        EnrichmentStepId.Setup,
         this.bootstrap.renderEnrichmentSetup(),
         undefined,
         onEvent,
@@ -132,7 +131,7 @@ export class EnrichmentService {
       await recordStep(
         this.sandbox,
         steps,
-        "profile transfer + extract",
+        EnrichmentStepId.ProfileTransfer,
         async (): Promise<void> => {
           if (!profile) return;
           await this.sendProfile(onEvent);
@@ -142,14 +141,14 @@ export class EnrichmentService {
       const scriptPlan = await recordStep(
         this.sandbox,
         steps,
-        "settings scripts transfer + rewrite",
+        EnrichmentStepId.SettingsScriptsTransfer,
         () => this.sendScripts(cwd, onEvent),
         onEvent,
       );
       await recordScriptStep(
         this.sandbox,
         steps,
-        "settings script dependency installs",
+        EnrichmentStepId.SettingsScriptDependencyInstalls,
         this.bootstrap.renderSettingsScriptInstalls(scriptPlan),
         { timeoutMs: ENRICHMENT_EXEC_TIMEOUT_MS },
         onEvent,
@@ -157,14 +156,14 @@ export class EnrichmentService {
       const codePlan = await recordStep(
         this.sandbox,
         steps,
-        "mcp code transfer + config rewrite",
+        EnrichmentStepId.McpCodeTransfer,
         () => this.sendMcpCode(cwd, onEvent),
         onEvent,
       );
       await recordScriptStep(
         this.sandbox,
         steps,
-        "per-MCP dependency installs",
+        EnrichmentStepId.McpDependencyInstalls,
         this.bootstrap.renderEnrichmentInstalls({ codePlan }),
         { timeoutMs: ENRICHMENT_EXEC_TIMEOUT_MS },
         onEvent,
@@ -172,7 +171,7 @@ export class EnrichmentService {
       await recordScriptStep(
         this.sandbox,
         steps,
-        "plugin and git skill reinstall",
+        EnrichmentStepId.PluginGitSkillReinstall,
         this.bootstrap.renderReinstall(this.reinstall.plan().commands),
         { timeoutMs: ENRICHMENT_EXEC_TIMEOUT_MS },
         onEvent,
@@ -194,27 +193,22 @@ export class EnrichmentService {
     }
   }
 
-  private async sendProfile(onEvent?: PushListener): Promise<void> {
+  private async sendProfile(
+    onEvent?: EnrichmentProgressListener,
+  ): Promise<void> {
     const profileTree = await this.profile.build(
       makeTempPath("profile"),
       this.excludes,
     );
     if (profileTree !== null)
-      await this.transfer.send(
-        profileTree,
-        this.sandbox.home,
-        "profile",
-        {
-          codec: this.host.hasZstd() ? "zstd" : "gzip",
-          lowPriority: true,
-        },
-        (transfer) => onEvent?.({ kind: "transfer", transfer }),
-      );
+      await this.transfer.send(profileTree, this.sandbox.home, "profile", {
+        onProgress: (transfer) => onEvent?.({ kind: "transfer", transfer }),
+      });
   }
 
   private async sendScripts(
     cwd: string,
-    onEvent?: PushListener,
+    onEvent?: EnrichmentProgressListener,
   ): Promise<ScriptCapturePlan> {
     if (!this.agent.supportsSettingsScripts())
       return { mappings: [], rewrites: [], installCmds: [] };
@@ -228,11 +222,9 @@ export class EnrichmentService {
           mapping.sandboxPath,
           `settings-scripts-${index}`,
           {
-            codec: this.host.hasZstd() ? "zstd" : "gzip",
-            lowPriority: true,
             excludes: this.excludes,
+            onProgress: (transfer) => onEvent?.({ kind: "transfer", transfer }),
           },
-          (transfer) => onEvent?.({ kind: "transfer", transfer }),
         ),
       ),
     );
@@ -243,7 +235,7 @@ export class EnrichmentService {
 
   private async sendMcpCode(
     cwd: string,
-    onEvent?: PushListener,
+    onEvent?: EnrichmentProgressListener,
   ): Promise<CodePlan | null> {
     const codePlan = await this.mcpCode.build(
       cwd,
@@ -258,11 +250,9 @@ export class EnrichmentService {
           mapping.sandboxPath,
           `mcp-${index}`,
           {
-            codec: this.host.hasZstd() ? "zstd" : "gzip",
-            lowPriority: true,
             excludes: this.excludes,
+            onProgress: (transfer) => onEvent?.({ kind: "transfer", transfer }),
           },
-          (transfer) => onEvent?.({ kind: "transfer", transfer }),
         ),
       ),
     );
@@ -286,7 +276,6 @@ export class EnrichmentService {
 }
 
 export interface EnrichmentServices {
-  host: Pick<HostDeps, "hasZstd">;
   sandbox: Sandbox;
   transfer: TransferService;
   profile: ProfileService;

@@ -42,7 +42,6 @@ export class NodeHost implements HostDeps {
   env: Record<string, string | undefined>;
   home: string;
   username = userInfo().username;
-  private zstdAvailable: boolean | null = null;
 
   constructor(env: Record<string, string | undefined>, home: string) {
     this.env = env;
@@ -119,17 +118,6 @@ export class NodeHost implements HostDeps {
     return cpus().length;
   }
 
-  hasZstd(): boolean {
-    if (this.zstdAvailable !== null) return this.zstdAvailable;
-    try {
-      execFileSync("sh", ["-lc", "command -v zstd"], { stdio: "ignore" });
-      this.zstdAvailable = true;
-    } catch {
-      this.zstdAvailable = false;
-    }
-    return this.zstdAvailable;
-  }
-
   realpath(path: string): string {
     return realpathSync.native(path);
   }
@@ -167,22 +155,6 @@ export class NodeHost implements HostDeps {
 
   async remove(path: string): Promise<void> {
     await rm(path, { force: true });
-  }
-
-  spawnDetached(
-    bin: string,
-    args: string[],
-    opts: {
-      cwd: string;
-      env: Record<string, string | undefined>;
-    },
-  ): void {
-    spawn(bin, args, {
-      cwd: opts.cwd,
-      detached: true,
-      env: opts.env,
-      stdio: "ignore",
-    }).unref();
   }
 
   async splitFile(

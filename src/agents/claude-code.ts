@@ -1,6 +1,6 @@
 import { projectDirName } from "../core/encode.js";
 import { collectEnvRefs } from "../core/env.js";
-import { isRecord } from "../core/json.js";
+import { isRecord, parseJsonRecord } from "../core/json.js";
 import { basename } from "../core/paths.js";
 import { shellQuote } from "../core/shell.js";
 import { buildClaudePreSeedScript } from "../core/sandbox-scripts.js";
@@ -12,6 +12,7 @@ import type {
   McpConfigWrite,
   McpServer,
   McpTransport,
+  RemoteMcpServer,
 } from "../core/ports/agent.js";
 import { makeVersionParser, sortNewest } from "./shared.js";
 import {
@@ -166,17 +167,12 @@ const readStringRecord = (
   return record;
 };
 
-const readTransport = (value: unknown, hasUrl: boolean): McpTransport => {
-  if (
-    value === "stdio" ||
-    value === "sse" ||
-    value === "http" ||
-    value === "ws"
-  )
-    return value;
-  if (value === "streamable-http") return "http";
-  if (hasUrl) return "http";
-  return "stdio";
+const readClaudeRemoteTransport = (
+  type: unknown,
+): RemoteMcpServer["transport"] => {
+  if (type === "sse" || type === "http" || type === "ws") return type;
+  if (type === "streamable-http") return "http";
+  return "http";
 };
 
 const readMcpServers = (value: unknown, servers: McpServer[]): void => {
@@ -191,25 +187,24 @@ const readMcpServers = (value: unknown, servers: McpServer[]): void => {
     const env = readStringRecord(server.env);
     const headers = readStringRecord(server.headers);
     const cwd = typeof server.cwd === "string" ? server.cwd : undefined;
+    if (url !== undefined) {
+      servers.push({
+        name,
+        transport: readClaudeRemoteTransport(server.type),
+        url,
+        ...(headers === undefined ? {} : { headers }),
+      });
+      continue;
+    }
+    if (command === undefined) continue;
     servers.push({
       name,
-      transport: readTransport(server.type, url !== undefined),
-      ...(command === undefined ? {} : { command }),
+      transport: "stdio",
+      command,
       ...(args === undefined ? {} : { args }),
       ...(env === undefined ? {} : { env }),
       ...(cwd === undefined ? {} : { cwd }),
-      ...(url === undefined ? {} : { url }),
-      ...(headers === undefined ? {} : { headers }),
     });
-  }
-};
-
-const parseJsonRecord = (text: string): Record<string, unknown> | null => {
-  try {
-    const parsed = JSON.parse(text) as unknown;
-    return isRecord(parsed) ? parsed : null;
-  } catch {
-    return null;
   }
 };
 

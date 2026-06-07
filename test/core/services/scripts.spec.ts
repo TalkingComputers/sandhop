@@ -15,7 +15,7 @@ test("ScriptCaptureService maps local scripts from Claude settings and rewrites 
               hooks: [
                 {
                   type: "command",
-                  command: "/home/local/hook-app/bin/hook.sh --strict",
+                  command: "/home/local/hook-app/bin/hook.sh --checked",
                 },
                 { type: "command", command: "echo inline" },
               ],
@@ -95,7 +95,7 @@ test("ScriptCaptureService maps local scripts from Claude settings and rewrites 
   };
 
   expect(userSettings.hooks.PreToolUse[0]!.hooks[0]!.command).toBe(
-    "/home/user/hook-app/bin/hook.sh --strict",
+    "/home/user/hook-app/bin/hook.sh --checked",
   );
   expect(userSettings.hooks.PreToolUse[0]!.hooks[1]!.command).toBe(
     "echo inline",

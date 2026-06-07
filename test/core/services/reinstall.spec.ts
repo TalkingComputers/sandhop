@@ -62,7 +62,7 @@ test("ReinstallService plans marketplace, plugin, disable, git skill, and symlin
       'mkdir -p "$HOME/.claude/skills/office-hours" && ln -sf "$HOME/.claude/skills/gstack/skills/office-hours/SKILL.md" "$HOME/.claude/skills/office-hours/SKILL.md"',
       "claude plugin marketplace add 'anthropics/claude-plugins'",
       "claude plugin marketplace add 'https://example.com/plugins.git'",
-      "claude plugin install 'frontend-design@official' --scope user",
+      "claude plugin install 'frontend-design@official' --scope project",
       "claude plugin install 'internal-tool@internal' --scope user",
       "claude plugin disable 'serena@official'",
     ],
@@ -224,7 +224,7 @@ test("ReinstallService quotes marketplace and plugin metacharacters", () => {
         },
       }),
       "/home/local/.claude/plugins/installed_plugins.json": JSON.stringify({
-        plugins: { "plugin;$(id)'@official": [] },
+        plugins: { "plugin;$(id)'@official": [{ scope: "user" }] },
       }),
       "/home/local/.claude/settings.json": JSON.stringify({
         enabledPlugins: { "disabled;$(id)'@official": false },
@@ -266,7 +266,7 @@ test("ReinstallService treats corrupt marketplaces JSON as absent", () => {
     files: {
       "/home/local/.claude/plugins/known_marketplaces.json": "{",
       "/home/local/.claude/plugins/installed_plugins.json": JSON.stringify({
-        plugins: { "serena@official": [] },
+        plugins: { "serena@official": [{ scope: "user" }] },
       }),
     },
   });
@@ -276,7 +276,50 @@ test("ReinstallService treats corrupt marketplaces JSON as absent", () => {
   ]);
 });
 
-test("ReinstallService leaves Codex profiles to MCP enrichment", () => {
+test.each([
+  [
+    "empty@official",
+    [],
+    "Expected non-empty plugin install record array at /home/local/.claude/plugins/installed_plugins.json for empty@official",
+  ],
+  [
+    "bad-scope@official",
+    [{ scope: "workspace" }],
+    "Expected plugin scope user or project at /home/local/.claude/plugins/installed_plugins.json for bad-scope@official",
+  ],
+  [
+    "missing-scope@official",
+    [{}],
+    "Expected plugin scope user or project at /home/local/.claude/plugins/installed_plugins.json for missing-scope@official",
+  ],
+  [
+    "bad-record@official",
+    [null],
+    "Expected plugin install record at /home/local/.claude/plugins/installed_plugins.json for bad-record@official",
+  ],
+  [
+    "bad-list@official",
+    { scope: "user" },
+    "Expected non-empty plugin install record array at /home/local/.claude/plugins/installed_plugins.json for bad-list@official",
+  ],
+])(
+  "ReinstallService rejects malformed plugin install record %s",
+  (name, records, error) => {
+    const host = new FakeHost({
+      home: "/home/local",
+      env: {},
+      files: {
+        "/home/local/.claude/plugins/installed_plugins.json": JSON.stringify({
+          plugins: { [name]: records },
+        }),
+      },
+    });
+
+    expect(() => new ReinstallService(host, CLAUDE_CODE).plan()).toThrow(error);
+  },
+);
+
+test("ReinstallService does not plan Claude plugin installs for Codex", () => {
   const host = new FakeHost({
     home: "/home/local",
     env: {},

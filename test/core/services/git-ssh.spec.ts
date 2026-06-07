@@ -18,14 +18,14 @@ test("GitSshService collects only SSH remote keys, known hosts, and config", () 
         "mirror\tssh://git@gitlab.example.com:2222/org/repo.git (fetch)",
         "web\thttps://github.com/org/repo.git (fetch)",
       ].join("\n"),
-      "ssh -G github.com": [
+      "ssh -T -G github.com": [
         "hostname github.com",
         "user git",
         "port 22",
         "identityfile ~/.ssh/github_key",
         "identityfile ~/.ssh/missing",
       ].join("\n"),
-      "ssh -G gitlab.example.com": [
+      "ssh -T -G gitlab.example.com": [
         "hostname ssh.gitlab.example.com",
         "user git",
         "port 2222",
@@ -66,6 +66,7 @@ test("GitSshService collects only SSH remote keys, known hosts, and config", () 
       "  IdentityFile ~/.ssh/github_key",
       "  IdentitiesOnly yes",
       "  StrictHostKeyChecking accept-new",
+      "  RequestTTY no",
       "Host gitlab.example.com",
       "  HostName ssh.gitlab.example.com",
       "  User git",
@@ -73,6 +74,7 @@ test("GitSshService collects only SSH remote keys, known hosts, and config", () 
       "  IdentityFile ~/.ssh/github_key",
       "  IdentitiesOnly yes",
       "  StrictHostKeyChecking accept-new",
+      "  RequestTTY no",
       "",
     ].join("\n"),
     mode: "600",

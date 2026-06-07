@@ -81,6 +81,8 @@ test("ProfileService ships Claude manifests and non-reproducible skill dirs", as
     ".claude/commands",
     ".claude/agents",
     ".claude/output-styles",
+    ".claude/plugins/known_marketplaces.json",
+    ".claude/plugins/installed_plugins.json",
     ".claude/skills/big",
     ".claude/skills/local",
     ".claude/skills/node",

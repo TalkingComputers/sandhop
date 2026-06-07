@@ -49,12 +49,6 @@ export class FakeHost implements HostDeps {
   execCalls: { bin: string; args: string[] }[];
   spawnPipeCalls: string[];
   removedPaths: string[];
-  zstdAvailable: boolean;
-  spawnDetachedCalls: {
-    bin: string;
-    args: string[];
-    opts: { cwd: string; env: Record<string, string | undefined> };
-  }[];
 
   constructor(args: {
     home: string;
@@ -66,7 +60,6 @@ export class FakeHost implements HostDeps {
     mtimes?: Record<string, number>;
     keychainValues?: Record<string, string>;
     execValues?: Record<string, string>;
-    zstdAvailable?: boolean;
   }) {
     this.home = args.home;
     this.env = args.env;
@@ -82,8 +75,6 @@ export class FakeHost implements HostDeps {
     this.execCalls = [];
     this.spawnPipeCalls = [];
     this.removedPaths = [];
-    this.zstdAvailable = args.zstdAvailable ?? true;
-    this.spawnDetachedCalls = [];
   }
 
   linkedPath(path: string): string {
@@ -190,10 +181,6 @@ export class FakeHost implements HostDeps {
     return 4;
   }
 
-  hasZstd(): boolean {
-    return this.zstdAvailable;
-  }
-
   sha256Hex(input: string): string {
     return createHash("sha256").update(input).digest("hex");
   }
@@ -210,23 +197,12 @@ export class FakeHost implements HostDeps {
     const zstdArchive = cmd.match(/ -o '([^']+)' -f/)?.[1];
     if (zstdArchive !== undefined)
       this.bytes[zstdArchive] = encoder.encode("archive");
-    const gzipArchive = cmd.match(/ -czf '([^']+)' /)?.[1];
-    if (gzipArchive !== undefined)
-      this.bytes[gzipArchive] = encoder.encode("archive");
   }
 
   async remove(path: string): Promise<void> {
     this.removedPaths.push(path);
     delete this.files[path];
     delete this.bytes[path];
-  }
-
-  spawnDetached(
-    bin: string,
-    args: string[],
-    opts: { cwd: string; env: Record<string, string | undefined> },
-  ): void {
-    this.spawnDetachedCalls.push({ bin, args, opts });
   }
 
   async splitFile(

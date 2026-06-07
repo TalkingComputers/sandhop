@@ -3,9 +3,6 @@ import { dirname } from "../../core/paths.js";
 import type { HostDeps } from "../../core/ports/host.js";
 import type {
   CreateOptions,
-  ExecOptions,
-  ExposedPort,
-  RunResult,
   Sandbox,
   SandboxInfo,
   SandboxProvider,
@@ -14,6 +11,11 @@ import { destroyOrFalse } from "../destroy.js";
 import { toBuffer } from "../encode.js";
 import { requireCred } from "../index.js";
 import { lazyImport, lazyOnce } from "../lazy-import.js";
+import {
+  GenericSandbox,
+  readSandboxHome,
+  type SandboxOps,
+} from "../sandbox-adapter.js";
 
 type VercelModule = typeof import("@vercel/sandbox");
 type VercelSandboxInstance = InstanceType<VercelModule["Sandbox"]>;
@@ -56,46 +58,32 @@ const isNotFoundError = (error: unknown): boolean => {
   return httpError.status === 404 || httpError.statusCode === 404;
 };
 
-class VercelSandboxAdapter implements Sandbox {
-  readonly id: string;
-  readonly home: string;
-  readonly sandbox: VercelSandboxInstance;
-  readonly host: Pick<HostDeps, "readBytes">;
-
-  constructor(
-    id: string,
-    sandbox: VercelSandboxInstance,
-    host: Pick<HostDeps, "readBytes">,
-    home: string,
-  ) {
-    this.id = id;
-    this.sandbox = sandbox;
-    this.host = host;
-    this.home = home;
-  }
-
-  async uploadFile(path: string, data: Uint8Array | string): Promise<void> {
+const makeOps = (
+  sandbox: VercelSandboxInstance,
+  host: Pick<HostDeps, "readBytes">,
+): SandboxOps => ({
+  uploadFile: async (path, data) => {
     const dir = dirname(path);
-    if (dir && dir !== "/") await this.sandbox.mkDir(dir).catch(() => {});
-    await this.sandbox.writeFiles([
+    if (dir && dir !== "/") await sandbox.mkDir(dir).catch(() => {});
+    await sandbox.writeFiles([
       {
         path,
         content: toBuffer(data),
       },
     ]);
-  }
+  },
 
-  async uploadPath(remotePath: string, localPath: string): Promise<void> {
-    await this.sandbox.writeFiles([
+  uploadPath: async (remotePath, localPath) => {
+    await sandbox.writeFiles([
       {
         path: remotePath,
-        content: toBuffer(this.host.readBytes(localPath)),
+        content: toBuffer(host.readBytes(localPath)),
       },
     ]);
-  }
+  },
 
-  async exec(cmd: string, opts?: ExecOptions): Promise<RunResult> {
-    const result = await this.sandbox.runCommand("bash", ["-lc", cmd], {
+  exec: async (cmd, opts) => {
+    const result = await sandbox.runCommand("bash", ["-lc", cmd], {
       timeoutMs: opts?.timeoutMs ?? COMMAND_TIMEOUT_MS,
     });
     return {
@@ -103,25 +91,23 @@ class VercelSandboxAdapter implements Sandbox {
       stdout: await result.stdout(),
       stderr: await result.stderr(),
     };
-  }
+  },
 
-  async spawn(cmd: string): Promise<void> {
-    await this.sandbox.runCommand({
+  spawn: async (cmd) => {
+    await sandbox.runCommand({
       cmd: "bash",
       args: ["-lc", cmd],
       detached: true,
       timeoutMs: 0,
     });
-  }
+  },
 
-  async exposePort(port: number): Promise<ExposedPort> {
-    return { url: this.sandbox.domain(port) };
-  }
+  exposePort: (port) => Promise.resolve({ url: sandbox.domain(port) }),
 
-  async destroy(): Promise<void> {
-    await this.sandbox.stop();
-  }
-}
+  destroy: async () => {
+    await sandbox.stop();
+  },
+});
 
 export class VercelSandboxProvider implements SandboxProvider {
   readonly name = "vercel";
@@ -148,12 +134,8 @@ export class VercelSandboxProvider implements SandboxProvider {
       runtime: vercelRuntime(),
     });
     try {
-      return new VercelSandboxAdapter(
-        name,
-        sandbox,
-        this.host,
-        await this.readHome(sandbox),
-      );
+      const ops = makeOps(sandbox, this.host);
+      return new GenericSandbox(name, await readSandboxHome(ops.exec), ops);
     } catch (error: unknown) {
       await sandbox.stop().catch(() => undefined);
       throw error;
@@ -168,12 +150,8 @@ export class VercelSandboxProvider implements SandboxProvider {
       name: id,
       resume: true,
     });
-    return new VercelSandboxAdapter(
-      id,
-      sandbox,
-      this.host,
-      await this.readHome(sandbox),
-    );
+    const ops = makeOps(sandbox, this.host);
+    return new GenericSandbox(id, await readSandboxHome(ops.exec), ops);
   }
 
   async list(): Promise<SandboxInfo[]> {
@@ -204,19 +182,5 @@ export class VercelSandboxProvider implements SandboxProvider {
       teamId: requireCred(this.host, "vercel", "VERCEL_TEAM_ID"),
       projectId: requireCred(this.host, "vercel", "VERCEL_PROJECT_ID"),
     };
-  }
-
-  private async readHome(sandbox: VercelSandboxInstance): Promise<string> {
-    const result = await sandbox.runCommand("bash", [
-      "-lc",
-      'printf %s "$HOME"',
-    ]);
-    const [stdout, stderr] = await Promise.all([
-      result.stdout(),
-      result.stderr(),
-    ]);
-    if (result.exitCode !== 0)
-      throw new Error(`Home lookup failed: ${stderr || stdout}`);
-    return stdout.trim();
   }
 }

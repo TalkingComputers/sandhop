@@ -1,30 +1,45 @@
-import type { CreateSandboxBaseParams, DaytonaConfig } from "@daytonaio/sdk";
+import type { CreateSandboxBaseParams, DaytonaConfig } from "@daytona/sdk";
 import type { HostDeps } from "../../core/ports/host.js";
 import type {
   CreateOptions,
-  ExecOptions,
-  ExposedPort,
   RunResult,
   Sandbox,
   SandboxInfo,
   SandboxProvider,
 } from "../../core/ports/provider.js";
+import { randomToken } from "../../core/rand.js";
 import { shellQuote } from "../../core/shell.js";
 import { destroyOrFalse } from "../destroy.js";
 import { toBuffer } from "../encode.js";
 import { optionalCred, requireCred } from "../index.js";
 import { lazyImport, lazyOnce } from "../lazy-import.js";
+import {
+  GenericSandbox,
+  readSandboxHome,
+  type SandboxOps,
+} from "../sandbox-adapter.js";
 
-type DaytonaModule = typeof import("@daytonaio/sdk");
+type DaytonaModule = typeof import("@daytona/sdk");
 type DaytonaClient = InstanceType<DaytonaModule["Daytona"]>;
 
 interface DaytonaProcess {
+  createSession(sessionId: string): Promise<void>;
+  deleteSession(sessionId: string): Promise<void>;
   executeCommand(
     command: string,
     cwd?: string,
     env?: Record<string, string>,
     timeout?: number,
   ): Promise<{ exitCode: number; result: string }>;
+  executeSessionCommand(
+    sessionId: string,
+    req: {
+      command: string;
+      runAsync: false;
+      suppressInputEcho: true;
+    },
+    timeout?: number,
+  ): Promise<{ exitCode: number; stdout: string; stderr: string }>;
 }
 
 interface DaytonaFileSystem {
@@ -52,10 +67,11 @@ interface DaytonaCredentials {
 
 const COMMAND_TIMEOUT_SECONDS = 600;
 const PATH_UPLOAD_TIMEOUT_SECONDS = 3600;
+const ZSTD_INSTALL = "apt-get update && apt-get install -y zstd";
 
 const DAYTONA_INSTALL_HINT =
-  "The 'daytona' provider needs @daytonaio/sdk. Run: npm i @daytonaio/sdk";
-const DAYTONA_PACKAGE = "@daytonaio/sdk";
+  "The 'daytona' provider needs @daytona/sdk. Run: npm i @daytona/sdk";
+const DAYTONA_PACKAGE = "@daytona/sdk";
 
 const timeoutSeconds = (timeoutMs: number): number =>
   Math.ceil(timeoutMs / 1000);
@@ -70,69 +86,77 @@ const buildCreateParams = (opts: CreateOptions): CreateSandboxBaseParams => ({
   ephemeral: true,
 });
 
-class DaytonaSandboxAdapter implements Sandbox {
-  readonly id: string;
-  readonly home: string;
-  readonly sandbox: DaytonaSandboxInstance;
-  readonly timeoutSeconds: number;
-
-  constructor(
-    sandbox: DaytonaSandboxInstance,
-    timeoutSecondsValue: number,
-    home: string,
-  ) {
-    this.sandbox = sandbox;
-    this.timeoutSeconds = timeoutSecondsValue;
-    this.id = sandbox.id;
-    this.home = home;
+const execInSession = async (
+  sandbox: DaytonaSandboxInstance,
+  cmd: string,
+  timeout: number,
+): Promise<RunResult> => {
+  const sessionId = `sandhop-exec-${randomToken(12)}`;
+  await sandbox.process.createSession(sessionId);
+  try {
+    const result = await sandbox.process.executeSessionCommand(
+      sessionId,
+      {
+        command: `bash -lc ${shellQuote(cmd)}`,
+        runAsync: false,
+        suppressInputEcho: true,
+      },
+      timeout,
+    );
+    return {
+      exitCode: result.exitCode,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    };
+  } finally {
+    await sandbox.process.deleteSession(sessionId).catch(() => undefined);
   }
+};
 
-  async uploadFile(path: string, data: Uint8Array | string): Promise<void> {
-    await this.sandbox.fs.uploadFile(toBuffer(data), path, this.timeoutSeconds);
-  }
+const makeOps = (
+  sandbox: DaytonaSandboxInstance,
+  defaultTimeoutSeconds: number,
+): SandboxOps => ({
+  uploadFile: async (path, data) => {
+    await sandbox.fs.uploadFile(toBuffer(data), path, defaultTimeoutSeconds);
+  },
 
-  async uploadPath(remotePath: string, localPath: string): Promise<void> {
-    await this.sandbox.fs.uploadFile(
+  uploadPath: async (remotePath, localPath) => {
+    await sandbox.fs.uploadFile(
       localPath,
       remotePath,
       PATH_UPLOAD_TIMEOUT_SECONDS,
     );
-  }
+  },
 
-  async exec(cmd: string, opts?: ExecOptions): Promise<RunResult> {
-    const result = await this.sandbox.process.executeCommand(
-      `bash -lc ${shellQuote(cmd)}`,
-      undefined,
-      undefined,
+  exec: async (cmd, opts) => {
+    return execInSession(
+      sandbox,
+      cmd,
       opts?.timeoutMs === undefined
         ? COMMAND_TIMEOUT_SECONDS
         : timeoutSeconds(opts.timeoutMs),
     );
-    return {
-      exitCode: result.exitCode,
-      stdout: result.result,
-      stderr: result.result,
-    };
-  }
+  },
 
-  async spawn(cmd: string): Promise<void> {
-    await this.sandbox.process.executeCommand(
+  spawn: async (cmd) => {
+    await sandbox.process.executeCommand(
       `nohup bash -lc ${shellQuote(cmd)} >/dev/null 2>&1 &`,
       undefined,
       undefined,
       COMMAND_TIMEOUT_SECONDS,
     );
-  }
+  },
 
-  async exposePort(port: number): Promise<ExposedPort> {
-    const preview = await this.sandbox.getPreviewLink(port);
+  exposePort: async (port) => {
+    const preview = await sandbox.getPreviewLink(port);
     return { url: preview.url };
-  }
+  },
 
-  async destroy(): Promise<void> {
-    await this.sandbox.delete(this.timeoutSeconds);
-  }
-}
+  destroy: async () => {
+    await sandbox.delete(defaultTimeoutSeconds);
+  },
+});
 
 export class DaytonaSandboxProvider implements SandboxProvider {
   readonly name = "daytona";
@@ -150,11 +174,10 @@ export class DaytonaSandboxProvider implements SandboxProvider {
       await this.client()
     ).create(buildCreateParams(opts), { timeout })) as DaytonaSandboxInstance;
     try {
-      return new DaytonaSandboxAdapter(
-        sandbox,
-        timeout,
-        await this.readHome(sandbox, timeout),
-      );
+      const ops = makeOps(sandbox, timeout);
+      const home = await readSandboxHome(ops.exec);
+      await ops.exec(ZSTD_INSTALL, { timeoutMs: opts.timeoutMs });
+      return new GenericSandbox(sandbox.id, home, ops);
     } catch (error: unknown) {
       await sandbox.delete(timeout).catch(() => undefined);
       throw error;
@@ -165,11 +188,10 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     const sandbox = (await (
       await this.client()
     ).get(id)) as DaytonaSandboxInstance;
-    return new DaytonaSandboxAdapter(
-      sandbox,
-      COMMAND_TIMEOUT_SECONDS,
-      await this.readHome(sandbox, COMMAND_TIMEOUT_SECONDS),
-    );
+    const ops = makeOps(sandbox, COMMAND_TIMEOUT_SECONDS);
+    const home = await readSandboxHome(ops.exec);
+    await ops.exec(ZSTD_INSTALL);
+    return new GenericSandbox(id, home, ops);
   }
 
   async list(): Promise<SandboxInfo[]> {
@@ -215,20 +237,5 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     if (credentials.apiUrl !== undefined) config.apiUrl = credentials.apiUrl;
     if (credentials.target !== undefined) config.target = credentials.target;
     return new Daytona(config);
-  }
-
-  private async readHome(
-    sandbox: DaytonaSandboxInstance,
-    timeout: number,
-  ): Promise<string> {
-    const result = await sandbox.process.executeCommand(
-      `bash -lc ${shellQuote('printf %s "$HOME"')}`,
-      undefined,
-      undefined,
-      timeout,
-    );
-    if (result.exitCode !== 0)
-      throw new Error(`Home lookup failed: ${result.result}`);
-    return result.result.trim();
   }
 }

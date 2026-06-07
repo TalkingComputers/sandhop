@@ -3,7 +3,6 @@ export interface HostDeps {
   home: string;
   username: string;
   cpuCount(): number;
-  hasZstd(): boolean;
   readFile(path: string): string | null;
   readBytes(path: string): Uint8Array;
   openBlob(path: string): Promise<Blob>;
@@ -20,14 +19,6 @@ export interface HostDeps {
   exec(bin: string, args: string[]): string;
   spawnPipe(cmd: string): Promise<void>;
   remove(path: string): Promise<void>;
-  spawnDetached(
-    bin: string,
-    args: string[],
-    opts: {
-      cwd: string;
-      env: Record<string, string | undefined>;
-    },
-  ): void;
   splitFile(
     path: string,
     chunkBytes: number,

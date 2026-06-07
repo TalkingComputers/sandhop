@@ -3,7 +3,6 @@ import type { HostDeps } from "../../core/ports/host.js";
 import type {
   CreateOptions,
   ExecOptions,
-  ExposedPort,
   RunResult,
   Sandbox,
   SandboxInfo,
@@ -11,6 +10,11 @@ import type {
 } from "../../core/ports/provider.js";
 import { toArrayBuffer } from "../encode.js";
 import { requireCred } from "../index.js";
+import {
+  GenericSandbox,
+  readSandboxHome,
+  type SandboxOps,
+} from "../sandbox-adapter.js";
 
 type E2bSandboxInstance = Awaited<ReturnType<typeof E2bSandbox.create>>;
 
@@ -27,82 +31,71 @@ const TEMPLATE_CPU = 4;
 const buildSandhopTemplate = () =>
   Template()
     .fromBaseImage()
-    .aptInstall(["tmux"])
+    .aptInstall(["tmux", "zstd"])
     .runCmd(
       "curl -fsSL https://github.com/tsl0922/ttyd/releases/latest/download/ttyd.x86_64 -o /usr/local/bin/ttyd && chmod +x /usr/local/bin/ttyd",
       { user: "root" },
     );
 
-class E2bSandboxAdapter implements Sandbox {
-  readonly id: string;
-  readonly home: string;
-  readonly sandbox: E2bSandboxInstance;
-  readonly host: Pick<HostDeps, "openBlob">;
-
-  constructor(
-    sandbox: E2bSandboxInstance,
-    host: Pick<HostDeps, "openBlob">,
-    home: string,
-  ) {
-    this.sandbox = sandbox;
-    this.host = host;
-    this.id = sandbox.sandboxId;
-    this.home = home;
+const runCommand = async (
+  sandbox: E2bSandboxInstance,
+  cmd: string,
+  opts?: ExecOptions,
+): Promise<RunResult> => {
+  const timeoutMs = opts?.timeoutMs ?? UPLOAD_TIMEOUT_MS;
+  try {
+    const result = await sandbox.commands.run(cmd, {
+      timeoutMs,
+      requestTimeoutMs: timeoutMs,
+    });
+    return {
+      exitCode: result.exitCode,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    };
+  } catch (error: unknown) {
+    if (error instanceof CommandExitError)
+      return {
+        exitCode: error.exitCode,
+        stdout: error.stdout,
+        stderr: error.stderr,
+      };
+    throw error;
   }
+};
 
-  async uploadFile(path: string, data: Uint8Array | string): Promise<void> {
-    await this.sandbox.files.write(path, toArrayBuffer(data), {
+const makeOps = (
+  sandbox: E2bSandboxInstance,
+  host: Pick<HostDeps, "openBlob">,
+  credentials?: E2bCredentials,
+): SandboxOps => ({
+  uploadFile: async (path, data) => {
+    await sandbox.files.write(path, toArrayBuffer(data), {
       requestTimeoutMs: UPLOAD_TIMEOUT_MS,
       useOctetStream: true,
     });
-  }
+  },
 
-  async uploadPath(remotePath: string, localPath: string): Promise<void> {
-    await this.sandbox.files.write(
-      remotePath,
-      await this.host.openBlob(localPath),
-      {
-        requestTimeoutMs: PATH_UPLOAD_TIMEOUT_MS,
-        useOctetStream: true,
-      },
-    );
-  }
+  uploadPath: async (remotePath, localPath) => {
+    await sandbox.files.write(remotePath, await host.openBlob(localPath), {
+      requestTimeoutMs: PATH_UPLOAD_TIMEOUT_MS,
+      useOctetStream: true,
+    });
+  },
 
-  async exec(cmd: string, opts?: ExecOptions): Promise<RunResult> {
-    const timeoutMs = opts?.timeoutMs ?? UPLOAD_TIMEOUT_MS;
-    try {
-      const result = await this.sandbox.commands.run(cmd, {
-        timeoutMs,
-        requestTimeoutMs: timeoutMs,
-      });
-      return {
-        exitCode: result.exitCode,
-        stdout: result.stdout,
-        stderr: result.stderr,
-      };
-    } catch (error: unknown) {
-      if (error instanceof CommandExitError)
-        return {
-          exitCode: error.exitCode,
-          stdout: error.stdout,
-          stderr: error.stderr,
-        };
-      throw error;
-    }
-  }
+  exec: (cmd, opts) => runCommand(sandbox, cmd, opts),
 
-  async spawn(cmd: string): Promise<void> {
-    await this.sandbox.commands.run(cmd, { background: true, timeoutMs: 0 });
-  }
+  spawn: async (cmd) => {
+    await sandbox.commands.run(cmd, { background: true, timeoutMs: 0 });
+  },
 
-  async exposePort(port: number): Promise<ExposedPort> {
-    return { url: `https://${this.sandbox.getHost(port)}` };
-  }
+  exposePort: (port) =>
+    Promise.resolve({ url: `https://${sandbox.getHost(port)}` }),
 
-  async destroy(): Promise<void> {
-    await E2bSandbox.kill(this.id);
-  }
-}
+  destroy: async () => {
+    await E2bSandbox.kill(sandbox.sandboxId, credentials);
+  },
+});
 
 export class E2bSandboxProvider implements SandboxProvider {
   readonly name = "e2b";
@@ -125,10 +118,11 @@ export class E2bSandboxProvider implements SandboxProvider {
       timeoutMs: opts.timeoutMs,
     });
     try {
-      return new E2bSandboxAdapter(
-        sandbox,
-        this.host,
-        await this.readHome(sandbox),
+      const ops = makeOps(sandbox, this.host, credentials);
+      return new GenericSandbox(
+        sandbox.sandboxId,
+        await readSandboxHome(ops.exec),
+        ops,
       );
     } catch (error: unknown) {
       await E2bSandbox.kill(sandbox.sandboxId, credentials).catch(
@@ -140,11 +134,8 @@ export class E2bSandboxProvider implements SandboxProvider {
 
   async connect(id: string): Promise<Sandbox> {
     const sandbox = await E2bSandbox.connect(id, this.credentials());
-    return new E2bSandboxAdapter(
-      sandbox,
-      this.host,
-      await this.readHome(sandbox),
-    );
+    const ops = makeOps(sandbox, this.host, this.credentials());
+    return new GenericSandbox(id, await readSandboxHome(ops.exec), ops);
   }
 
   async list(): Promise<SandboxInfo[]> {
@@ -169,28 +160,5 @@ export class E2bSandboxProvider implements SandboxProvider {
 
   private credentials(): E2bCredentials {
     return { apiKey: requireCred(this.host, "e2b", "E2B_API_KEY") };
-  }
-
-  private async readHome(sandbox: E2bSandboxInstance): Promise<string> {
-    let result: { exitCode: number; stdout: string; stderr: string };
-    try {
-      result = await sandbox.commands.run('printf %s "$HOME"', {
-        timeoutMs: UPLOAD_TIMEOUT_MS,
-        requestTimeoutMs: UPLOAD_TIMEOUT_MS,
-      });
-    } catch (error: unknown) {
-      if (error instanceof CommandExitError) {
-        const output = error.stderr.length > 0 ? error.stderr : error.stdout;
-        throw new Error(`Home lookup failed: ${output}`);
-      }
-      throw error;
-    }
-    if (result.exitCode !== 0) {
-      const output = result.stderr.length > 0 ? result.stderr : result.stdout;
-      throw new Error(`Home lookup failed: ${output}`);
-    }
-    const home = result.stdout.trim();
-    if (home.length === 0) throw new Error("Home lookup returned empty path");
-    return home;
   }
 }

@@ -2,30 +2,28 @@ import { expect, test } from "vitest";
 import {
   buildTransport,
   parseArgs,
-  parseEnrichArgs,
   readProvider,
   readTransport,
 } from "../../src/cli/args.js";
 
 test("parseArgs keeps push defaults and flags", () => {
   expect(parseArgs([], "/workspace/project")).toMatchObject({
-    cmd: "push",
+    cmd: "help",
     cwd: "/workspace/project",
-    detach: false,
     excludes: [],
     includes: [],
-    profile: true,
     provider: undefined,
     transport: undefined,
   });
   expect(
     parseArgs(
-      ["push", "--no-profile", "--tunnel", "cloudflared"],
+      ["push", "--no-profile", "--strict", "--tunnel", "cloudflared"],
       "/workspace/project",
     ),
   ).toMatchObject({
     cmd: "push",
     profile: false,
+    strict: true,
     transport: "cloudflared",
   });
   expect(
@@ -34,9 +32,8 @@ test("parseArgs keeps push defaults and flags", () => {
     cmd: "push",
     cwd: "/workspace/other",
   });
-  expect(parseArgs(["push", "--detach"], "/workspace/project")).toMatchObject({
-    cmd: "push",
-    detach: true,
+  expect(parseArgs(["push", "--unknown"], "/workspace/project")).toMatchObject({
+    cmd: "help",
   });
 });
 
@@ -110,37 +107,6 @@ test("parseArgs validates tunnel values", () => {
   expect(() => readTransport(undefined)).toThrow(
     "pass --tunnel or run `sandhop setup`",
   );
-});
-
-test("parseEnrichArgs reads required enrich flags", () => {
-  expect(
-    parseEnrichArgs([
-      "--sandbox-id",
-      "sbx-1",
-      "--agent",
-      "codex",
-      "--cwd",
-      "/workspace/project",
-      "--provider",
-      "modal",
-      "--progress-file",
-      "/tmp/sandhop-progress-sbx-1.jsonl",
-      "--exclude",
-      "dist,.cache",
-      "--no-profile",
-      "--strict",
-    ]),
-  ).toEqual({
-    sandboxId: "sbx-1",
-    agent: "codex",
-    cwd: "/workspace/project",
-    provider: "modal",
-    progressFile: "/tmp/sandhop-progress-sbx-1.jsonl",
-    excludes: ["dist", ".cache"],
-    profile: false,
-    strict: true,
-  });
-  expect(() => parseEnrichArgs([])).toThrow("--sandbox-id is required");
 });
 
 test("buildTransport creates the selected transport", () => {

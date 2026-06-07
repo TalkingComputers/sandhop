@@ -3,6 +3,7 @@ import type {
   TransportContext,
   TransportResult,
 } from "../core/ports/transport.js";
+import type { RunResult } from "../core/ports/provider.js";
 import { shellQuote } from "../core/shell.js";
 
 export interface CloudflaredOptions {
@@ -11,6 +12,12 @@ export interface CloudflaredOptions {
 }
 
 const LOG_PATH = "/tmp/sandhop-cloudflared.log";
+
+const tunnelWaitScript = (probe: string): string =>
+  `bash -lc 'for i in $(seq 1 120); do ${probe}; sleep 0.5; done; cat ${LOG_PATH} >&2; exit 1'`;
+
+const tunnelError = (result: RunResult): string =>
+  result.stderr || result.stdout || "cloudflared failed to expose port";
 
 export class CloudflaredTransport implements Transport {
   readonly id = "cloudflared" as const;
@@ -49,12 +56,11 @@ export class CloudflaredTransport implements Transport {
       `cloudflared tunnel --no-autoupdate --protocol http2 run --token ${shellQuote(token)} > ${LOG_PATH} 2>&1`,
     );
     const result = await ctx.sandbox.exec(
-      `bash -lc 'for i in $(seq 1 120); do grep -q "Registered tunnel connection" ${LOG_PATH} && exit 0; sleep 0.5; done; echo "cloudflared did not connect" >&2; cat ${LOG_PATH} >&2; exit 1'`,
+      tunnelWaitScript(
+        `grep -q "Registered tunnel connection" ${LOG_PATH} && exit 0`,
+      ),
     );
-    if (result.exitCode !== 0)
-      throw new Error(
-        result.stderr || result.stdout || "cloudflared failed to expose port",
-      );
+    if (result.exitCode !== 0) throw new Error(tunnelError(result));
     return { url: `https://${this.opts.hostname}` };
   }
 
@@ -63,12 +69,11 @@ export class CloudflaredTransport implements Transport {
       `cloudflared tunnel --no-autoupdate --protocol http2 --url http://localhost:${ctx.localPort} > ${LOG_PATH} 2>&1`,
     );
     const result = await ctx.sandbox.exec(
-      `bash -lc 'for i in $(seq 1 120); do u=$(grep -oE "https://[a-z0-9-]+\\.trycloudflare\\.com" ${LOG_PATH} | head -1); [ -n "$u" ] && grep -q "Registered tunnel connection" ${LOG_PATH} && { echo "$u"; exit 0; }; sleep 0.5; done; cat ${LOG_PATH} >&2; exit 1'`,
+      tunnelWaitScript(
+        `u=$(grep -oE "https://[a-z0-9-]+\\.trycloudflare\\.com" ${LOG_PATH} | head -1); [ -n "$u" ] && grep -q "Registered tunnel connection" ${LOG_PATH} && { echo "$u"; exit 0; }`,
+      ),
     );
-    if (result.exitCode !== 0)
-      throw new Error(
-        result.stderr || result.stdout || "cloudflared failed to expose port",
-      );
+    if (result.exitCode !== 0) throw new Error(tunnelError(result));
     const url = result.stdout.trim();
     if (url.length === 0) throw new Error("cloudflared did not return a URL");
     return { url };

@@ -6,8 +6,8 @@ import {
 import type { Agent } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
 import { dirname, listSkillNames } from "../paths.js";
+import { readGitSkillState } from "./git-skill.js";
 import { maybeRealpath } from "./mcp-paths.js";
-import { readGitSkillState } from "./reinstall.js";
 
 const joinHome = (home: string, path: string): string => `${home}/${path}`;
 

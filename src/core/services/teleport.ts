@@ -1,9 +1,13 @@
 import { buildManifest } from "../manifest.js";
 import { TTYD_PORT } from "../constants.js";
 import { dirname, expandHome } from "../paths.js";
-import type { Agent, AuthBundle } from "../ports/agent.js";
+import type { Agent } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
 import type { Multiplexer } from "../ports/multiplexer.js";
+import {
+  PushProgressId,
+  type PushProgressListener,
+} from "../ports/progress.js";
 import type { Sandbox, SandboxProvider } from "../ports/provider.js";
 import type { Transport } from "../ports/transport.js";
 import { randomToken } from "../rand.js";
@@ -11,6 +15,7 @@ import { shellQuote } from "../shell.js";
 import type { AuthExtractor } from "./auth.js";
 import type { BootstrapService } from "./bootstrap.js";
 import type { SshBundle, SshCollector } from "./git-ssh.js";
+import { mapHomePath } from "./mcp-paths.js";
 import type { SecretsCollector } from "./secrets.js";
 import type { SessionReader } from "./session.js";
 import { TransferService } from "./transfer.js";
@@ -19,6 +24,7 @@ import type { VersionDetector } from "./version.js";
 export interface TeleportResult {
   url: string;
   sandboxId: string;
+  sandbox: Sandbox;
   user: string;
   pass: string;
 }
@@ -29,7 +35,7 @@ export interface TeleportOptions {
   excludes: string[];
   includes: string[];
   timeoutMs: number;
-  onProgress?: (msg: string) => void;
+  onProgress?: PushProgressListener;
 }
 
 export interface TeleportServices {
@@ -60,50 +66,30 @@ export interface TeleportServices {
 
 const TTYD_SESSION = "sandhop";
 
-const mirrorPath = (
-  path: string,
-  hostHome: string,
-  sandboxHome: string,
-): string => {
-  if (path === hostHome) return sandboxHome;
-  const homePrefix = `${hostHome}/`;
-  if (path.startsWith(homePrefix))
-    return `${sandboxHome}/${path.slice(homePrefix.length)}`;
-  return path;
+const uploadModeFiles = async (
+  bootstrap: BootstrapService,
+  sandbox: Sandbox,
+  files: { path: string; content: string; mode?: string }[],
+): Promise<void> => {
+  for (const file of files) {
+    const dest = expandHome(file.path, sandbox.home);
+    await bootstrap.prepAndUpload(sandbox, dest, file.content);
+    if (file.mode !== undefined)
+      await sandbox.exec(`chmod ${shellQuote(file.mode)} ${shellQuote(dest)}`);
+  }
 };
 
-const chmodSshBundle = async (
+const uploadSshBundle = async (
+  bootstrap: BootstrapService,
   sandbox: Sandbox,
   bundle: SshBundle,
 ): Promise<void> => {
   if (bundle.files.length === 0) return;
-  for (const file of bundle.files)
-    await sandbox.uploadFile(expandHome(file.path, sandbox.home), file.content);
+  await uploadModeFiles(bootstrap, sandbox, bundle.files);
   const dirs = bundle.dirs.map((dir) =>
     shellQuote(expandHome(dir, sandbox.home)),
   );
-  await sandbox.exec(
-    [
-      ...dirs.map((dir) => `mkdir -p ${dir}`),
-      ...(dirs.length === 0 ? [] : [`chmod 700 ${dirs.join(" ")}`]),
-      ...bundle.files.map(
-        (file) =>
-          `chmod ${shellQuote(file.mode)} ${shellQuote(expandHome(file.path, sandbox.home))}`,
-      ),
-    ].join("; "),
-  );
-};
-
-const chmodAuthFiles = async (
-  sandbox: Sandbox,
-  files: AuthBundle["files"],
-): Promise<void> => {
-  for (const file of files) {
-    if (file.mode === undefined) continue;
-    await sandbox.exec(
-      `chmod ${shellQuote(file.mode)} ${shellQuote(expandHome(file.path, sandbox.home))}`,
-    );
-  }
+  if (dirs.length > 0) await sandbox.exec(`chmod 700 ${dirs.join(" ")}`);
 };
 
 const readGitConfig = (
@@ -136,7 +122,7 @@ export class TeleportService {
   async run(cwd: string, opts: TeleportOptions): Promise<TeleportResult> {
     const user = this.services.host.username;
     const pass = randomToken(24);
-    opts.onProgress?.("snapshotting");
+    opts.onProgress?.({ step: PushProgressId.Snapshotting });
     const [bundle, session, baseSecrets, auth, cliVersion, sshBundle] =
       await Promise.all([
         this.services.host.realpath(cwd),
@@ -157,18 +143,17 @@ export class TeleportService {
       ts: Date.now(),
     });
     const envs = { ...baseSecrets.envs, ...auth.envs };
-    opts.onProgress?.("creating sandbox");
+    opts.onProgress?.({ step: PushProgressId.CreatingSandbox });
     const sandbox = await this.provider.create({
       envs,
       timeoutMs: opts.timeoutMs,
       ports: [TTYD_PORT],
     });
     try {
-      opts.onProgress?.("uploading bundle");
+      opts.onProgress?.({ step: PushProgressId.UploadingBundle });
       await sandbox.exec(this.services.bootstrap.renderProjectPrep(manifest));
       const transfer = new TransferService(this.services.host, sandbox);
       await transfer.send(bundle, manifest.remoteProj, "bundle", {
-        codec: "gzip",
         excludes: opts.excludes,
       });
       const mem = this.agent.projectMemoryDir(
@@ -183,22 +168,22 @@ export class TeleportService {
             sandbox.home,
           ),
           "memory",
-          { codec: "gzip", excludes: opts.excludes },
+          { excludes: opts.excludes },
         );
       for (const [index, include] of opts.includes.entries()) {
         if (!this.services.host.exists(include)) continue;
         const realInclude = this.services.host.realpath(include);
-        const dest = mirrorPath(
-          realInclude,
+        const dest = mapHomePath(
           this.services.host.home,
           sandbox.home,
+          realInclude,
+          "passthrough",
         );
         const destDir = this.services.host.isDirectory(realInclude)
           ? dest
           : dirname(dest);
         await sandbox.exec(this.services.bootstrap.renderPathPrep(destDir));
         await transfer.send(realInclude, dest, `include-${index}`, {
-          codec: "gzip",
           excludes: opts.excludes,
         });
       }
@@ -206,21 +191,16 @@ export class TeleportService {
         "/tmp/transcript.jsonl",
         this.services.host.readBytes(session.transcriptPath),
       );
-      for (const file of baseSecrets.files)
-        await sandbox.uploadFile(
-          expandHome(file.path, sandbox.home),
-          file.content,
-        );
-      for (const file of auth.files)
-        await sandbox.uploadFile(
-          expandHome(file.path, sandbox.home),
-          file.content,
-        );
-      await chmodAuthFiles(sandbox, auth.files);
-      await chmodSshBundle(sandbox, sshBundle);
-      opts.onProgress?.(
-        `installing ${this.agent.pkg}@${manifest.cliVersion} + ttyd`,
-      );
+      await uploadModeFiles(this.services.bootstrap, sandbox, [
+        ...baseSecrets.files.map((file) => ({ ...file })),
+        ...auth.files,
+      ]);
+      await uploadSshBundle(this.services.bootstrap, sandbox, sshBundle);
+      opts.onProgress?.({
+        step: PushProgressId.InstallingRuntime,
+        packageName: this.agent.pkg,
+        version: manifest.cliVersion,
+      });
       const restore = await sandbox.exec(
         this.services.bootstrap.render(manifest, {
           home: sandbox.home,
@@ -234,7 +214,7 @@ export class TeleportService {
         !restore.stdout.includes("SANDHOP_RESTORE_OK")
       )
         throw new Error(`Restore failed: ${restore.stderr || restore.stdout}`);
-      opts.onProgress?.("restoring session");
+      opts.onProgress?.({ step: PushProgressId.RestoringSession });
       const resume = this.agent.resumeCmd(
         session.sessionId,
         manifest.remoteProj,
@@ -253,8 +233,8 @@ export class TeleportService {
         sandbox,
         localPort: TTYD_PORT,
       });
-      opts.onProgress?.("ready");
-      return { url, sandboxId: sandbox.id, user, pass };
+      opts.onProgress?.({ step: PushProgressId.Ready });
+      return { url, sandboxId: sandbox.id, sandbox, user, pass };
     } catch (error: unknown) {
       await sandbox.destroy().catch(() => undefined);
       throw error;
