@@ -86,7 +86,7 @@ sandhop kill <sandbox-id>                 # destroy a sandbox
 ## How it works
 
 1. Collect the working-tree root, transcript, auth, secrets, and local CLI version in parallel.
-2. Create a single-tenant ephemeral sandbox. Modal preserves the local home path and runs the restored terminal as a non-root local-username runtime.
+2. Create a single-tenant ephemeral sandbox. Modal preserves the local home path and runs sandhop commands through a non-root local-username runtime.
 3. Upload the bundle, transcript, credential files, SSH files, project memory, and explicit includes.
 4. Install the matching agent CLI, restore the transcript, start ttyd, and verify the terminal is alive.
 5. Run inline enrichment for agent profile, settings scripts, MCP code/deps, plugins, and skills before printing `SANDHOP_URL` / `SANDHOP_AUTH`.

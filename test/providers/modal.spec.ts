@@ -7,12 +7,24 @@ const RUNTIME = {
   workdir: "/Users/parsabahraminejad/Desktop/project",
 };
 
+const runAsRuntime = (cmd: string): string[] => [
+  "sudo",
+  "-H",
+  "-u",
+  "parsabahraminejad",
+  "env",
+  "HOME=/Users/parsabahraminejad",
+  "bash",
+  "-lc",
+  cmd,
+];
+
 const modalMocks = vi.hoisted(() => {
   const stdoutReadText = vi.fn(async () => "stdout");
   const stderrReadText = vi.fn(async () => "stderr");
   const wait = vi.fn(async () => 7);
   const exec = vi.fn(async (command: string[]) =>
-    command[2] === `printf '%s\\n%s\\n%s\\n' "$HOME" "$(id -u)" "$(id -un)"`
+    command[8] === `printf '%s\\n%s\\n%s\\n' "$HOME" "$(id -u)" "$(id -un)"`
       ? {
           stdout: {
             readText: vi.fn(
@@ -22,17 +34,28 @@ const modalMocks = vi.hoisted(() => {
           stderr: { readText: vi.fn(async () => "") },
           wait: vi.fn(async () => 0),
         }
-      : command[2]?.startsWith("mkdir -p ")
+      : command[2] ===
+          `printf '%s\\n%s\\n' "$SANDHOP_RUNTIME_HOME" "$SANDHOP_RUNTIME_USER"`
         ? {
-            stdout: { readText: vi.fn(async () => "") },
+            stdout: {
+              readText: vi.fn(
+                async () => "/Users/parsabahraminejad\nparsabahraminejad\n",
+              ),
+            },
             stderr: { readText: vi.fn(async () => "") },
             wait: vi.fn(async () => 0),
           }
-        : {
-            stdout: { readText: stdoutReadText },
-            stderr: { readText: stderrReadText },
-            wait,
-          },
+        : command[8]?.startsWith("mkdir -p ")
+          ? {
+              stdout: { readText: vi.fn(async () => "") },
+              stderr: { readText: vi.fn(async () => "") },
+              wait: vi.fn(async () => 0),
+            }
+          : {
+              stdout: { readText: stdoutReadText },
+              stderr: { readText: stderrReadText },
+              wait,
+            },
   );
   const writeText = vi.fn(async () => undefined);
   const writeBytes = vi.fn(async () => undefined);
@@ -134,7 +157,6 @@ test("ModalSandboxProvider creates a sandhop sandbox and maps exec results", asy
     "RUN mkdir -p '/Users/parsabahraminejad' '/Users/parsabahraminejad/Desktop/project' && useradd --user-group --home-dir '/Users/parsabahraminejad' --shell /bin/bash 'parsabahraminejad' && chown -R 'parsabahraminejad:parsabahraminejad' '/Users/parsabahraminejad' '/Users/parsabahraminejad/Desktop/project'",
     "RUN printf '%s\\n' 'parsabahraminejad ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/sandhop-runtime && chmod 0440 /etc/sudoers.d/sandhop-runtime",
     "ENV HOME=/Users/parsabahraminejad",
-    "USER parsabahraminejad",
   ]);
   expect(modalMocks.create).toHaveBeenCalledWith(
     { appId: "app-id" },
@@ -145,23 +167,27 @@ test("ModalSandboxProvider creates a sandhop sandbox and maps exec results", asy
         "RUN mkdir -p '/Users/parsabahraminejad' '/Users/parsabahraminejad/Desktop/project' && useradd --user-group --home-dir '/Users/parsabahraminejad' --shell /bin/bash 'parsabahraminejad' && chown -R 'parsabahraminejad:parsabahraminejad' '/Users/parsabahraminejad' '/Users/parsabahraminejad/Desktop/project'",
         "RUN printf '%s\\n' 'parsabahraminejad ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/sandhop-runtime && chmod 0440 /etc/sudoers.d/sandhop-runtime",
         "ENV HOME=/Users/parsabahraminejad",
-        "USER parsabahraminejad",
       ],
     },
     {
       command: ["sleep", "infinity"],
       cpu: 4,
       encryptedPorts: [7681],
-      env: { A: "1", HOME: "/Users/parsabahraminejad" },
+      env: {
+        A: "1",
+        HOME: "/Users/parsabahraminejad",
+        SANDHOP_RUNTIME_HOME: "/Users/parsabahraminejad",
+        SANDHOP_RUNTIME_USER: "parsabahraminejad",
+      },
       memoryMiB: 4096,
       timeoutMs: 600000,
       workdir: "/Users/parsabahraminejad/Desktop/project",
     },
   );
-  expect(modalMocks.exec).toHaveBeenCalledWith(["bash", "-lc", "echo ok"], {
+  expect(modalMocks.exec).toHaveBeenCalledWith(runAsRuntime("echo ok"), {
     timeoutMs: 600000,
   });
-  expect(modalMocks.exec).toHaveBeenCalledWith(["bash", "-lc", "echo slow"], {
+  expect(modalMocks.exec).toHaveBeenCalledWith(runAsRuntime("echo slow"), {
     timeoutMs: 123000,
   });
 });
@@ -185,11 +211,9 @@ test("ModalSandboxProvider spawn starts without awaiting process completion", as
 
   await sandbox.spawn("ttyd");
 
-  expect(modalMocks.exec).toHaveBeenCalledWith([
-    "bash",
-    "-lc",
-    "nohup bash -lc 'ttyd' >> /tmp/sandhop-spawn.log 2>&1 &",
-  ]);
+  expect(modalMocks.exec).toHaveBeenCalledWith(
+    runAsRuntime("nohup bash -lc 'ttyd' >> /tmp/sandhop-spawn.log 2>&1 &"),
+  );
   expect(modalMocks.wait).not.toHaveBeenCalled();
 });
 
@@ -219,7 +243,7 @@ test("ModalSandboxProvider terminates a created sandbox when runtime lookup fail
   expect(modalMocks.terminate).toHaveBeenCalled();
 });
 
-test("ModalSandboxProvider rejects root Modal runtime", async () => {
+test("ModalSandboxProvider rejects root wrapped runtime", async () => {
   const { ModalSandboxProvider } = await loadProvider();
   modalMocks.exec.mockResolvedValueOnce({
     stdout: {

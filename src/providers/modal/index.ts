@@ -5,6 +5,7 @@ import type {
 import type { HostDeps } from "../../core/ports/host.js";
 import type {
   CreateOptions,
+  RunResult,
   Sandbox,
   SandboxInfo,
   SandboxProvider,
@@ -32,6 +33,13 @@ const MODAL_INSTALL_HINT =
 const MODAL_PACKAGE = "modal";
 const MODAL_SPAWN_LOG = "/tmp/sandhop-spawn.log";
 const LINUX_USERNAME = /^[a-z_][a-z0-9_-]{0,31}$/;
+
+type ModalRuntime = Pick<SandboxRuntime, "home" | "username">;
+interface ModalProcess {
+  stdout: { readText(): Promise<string> };
+  stderr: { readText(): Promise<string> };
+  wait(): Promise<number>;
+}
 
 const nodeImage = (): string => {
   const major = Number(process.versions.node.split(".", 1)[0]);
@@ -69,8 +77,62 @@ const buildModalDockerfileCommands = (runtime: SandboxRuntime): string[] => {
     `RUN ${createUser}`,
     `RUN printf '%s\\n' ${shellQuote(`${username} ALL=(ALL) NOPASSWD:ALL`)} > /etc/sudoers.d/sandhop-runtime && chmod 0440 /etc/sudoers.d/sandhop-runtime`,
     `ENV HOME=${home}`,
-    `USER ${username}`,
   ];
+};
+
+const modalRuntimeCommand = (runtime: ModalRuntime, cmd: string): string[] => [
+  "sudo",
+  "-H",
+  "-u",
+  runtime.username,
+  "env",
+  `HOME=${runtime.home}`,
+  "bash",
+  "-lc",
+  cmd,
+];
+
+const readModalProcess = async (process: ModalProcess): Promise<RunResult> => {
+  const [stdout, stderr, exitCode] = await Promise.all([
+    process.stdout.readText(),
+    process.stderr.readText(),
+    process.wait(),
+  ]);
+  return { exitCode, stdout, stderr };
+};
+
+const execModal = async (
+  sandbox: ModalSandboxInstance,
+  command: string[],
+  timeoutMs: number,
+): Promise<RunResult> => {
+  const process = await sandbox.exec(command, { timeoutMs });
+  return readModalProcess(process);
+};
+
+const readStoredModalRuntime = async (
+  sandbox: ModalSandboxInstance,
+): Promise<ModalRuntime> => {
+  const result = await execModal(
+    sandbox,
+    [
+      "bash",
+      "-lc",
+      `printf '%s\\n%s\\n' "$SANDHOP_RUNTIME_HOME" "$SANDHOP_RUNTIME_USER"`,
+    ],
+    COMMAND_TIMEOUT_MS,
+  );
+  if (result.exitCode !== 0)
+    throw new Error(
+      `Modal runtime env lookup failed: ${result.stderr.length > 0 ? result.stderr : result.stdout}`,
+    );
+  const [home, username] = result.stdout.trimEnd().split("\n");
+  if (home === undefined || username === undefined)
+    throw new Error(`Modal runtime env lookup failed: ${result.stdout}`);
+  return {
+    home: validateRuntimePath(home, "home"),
+    username: validateLinuxUsername(username),
+  };
 };
 
 const readModalRuntime = async (
@@ -91,7 +153,7 @@ const readModalRuntime = async (
 
 const assertModalRuntime = async (
   ops: SandboxOps,
-  runtime: SandboxRuntime,
+  runtime: ModalRuntime,
 ): Promise<string> => {
   const actual = await readModalRuntime(ops);
   if (actual.home !== runtime.home)
@@ -106,7 +168,10 @@ const assertModalRuntime = async (
   return actual.home;
 };
 
-const makeOps = (sandbox: ModalSandboxInstance): SandboxOps => ({
+const makeOps = (
+  sandbox: ModalSandboxInstance,
+  runtime: ModalRuntime,
+): SandboxOps => ({
   uploadFile: async (path, data) => {
     if (typeof data === "string")
       await sandbox.filesystem.writeText(data, path);
@@ -118,23 +183,20 @@ const makeOps = (sandbox: ModalSandboxInstance): SandboxOps => ({
   },
 
   exec: async (cmd, opts) => {
-    const process = await sandbox.exec(["bash", "-lc", cmd], {
-      timeoutMs: opts?.timeoutMs ?? COMMAND_TIMEOUT_MS,
-    });
-    const [stdout, stderr, exitCode] = await Promise.all([
-      process.stdout.readText(),
-      process.stderr.readText(),
-      process.wait(),
-    ]);
-    return { exitCode, stdout, stderr };
+    return execModal(
+      sandbox,
+      modalRuntimeCommand(runtime, cmd),
+      opts?.timeoutMs ?? COMMAND_TIMEOUT_MS,
+    );
   },
 
   spawn: async (cmd) => {
-    await sandbox.exec([
-      "bash",
-      "-lc",
-      `nohup bash -lc ${shellQuote(cmd)} >> ${MODAL_SPAWN_LOG} 2>&1 &`,
-    ]);
+    await sandbox.exec(
+      modalRuntimeCommand(
+        runtime,
+        `nohup bash -lc ${shellQuote(cmd)} >> ${MODAL_SPAWN_LOG} 2>&1 &`,
+      ),
+    );
   },
 
   exposePort: async (port) => {
@@ -172,13 +234,18 @@ export class ModalSandboxProvider implements SandboxProvider {
       command: ["sleep", "infinity"],
       cpu: MODAL_SANDBOX_CPU_CORES,
       encryptedPorts: opts.ports,
-      env: { ...opts.envs, HOME: opts.runtime.home },
+      env: {
+        ...opts.envs,
+        HOME: opts.runtime.home,
+        SANDHOP_RUNTIME_HOME: opts.runtime.home,
+        SANDHOP_RUNTIME_USER: opts.runtime.username,
+      },
       memoryMiB: MODAL_SANDBOX_MEMORY_MIB,
       timeoutMs: opts.timeoutMs,
       workdir: opts.runtime.workdir,
     });
     try {
-      const ops = makeOps(sandbox);
+      const ops = makeOps(sandbox, opts.runtime);
       return new GenericSandbox(
         sandbox.sandboxId,
         await assertModalRuntime(ops, opts.runtime),
@@ -192,11 +259,9 @@ export class ModalSandboxProvider implements SandboxProvider {
 
   async connect(id: string): Promise<Sandbox> {
     const sandbox = await (await this.client()).sandboxes.fromId(id);
-    const ops = makeOps(sandbox);
-    const runtime = await readModalRuntime(ops);
-    if (runtime.uid === "0")
-      throw new Error("Modal sandbox must not run as root");
-    return new GenericSandbox(id, runtime.home, ops);
+    const runtime = await readStoredModalRuntime(sandbox);
+    const ops = makeOps(sandbox, runtime);
+    return new GenericSandbox(id, await assertModalRuntime(ops, runtime), ops);
   }
 
   async list(): Promise<SandboxInfo[]> {
