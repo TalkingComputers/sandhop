@@ -73,18 +73,17 @@ const buildModalDockerfileCommands = (runtime: SandboxRuntime): string[] => {
     `chown -R ${owner} ${shellQuote(home)} ${shellQuote(workdir)}`,
   ].join(" && ");
   return [
-    "RUN apt-get update && apt-get install -y --no-install-recommends zstd sudo",
+    "RUN apt-get update && apt-get install -y --no-install-recommends zstd util-linux",
     `RUN ${createUser}`,
-    `RUN printf '%s\\n' ${shellQuote(`${username} ALL=(ALL) NOPASSWD:ALL`)} > /etc/sudoers.d/sandhop-runtime && chmod 0440 /etc/sudoers.d/sandhop-runtime`,
     `ENV HOME=${home}`,
   ];
 };
 
 const modalRuntimeCommand = (runtime: ModalRuntime, cmd: string): string[] => [
-  "sudo",
-  "-H",
+  "runuser",
   "-u",
   runtime.username,
+  "--",
   "env",
   `HOME=${runtime.home}`,
   "bash",
@@ -136,10 +135,16 @@ const readStoredModalRuntime = async (
 };
 
 const readModalRuntime = async (
-  ops: SandboxOps,
+  sandbox: ModalSandboxInstance,
+  runtime: ModalRuntime,
 ): Promise<{ home: string; uid: string; username: string }> => {
-  const result = await ops.exec(
-    `printf '%s\\n%s\\n%s\\n' "$HOME" "$(id -u)" "$(id -un)"`,
+  const result = await execModal(
+    sandbox,
+    modalRuntimeCommand(
+      runtime,
+      `printf '%s\\n%s\\n%s\\n' "$HOME" "$(id -u)" "$(id -un)"`,
+    ),
+    COMMAND_TIMEOUT_MS,
   );
   if (result.exitCode !== 0)
     throw new Error(
@@ -152,10 +157,10 @@ const readModalRuntime = async (
 };
 
 const assertModalRuntime = async (
-  ops: SandboxOps,
+  sandbox: ModalSandboxInstance,
   runtime: ModalRuntime,
 ): Promise<string> => {
-  const actual = await readModalRuntime(ops);
+  const actual = await readModalRuntime(sandbox, runtime);
   if (actual.home !== runtime.home)
     throw new Error(
       `Modal sandbox HOME mismatch: expected ${runtime.home} got ${actual.home}`,
@@ -185,7 +190,7 @@ const makeOps = (
   exec: async (cmd, opts) => {
     return execModal(
       sandbox,
-      modalRuntimeCommand(runtime, cmd),
+      ["bash", "-lc", cmd],
       opts?.timeoutMs ?? COMMAND_TIMEOUT_MS,
     );
   },
@@ -248,7 +253,7 @@ export class ModalSandboxProvider implements SandboxProvider {
       const ops = makeOps(sandbox, opts.runtime);
       return new GenericSandbox(
         sandbox.sandboxId,
-        await assertModalRuntime(ops, opts.runtime),
+        await assertModalRuntime(sandbox, opts.runtime),
         ops,
       );
     } catch (error: unknown) {
@@ -261,7 +266,11 @@ export class ModalSandboxProvider implements SandboxProvider {
     const sandbox = await (await this.client()).sandboxes.fromId(id);
     const runtime = await readStoredModalRuntime(sandbox);
     const ops = makeOps(sandbox, runtime);
-    return new GenericSandbox(id, await assertModalRuntime(ops, runtime), ops);
+    return new GenericSandbox(
+      id,
+      await assertModalRuntime(sandbox, runtime),
+      ops,
+    );
   }
 
   async list(): Promise<SandboxInfo[]> {
