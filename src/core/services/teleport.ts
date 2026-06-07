@@ -65,6 +65,38 @@ export interface TeleportServices {
 }
 
 const TTYD_SESSION = "sandhop";
+const TERMINAL_LOG = "/tmp/sandhop-terminal.log";
+
+const buildTerminalCommand = (
+  bind: string,
+  user: string,
+  pass: string,
+  command: string,
+): string => {
+  const bindFlag = bind === "0.0.0.0" ? "" : `-i ${shellQuote(bind)} `;
+  return `ttyd ${bindFlag}-p ${TTYD_PORT} -W -c ${shellQuote(`${user}:${pass}`)} ${command} >> ${TERMINAL_LOG} 2>&1`;
+};
+
+const verifyTerminalReady = async (sandbox: Sandbox): Promise<void> => {
+  const result = await sandbox.exec(
+    [
+      "i=0",
+      'while [ "$i" -lt 50 ]; do',
+      `  if pgrep -f ${shellQuote(`ttyd .*${TTYD_PORT}`)} >/dev/null 2>&1; then exit 0; fi`,
+      "  i=$((i+1))",
+      "  sleep 0.1",
+      "done",
+      'echo "[sandhop] terminal failed to start" >&2',
+      `if [ -f ${shellQuote(TERMINAL_LOG)} ]; then tail -n 80 ${shellQuote(TERMINAL_LOG)} >&2; fi`,
+      "exit 1",
+    ].join("\n"),
+    { timeoutMs: 10000 },
+  );
+  if (result.exitCode !== 0)
+    throw new Error(
+      `Terminal failed to start: ${result.stderr.length > 0 ? result.stderr : result.stdout}`,
+    );
+};
 
 const uploadModeFiles = async (
   bootstrap: BootstrapService,
@@ -148,6 +180,11 @@ export class TeleportService {
       envs,
       timeoutMs: opts.timeoutMs,
       ports: [TTYD_PORT],
+      runtime: {
+        home: this.services.host.home,
+        username: this.services.host.username,
+        workdir: cwd,
+      },
     });
     try {
       opts.onProgress?.({ step: PushProgressId.UploadingBundle });
@@ -221,14 +258,12 @@ export class TeleportService {
         this.services.host.env.MCP_TIMEOUT,
       );
       const bind = opts.transport.ttydBindAddress();
-      const bindFlag = bind === "0.0.0.0" ? "" : `-i ${shellQuote(bind)} `;
       const command = this.services.multiplexer.attach(
         TTYD_SESSION,
         `bash -lc ${shellQuote(resume)}`,
       );
-      await sandbox.spawn(
-        `ttyd ${bindFlag}-p ${TTYD_PORT} -W -c ${shellQuote(`${user}:${pass}`)} ${command}`,
-      );
+      await sandbox.spawn(buildTerminalCommand(bind, user, pass, command));
+      await verifyTerminalReady(sandbox);
       const { url } = await opts.transport.expose({
         sandbox,
         localPort: TTYD_PORT,

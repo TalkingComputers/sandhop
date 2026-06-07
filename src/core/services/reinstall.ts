@@ -8,7 +8,7 @@ import {
 } from "../../agents/claude-paths.js";
 import type { Agent } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
-import { isRecord } from "../json.js";
+import { readJsonRecord } from "../json.js";
 import { dirname, listSkillNames } from "../paths.js";
 import { quoteShellPath, shellQuote } from "../shell.js";
 import {
@@ -27,23 +27,6 @@ import {
 export interface ReinstallPlan {
   commands: string[];
 }
-
-const readJsonRecord = (
-  host: HostDeps,
-  path: string,
-): Record<string, unknown> | null => {
-  const text = host.readFile(path);
-  if (text === null) return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text) as unknown;
-  } catch (error: unknown) {
-    if (error instanceof SyntaxError) return null;
-    throw error;
-  }
-  if (!isRecord(parsed)) throw new Error(`Expected JSON object at ${path}`);
-  return parsed;
-};
 
 const inRemoteDir = (remoteDir: string, cmd: string): string =>
   `cd ${quoteShellPath(remoteDir)} && ${cmd}`;

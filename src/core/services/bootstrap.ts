@@ -9,11 +9,9 @@ import {
   buildPruneMcpTablesScript,
 } from "../sandbox-scripts.js";
 import {
-  LOW_PRIORITY_SETUP,
   SUDO_SETUP,
   nonFatal,
   quoteHomePath,
-  runLowPriority,
   shellLog,
   shellQuote,
 } from "../shell.js";
@@ -79,11 +77,11 @@ const renderMcpCode = (codePlan: CodePlan | null | undefined): string[] => {
       : []),
   ];
   return [
-    ...runtimes.map((cmd) => nonFatal(runLowPriority(cmd))),
+    ...runtimes.map((cmd) => nonFatal(cmd)),
     ...(runtimes.length === 0
       ? []
       : ['export PATH="$HOME/.bun/bin:$HOME/.local/bin:$PATH"']),
-    ...codePlan.installCmds.map((cmd) => nonFatal(runLowPriority(cmd))),
+    ...codePlan.installCmds.map((cmd) => nonFatal(cmd)),
   ];
 };
 
@@ -129,6 +127,17 @@ export class BootstrapService {
         `Path prep failed for ${dirname(path)}: stderr=${JSON.stringify(prep.stderr)} stdout=${JSON.stringify(prep.stdout)}`,
       );
     await sandbox.uploadFile(path, content);
+    const ownership = await sandbox.exec(
+      [
+        "set -e",
+        SUDO_SETUP,
+        `$SUDO chown "$(id -u):$(id -g)" ${shellQuote(path)}`,
+      ].join("\n"),
+    );
+    if (ownership.exitCode !== 0)
+      throw new Error(
+        `Path ownership failed for ${path}: stderr=${JSON.stringify(ownership.stderr)} stdout=${JSON.stringify(ownership.stdout)}`,
+      );
   }
 
   render(manifest: Manifest, opts: BootstrapOptions): string {
@@ -162,7 +171,7 @@ export class BootstrapService {
   }
 
   renderEnrichmentSetup(): string {
-    return ["set -e", SUDO_SETUP, LOW_PRIORITY_SETUP, ZSTD_INSTALL].join("\n");
+    return ["set -e", SUDO_SETUP, ZSTD_INSTALL].join("\n");
   }
 
   renderEnrichmentConfig(opts: EnrichmentBootstrapOptions): string {
@@ -182,7 +191,6 @@ export class BootstrapService {
   renderEnrichmentInstalls(opts: EnrichmentBootstrapOptions): string {
     return [
       SUDO_SETUP,
-      LOW_PRIORITY_SETUP,
       nonFatal(ZSTD_INSTALL),
       ...renderMcpCode(opts.codePlan),
     ].join("\n");
@@ -191,21 +199,18 @@ export class BootstrapService {
   renderSettingsScriptInstalls(plan: ScriptCapturePlan | null): string {
     if (plan === null || plan.installCmds.length === 0)
       return 'echo "[sandhop] settings script installs skipped"';
-    return [
-      SUDO_SETUP,
-      LOW_PRIORITY_SETUP,
-      ...plan.installCmds.map((cmd) => nonFatal(runLowPriority(cmd))),
-    ].join("\n");
+    return [SUDO_SETUP, ...plan.installCmds.map((cmd) => nonFatal(cmd))].join(
+      "\n",
+    );
   }
 
   renderReinstall(commands: string[]): string {
     if (commands.length === 0) return 'echo "[sandhop] reinstall skipped"';
     return [
-      LOW_PRIORITY_SETUP,
       "export CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1",
       ...commands.map(
         (command) =>
-          `$SANDHOP_LOW_PRIORITY timeout ${REINSTALL_CMD_TIMEOUT_SECONDS} sh -lc ${shellQuote(command)} || { echo "[sandhop] reinstall step failed: ${shellLog(command)}" >&2; true; }`,
+          `timeout ${REINSTALL_CMD_TIMEOUT_SECONDS} sh -lc ${shellQuote(command)} || { echo "[sandhop] reinstall step failed: ${shellLog(command)}" >&2; true; }`,
       ),
     ].join("\n");
   }

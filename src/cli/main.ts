@@ -78,13 +78,13 @@ const formatStrictFailure = (
 const createPushReporter = (tty: boolean): PushReporter => {
   if (!tty)
     return {
-      onPushProgress: (event): void => console.error(formatPushProgress(event)),
+      onPushProgress: (event): void => console.log(formatPushProgress(event)),
       onEnrichmentProgress: (event): void => {
         if (event.kind === "enrichStep") {
-          console.error(formatEnrichmentProgress(event));
+          console.log(formatEnrichmentProgress(event));
           return;
         }
-        console.error(
+        console.log(
           `${event.transfer.label} ${event.transfer.phase} ${event.transfer.bytesDone}/${event.transfer.bytesTotal}`,
         );
       },

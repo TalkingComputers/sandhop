@@ -107,6 +107,11 @@ test("TeleportService fans out collection, transfers one zstd bundle, and starts
       envs: { MCP_TOKEN: "mcp-token", ANTHROPIC_API_KEY: "sk-ant-api03-test" },
       timeoutMs: 3_600_000,
       ports: [TTYD_PORT],
+      runtime: {
+        home: "/home/local",
+        username: "host-user",
+        workdir: "/workspace/project",
+      },
     },
   ]);
   expect(provider.sandbox.pathUploads).toEqual([
@@ -168,7 +173,12 @@ test("TeleportService fans out collection, transfers one zstd bundle, and starts
   expect(provider.sandbox.spawns[0]).toContain("'\\''session-id'\\''");
   expect(provider.sandbox.spawns[0]).not.toContain("MCP_TIMEOUT=");
   expect(provider.sandbox.spawns[0]).not.toContain("for f in");
-  expect(provider.sandbox.execs).toHaveLength(3);
+  expect(provider.sandbox.spawns[0]).toContain(
+    ">> /tmp/sandhop-terminal.log 2>&1",
+  );
+  expect(provider.sandbox.execs[3]).toContain("pgrep -f");
+  expect(provider.sandbox.execs[3]).toContain("/tmp/sandhop-terminal.log");
+  expect(provider.sandbox.execs).toHaveLength(4);
   expect(provider.sandbox.execs[2]).not.toContain("profile");
   expect(provider.sandbox.execs[2]).not.toContain("mcp");
   expect(provider.sandbox.exposedPorts).toEqual([TTYD_PORT]);

@@ -3,9 +3,9 @@ import { tmpdir } from "node:os";
 import {
   dirname,
   expandHome,
+  joinPath,
   listSkillNames,
   makeTempPath,
-  normalizePath,
 } from "../../src/core/paths.js";
 import { FakeHost } from "../fakes/host.js";
 
@@ -32,9 +32,9 @@ test("home path functions expand provided homes", () => {
   expect(tempPath.endsWith("-profile")).toBe(true);
 });
 
-test("normalizePath collapses POSIX dot segments", () => {
-  expect(normalizePath("/tmp/./a/../b")).toBe("/tmp/b");
-  expect(normalizePath("tmp/./a/../b")).toBe("tmp/b");
+test("joinPath uses POSIX path semantics", () => {
+  expect(joinPath("/tmp", "./a/../b")).toBe("/tmp/b");
+  expect(joinPath(".", "tmp/./a/../b")).toBe("tmp/b");
 });
 
 test("listSkillNames returns sorted first-level skill directories", () => {

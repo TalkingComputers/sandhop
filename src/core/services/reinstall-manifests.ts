@@ -1,6 +1,6 @@
 import { isRecord } from "../json.js";
 
-export type PluginScope = "user" | "project";
+export type PluginScope = "user" | "project" | "local";
 
 export interface PluginInstall {
   name: string;
@@ -42,18 +42,14 @@ export const readPluginInstalls = (
           `Expected plugin install record at ${path} for ${name}`,
         );
       const scope = record.scope;
-      if (scope !== "user" && scope !== "project")
+      if (scope !== "user" && scope !== "project" && scope !== "local")
         throw new Error(
-          `Expected plugin scope user or project at ${path} for ${name}`,
+          `Expected plugin scope user, project, or local at ${path} for ${name}`,
         );
       installs.push({ name, scope });
     }
   }
-  return [
-    ...new Map(
-      installs.map((install) => [`${install.name}\0${install.scope}`, install]),
-    ).values(),
-  ];
+  return installs;
 };
 
 export const readDisabledPlugins = (path: string, value: unknown): string[] => {

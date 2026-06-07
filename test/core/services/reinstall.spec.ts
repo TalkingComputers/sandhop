@@ -276,6 +276,41 @@ test("ReinstallService treats corrupt marketplaces JSON as absent", () => {
   ]);
 });
 
+test("ReinstallService plans local-scope Claude plugin installs", () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: {
+      "/home/local/.claude/plugins/installed_plugins.json": JSON.stringify({
+        plugins: { "serena@official": [{ scope: "local" }] },
+      }),
+    },
+  });
+
+  expect(new ReinstallService(host, CLAUDE_CODE).plan().commands).toEqual([
+    "claude plugin install 'serena@official' --scope local",
+  ]);
+});
+
+test("ReinstallService preserves duplicate Claude plugin install records", () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: {
+      "/home/local/.claude/plugins/installed_plugins.json": JSON.stringify({
+        plugins: {
+          "serena@official": [{ scope: "user" }, { scope: "user" }],
+        },
+      }),
+    },
+  });
+
+  expect(new ReinstallService(host, CLAUDE_CODE).plan().commands).toEqual([
+    "claude plugin install 'serena@official' --scope user",
+    "claude plugin install 'serena@official' --scope user",
+  ]);
+});
+
 test.each([
   [
     "empty@official",
@@ -285,12 +320,12 @@ test.each([
   [
     "bad-scope@official",
     [{ scope: "workspace" }],
-    "Expected plugin scope user or project at /home/local/.claude/plugins/installed_plugins.json for bad-scope@official",
+    "Expected plugin scope user, project, or local at /home/local/.claude/plugins/installed_plugins.json for bad-scope@official",
   ],
   [
     "missing-scope@official",
     [{}],
-    "Expected plugin scope user or project at /home/local/.claude/plugins/installed_plugins.json for missing-scope@official",
+    "Expected plugin scope user, project, or local at /home/local/.claude/plugins/installed_plugins.json for missing-scope@official",
   ],
   [
     "bad-record@official",

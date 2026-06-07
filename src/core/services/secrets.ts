@@ -5,7 +5,7 @@ import {
   joinClaudeLocalPath,
 } from "../../agents/claude-paths.js";
 import { collectEnvRefs } from "../env.js";
-import { isRecord, parseJsonRecord } from "../json.js";
+import { isRecord, readJsonRecord } from "../json.js";
 import type { Agent } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
 import { mapHomePath } from "./mcp-paths.js";
@@ -45,14 +45,6 @@ const SYSTEM_ENV_NAMES = new Set([
   "MAIL",
   "_",
 ]);
-
-const readJsonRecord = (
-  host: HostDeps,
-  path: string,
-): Record<string, unknown> | null => {
-  const text = host.readFile(path);
-  return text === null ? null : parseJsonRecord(text);
-};
 
 const readDisabledPlugins = (host: HostDeps): Set<string> => {
   const settings = readJsonRecord(

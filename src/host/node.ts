@@ -127,7 +127,10 @@ export class NodeHost implements HostDeps {
   }
 
   exec(bin: string, args: string[]): string {
-    return execFileSync(bin, args, { encoding: "utf8" });
+    return execFileSync(bin, args, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
   }
 
   async spawnPipe(cmd: string): Promise<void> {

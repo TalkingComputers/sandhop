@@ -123,11 +123,10 @@ cwd = "/home/local/mcp"
   );
   expect(host.copyCalls[0]!.excludes).toEqual(["node_modules"]);
   const execLog = sandbox.execs.join("\n");
-  expect(execLog).toContain('SANDHOP_LOW_PRIORITY="nice -n 19"');
-  expect(execLog).toContain("nice -n 19 ionice -c3");
-  expect(execLog).toContain(
-    "$SANDHOP_LOW_PRIORITY sh -lc 'cd '\\''/home/user/mcp'\\'' && npm ci'",
-  );
+  expect(execLog).not.toContain(["SANDHOP", "LOW", "PRIORITY"].join("_"));
+  expect(execLog).not.toContain(["nice", "-n"].join(" "));
+  expect(execLog).not.toContain(["io", "nice"].join(""));
+  expect(execLog).toContain("cd '/home/user/mcp' && npm ci");
   expect(execLog).toContain('cat >> "$HOME/.codex/config.toml"');
   expect(execLog).toContain("/home/user/mcp/server.js");
   expect(execLog).toContain("[sandhop] enrichment summary");
@@ -198,9 +197,7 @@ test("runEnrichment keeps best-effort steps isolated and marks completion after 
   expect(mcpIndex).toBeGreaterThan(profileIndex);
   expect(markerIndex).toBeGreaterThan(mcpIndex);
   expect(log).toContain("[sandhop] step failed: mcp_code_transfer");
-  expect(log).not.toContain(
-    "$SANDHOP_LOW_PRIORITY sh -lc 'cd '\\''/home/user/mcp'\\'' && npm ci'",
-  );
+  expect(log).not.toContain("cd '/home/user/mcp' && npm ci");
   expect(log).toContain("[sandhop] enrichment summary");
 });
 

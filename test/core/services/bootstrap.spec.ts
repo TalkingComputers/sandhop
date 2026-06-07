@@ -10,6 +10,7 @@ import { buildManifest } from "../../../src/core/manifest.js";
 import type { Agent } from "../../../src/core/ports/agent.js";
 import { EnrichmentStepId } from "../../../src/core/ports/progress.js";
 import type { CodePlan } from "../../../src/core/services/mcp-code.js";
+import { FakeSandbox } from "../../fakes/provider.js";
 
 const tmuxMultiplexer = {
   id: "tmux",
@@ -45,6 +46,27 @@ test("BootstrapService project prep sudo-creates and owns remote project before 
     "$SUDO chown -R \"$(id -u):$(id -g)\" '/private/tmp/sandhop-codex2'",
   ]);
   expect(bootstrap.renderProjectPrep(manifest)).toBe(script);
+});
+
+test("BootstrapService prepAndUpload owns uploaded files after provider writes", async () => {
+  const bootstrap = createBootstrap(CLAUDE_CODE);
+  const sandbox = new FakeSandbox("sbx", "/Users/local");
+
+  await bootstrap.prepAndUpload(
+    sandbox,
+    "/Users/local/.claude/.credentials.json",
+    "{}",
+  );
+
+  expect(sandbox.uploads).toEqual([
+    { path: "/Users/local/.claude/.credentials.json", data: "{}" },
+  ]);
+  expect(sandbox.execs).toEqual([
+    expect.stringContaining("$SUDO mkdir -p '/Users/local/.claude'"),
+    expect.stringContaining(
+      `$SUDO chown "$(id -u):$(id -g)" '/Users/local/.claude/.credentials.json'`,
+    ),
+  ]);
 });
 
 test("BootstrapService core installs exact CLI version, places transcript, and installs tmux after ttyd before project prep and zstd", () => {
@@ -194,17 +216,12 @@ test("BootstrapService enrichment installs runtimes and deps, writes rewritten M
   expect(script).toContain("command -v dnf >/dev/null && dnf install -y zstd");
   expect(script).toContain("command -v apk >/dev/null && apk add zstd");
   expect(script).toContain("command -v yum >/dev/null && yum install -y zstd");
-  expect(script).toContain('SANDHOP_LOW_PRIORITY="nice -n 19"');
-  expect(script).toContain("nice -n 19 ionice -c3");
-  expect(script).toContain(
-    "$SANDHOP_LOW_PRIORITY sh -lc 'curl -fsSL https://bun.sh/install | bash'",
-  );
-  expect(script).toContain(
-    "$SANDHOP_LOW_PRIORITY sh -lc 'curl -LsSf https://astral.sh/uv/install.sh | sh'",
-  );
-  expect(script).toContain(
-    "$SANDHOP_LOW_PRIORITY sh -lc 'cd '\\''/home/user/mcp'\\'' && npm ci'",
-  );
+  expect(script).not.toContain(["SANDHOP", "LOW", "PRIORITY"].join("_"));
+  expect(script).not.toContain(["nice", "-n"].join(" "));
+  expect(script).not.toContain(["io", "nice"].join(""));
+  expect(script).toContain("curl -fsSL https://bun.sh/install | bash");
+  expect(script).toContain("curl -LsSf https://astral.sh/uv/install.sh | sh");
+  expect(script).toContain("cd '/home/user/mcp' && npm ci");
   expect(script).toContain("set -e");
   expect(script).toContain("node -e");
   expect(script).toContain("$HOME/.claude.json");
@@ -230,7 +247,7 @@ test("BootstrapService wraps each reinstall command with a bounded timeout", () 
   ]);
 
   expect(script).toContain(
-    "$SANDHOP_LOW_PRIORITY timeout 180 sh -lc 'echo one' || { echo \"[sandhop] reinstall step failed: echo one\" >&2; true; }",
+    "timeout 180 sh -lc 'echo one' || { echo \"[sandhop] reinstall step failed: echo one\" >&2; true; }",
   );
   expect(script).toContain("timeout 180 sh -lc 'echo '\\''two'\\'''");
   expect(script).toContain("export CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1");

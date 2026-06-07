@@ -1,5 +1,5 @@
 import type { HostDeps } from "../ports/host.js";
-import { dirname, joinPath, normalizePath } from "../paths.js";
+import { dirname, joinPath } from "../paths.js";
 import { maybeRealpath } from "./mcp-paths.js";
 
 export interface GitSkill {
@@ -20,9 +20,9 @@ export interface SymlinkSkillSource {
 }
 
 export const readLinkedPath = (path: string, target: string): string =>
-  normalizePath(
-    target.startsWith("/") ? target : joinPath(dirname(path), target),
-  );
+  target.startsWith("/")
+    ? joinPath("/", target)
+    : joinPath(dirname(path), target);
 
 export const readGitHead = (host: HostDeps, localDir: string): string =>
   host.exec("git", ["-C", localDir, "rev-parse", "HEAD"]).trim();

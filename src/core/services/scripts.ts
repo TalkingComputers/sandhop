@@ -3,7 +3,7 @@ import {
   joinClaudeLocalPath,
 } from "../../agents/claude-paths.js";
 import { isRecord } from "../json.js";
-import { expandEnv, joinPath, normalizePath } from "../paths.js";
+import { expandEnv, joinPath } from "../paths.js";
 import type { HostDeps } from "../ports/host.js";
 import { installCmd } from "./mcp-classify.js";
 import {
@@ -55,8 +55,8 @@ const expandTokenPath = (
 ): string => {
   const expanded = expandEnv(token, host.home, host.env);
   if (expanded.startsWith("./") || expanded.startsWith("../"))
-    return normalizePath(joinPath(cwd, expanded));
-  return normalizePath(expanded);
+    return joinPath(cwd, expanded);
+  return joinPath("/", expanded);
 };
 
 const readScriptRoot = (host: HostDeps, localPath: string): string => {

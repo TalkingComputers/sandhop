@@ -6,6 +6,7 @@ import { buildHost } from "../../src/cli/host.js";
 import { withRuntimeDefaults } from "../../src/cli/main.js";
 import {
   EnrichmentStepId,
+  PushProgressId,
   type EnrichmentProgressListener,
 } from "../../src/core/ports/progress.js";
 import { NodeHost } from "../../src/host/node.js";
@@ -66,7 +67,7 @@ test("main keeps progress reporting behind reporter methods", () => {
   expect(source.match(/hasFailedStep\(enrichment\)/g)).toHaveLength(1);
 });
 
-test("main runs enrichment inline before printing push output", async () => {
+test("main streams non-TTY progress to stdout before printing push output", async () => {
   const transcript =
     "/home/local/.codex/sessions/2026/06/05/rollout-2026-06-05T00-00-00-session.jsonl";
   const host = new FakeHost({
@@ -91,21 +92,37 @@ test("main runs enrichment inline before printing push output", async () => {
     buildProvider: () => provider,
   }));
   const sandbox = { id: "sbx-1", home: "/home/user" };
-  const runEnrichment = vi.fn(async () => [
-    { step: EnrichmentStepId.Setup, ok: true },
-  ]);
+  const runEnrichment = vi.fn(
+    async (
+      argsValue: unknown,
+      hostValue: unknown,
+      sandboxValue: unknown,
+      onEvent: EnrichmentProgressListener,
+    ) => {
+      onEvent({
+        kind: "enrichStep",
+        step: EnrichmentStepId.Setup,
+        status: "ok",
+      });
+      return [{ step: EnrichmentStepId.Setup, ok: true }];
+    },
+  );
   vi.doMock("../../src/cli/enrich.js", () => ({
     runEnrichment,
   }));
   vi.doMock("../../src/core/services/teleport.js", () => ({
     TeleportService: class {
-      async run(): Promise<{
+      async run(
+        cwd: string,
+        opts: { onProgress?: (event: { step: PushProgressId }) => void },
+      ): Promise<{
         url: string;
         sandboxId: string;
         user: string;
         pass: string;
         sandbox: typeof sandbox;
       }> {
+        opts.onProgress?.({ step: PushProgressId.Snapshotting });
         return {
           url: "https://sandbox.example",
           sandboxId: "sbx-1",
@@ -119,7 +136,13 @@ test("main runs enrichment inline before printing push output", async () => {
   const log = vi
     .spyOn(console, "log")
     .mockImplementation((): void => undefined);
-  vi.spyOn(console, "error").mockImplementation((): void => undefined);
+  const error = vi
+    .spyOn(console, "error")
+    .mockImplementation((): void => undefined);
+  Object.defineProperty(process.stdout, "isTTY", {
+    configurable: true,
+    value: false,
+  });
   vi.spyOn(process, "exit").mockImplementation(
     (code?: string | number | null | undefined): never => {
       throw new Error(`exit ${String(code)}`);
@@ -147,9 +170,12 @@ test("main runs enrichment inline before printing push output", async () => {
   ).rejects.toThrow("exit 0");
 
   expect(log.mock.calls.map((call) => call[0])).toEqual([
+    "Snapshotting session",
+    "Preparing",
     "SANDHOP_URL https://sandbox.example",
     "SANDHOP_AUTH user:pass",
   ]);
+  expect(error).not.toHaveBeenCalled();
   expect(provider.connect).not.toHaveBeenCalled();
   expect(runEnrichment).toHaveBeenCalledWith(
     {

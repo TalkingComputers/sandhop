@@ -4,28 +4,7 @@ import type { HostDeps } from "./ports/host.js";
 
 export const dirname = posix.dirname;
 export const basename = posix.basename;
-
-export const joinPath = (dir: string, path: string): string => {
-  if (dir === ".") return path;
-  if (dir === "/") return `/${path}`;
-  return `${dir}/${path}`;
-};
-
-export const normalizePath = (path: string): string => {
-  const absolute = path.startsWith("/");
-  const parts: string[] = [];
-  for (const part of path.split("/")) {
-    if (part === "" || part === ".") continue;
-    if (part === "..") {
-      parts.pop();
-      continue;
-    }
-    parts.push(part);
-  }
-  const normalized = parts.join("/");
-  if (absolute) return `/${normalized}`;
-  return normalized;
-};
+export const joinPath = posix.join;
 
 export const expandHome = (path: string, home: string): string =>
   path

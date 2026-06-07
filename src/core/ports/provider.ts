@@ -8,10 +8,17 @@ export interface ExecOptions {
   timeoutMs?: number;
 }
 
+export interface SandboxRuntime {
+  home: string;
+  username: string;
+  workdir: string;
+}
+
 export interface CreateOptions {
   envs: Record<string, string>;
   timeoutMs: number;
   ports: number[];
+  runtime: SandboxRuntime;
 }
 
 export interface ExposedPort {

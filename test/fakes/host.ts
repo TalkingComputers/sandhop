@@ -1,22 +1,8 @@
 import type { HostDeps } from "../../src/core/ports/host.js";
 import { createHash } from "node:crypto";
+import { posix } from "node:path";
 
 const encoder = new TextEncoder();
-
-const normalizePath = (path: string): string =>
-  path
-    .split("/")
-    .reduce<string[]>((parts, part) => {
-      if (part === "" && parts.length === 0) return [""];
-      if (part === "" || part === ".") return parts;
-      if (part === "..") {
-        parts.pop();
-        return parts;
-      }
-      parts.push(part);
-      return parts;
-    }, [])
-    .join("/");
 
 const hasExcludedSegment = (path: string, excludes: string[]): boolean => {
   const segments = path.split("/");
@@ -90,7 +76,7 @@ export class FakeHost implements HostDeps {
       const target = this.symlinks[link]!;
       const dir = link.slice(0, link.lastIndexOf("/"));
       const realTarget = target.startsWith("/") ? target : `${dir}/${target}`;
-      linked = normalizePath(`${realTarget}${linked.slice(link.length)}`);
+      linked = posix.join("/", `${realTarget}${linked.slice(link.length)}`);
     }
     throw new Error(`symlink cycle ${path}`);
   }
