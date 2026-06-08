@@ -6,9 +6,12 @@ import { EnrichmentStepId } from "../ports/progress.js";
 import { execShell, type Sandbox } from "../ports/provider.js";
 import { quote } from "shell-quote";
 import {
+  buildNodeScript,
   buildMergeClaudeMcpScript,
-  buildPruneMcpTablesScript,
+  buildCodexMcpConfigScript,
   renderNodeScript,
+  uploadNodeScripts,
+  type NodeScript,
 } from "../sandbox-scripts.js";
 import type { CodePlan } from "./mcp-code.js";
 import type { ScriptCapturePlan } from "./scripts.js";
@@ -38,26 +41,31 @@ const REINSTALL_CMD_TIMEOUT_SECONDS = 180;
 const shellPath = (path: string): string =>
   path.startsWith("$HOME") ? `"${path}"` : quote([path]);
 
+const buildMcpConfigScripts = (
+  config: ReturnType<Agent["formatMcpConfig"]>,
+): NodeScript[] =>
+  config.mode === "merge-claude-json"
+    ? [
+        buildNodeScript(
+          buildMergeClaudeMcpScript(config.path, config.content),
+          "MCP_MERGE",
+        ),
+      ]
+    : [
+        buildNodeScript(
+          buildCodexMcpConfigScript(config.path, config.content),
+          "MCP_WRITE",
+        ),
+      ];
+
 const renderMcpConfig = (agent: Agent, codePlan: CodePlan): string[] => {
   if (codePlan.rewrites.length === 0) return [];
   const config = agent.formatMcpConfig(codePlan.rewrites);
   const dir = dirname(config.path);
+  const scripts = buildMcpConfigScripts(config);
   if (config.mode === "merge-claude-json")
-    return [
-      `mkdir -p ${shellPath(dir)}`,
-      ...renderNodeScript(
-        buildMergeClaudeMcpScript(config.path, config.content),
-        "MCP_MERGE",
-      ),
-    ];
-  const delimiter = `SANDHOP_MCP_CONFIG_${Date.now()}`;
-  return [
-    `mkdir -p ${shellPath(dir)}`,
-    ...renderNodeScript(buildPruneMcpTablesScript(config.path), "MCP_PRUNE"),
-    `cat >> ${shellPath(config.path)} <<'${delimiter}'`,
-    config.content.trimEnd(),
-    delimiter,
-  ];
+    return [`mkdir -p ${shellPath(dir)}`, ...scripts.flatMap(renderNodeScript)];
+  return [`mkdir -p ${shellPath(dir)}`, ...scripts.flatMap(renderNodeScript)];
 };
 
 const renderMcpExcluded = (codePlan: CodePlan): string[] =>
@@ -143,6 +151,25 @@ export class BootstrapService {
       );
   }
 
+  async uploadRestoreScripts(
+    sandbox: Sandbox,
+    manifest: Manifest,
+  ): Promise<void> {
+    await uploadNodeScripts(sandbox, this.agent.preSeed(manifest.remoteProj));
+  }
+
+  async uploadEnrichmentScripts(
+    sandbox: Sandbox,
+    opts: EnrichmentBootstrapOptions,
+  ): Promise<void> {
+    if (opts.codePlan === null || opts.codePlan === undefined) return;
+    if (opts.codePlan.rewrites.length === 0) return;
+    await uploadNodeScripts(
+      sandbox,
+      buildMcpConfigScripts(this.agent.formatMcpConfig(opts.codePlan.rewrites)),
+    );
+  }
+
   render(manifest: Manifest, opts: BootstrapOptions): string {
     const installCmd = this.agent.installCmd(manifest.cliVersion);
     const dest = this.agent.remoteTranscriptPath(
@@ -157,7 +184,7 @@ export class BootstrapService {
       ...this.multiplexer.install(),
       ...(opts.transportSteps ?? []),
       installCmd,
-      ...this.agent.preSeed(manifest.remoteProj),
+      ...this.agent.preSeed(manifest.remoteProj).flatMap(renderNodeScript),
       `git config --global --add safe.directory ${quote([manifest.remoteProj])}`,
       ...(opts.gitUserName === undefined
         ? []

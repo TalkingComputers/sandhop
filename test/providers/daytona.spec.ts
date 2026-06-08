@@ -223,6 +223,30 @@ test("DaytonaSandboxProvider rejects invalid runtime before sandbox create", asy
   expect(daytonaMocks.create).not.toHaveBeenCalled();
 });
 
+test("DaytonaSandboxProvider runs non-bash exec env through env argv", async () => {
+  const { DaytonaSandboxProvider } = await loadProvider();
+  const provider = new DaytonaSandboxProvider(
+    new FakeHost({ home: "/home/local", env: { DAYTONA_API_KEY: "api-key" } }),
+  );
+  const sandbox = await provider.create({
+    envs: {},
+    timeoutMs: 600000,
+    ports: [],
+    runtime: RUNTIME,
+  });
+
+  await sandbox.exec("node", ["-e", "process.stdout.write(process.env.HOME)"]);
+
+  const command = (
+    daytonaMocks.executeSessionCommand.mock.calls[0]![1] as { command: string }
+  ).command;
+  expect(command).toContain("cd /workspace/project && env HOME\\=/home/local ");
+  expect(command).toContain(
+    "SANDHOP_RUNTIME_WORKDIR\\=/workspace/project node -e",
+  );
+  expect(command).not.toContain("&& HOME\\=/home/local ");
+});
+
 test("DaytonaSandboxProvider spawn backgrounds commands without a session", async () => {
   const { DaytonaSandboxProvider } = await loadProvider();
   const provider = new DaytonaSandboxProvider(

@@ -4,8 +4,8 @@ import { isRecord, parseJsonRecord } from "../core/json.js";
 import { basename } from "../core/paths.js";
 import { quote } from "shell-quote";
 import {
+  buildNodeScript,
   buildClaudePreSeedScript,
-  renderNodeScript,
 } from "../core/sandbox-scripts.js";
 import type {
   Agent,
@@ -293,8 +293,9 @@ export const CLAUDE_CODE: Agent = {
   installCmd: (version) => `npm i -g @anthropic-ai/claude-code@${version}`,
   supportsSettingsScripts: () => true,
   supportsReinstall: () => true,
-  preSeed: (remoteProj) =>
-    renderNodeScript(buildClaudePreSeedScript(remoteProj), "CLAUDE_PRESEED"),
+  preSeed: (remoteProj) => [
+    buildNodeScript(buildClaudePreSeedScript(remoteProj), "CLAUDE_PRESEED"),
+  ],
   remoteTranscriptPath: (home, remoteEnc, transcriptName) =>
     `${home}/${CLAUDE_PROJECTS_PATH}/${remoteEnc}/${transcriptName}`,
   projectMemoryDir: (home, remoteEnc) =>

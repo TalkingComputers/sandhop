@@ -273,6 +273,7 @@ export class TeleportService {
         packageName: this.agent.pkg,
         version: manifest.cliVersion,
       });
+      await this.services.bootstrap.uploadRestoreScripts(sandbox, manifest);
       const restore = await execShell(
         sandbox,
         this.services.bootstrap.render(manifest, {

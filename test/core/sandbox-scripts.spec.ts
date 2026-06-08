@@ -12,8 +12,8 @@ import { expect, test } from "vitest";
 import {
   buildClaudePreSeedScript,
   buildCodexPreSeedScript,
+  buildCodexMcpConfigScript,
   buildMergeClaudeMcpScript,
-  buildPruneMcpTablesScript,
 } from "../../src/core/sandbox-scripts.js";
 
 interface ClaudeJson {
@@ -128,7 +128,7 @@ test("buildCodexPreSeedScript writes auth store and trust while preserving user 
   expect(text).not.toContain('sandbox_mode = "danger-full-access"');
 });
 
-test("buildPruneMcpTablesScript removes stale Codex MCP tables", () => {
+test("buildCodexMcpConfigScript replaces stale Codex MCP tables", () => {
   const home = mkdtempSync(join(tmpdir(), "sandhop-prune-mcp-"));
   mkdirSync(join(home, ".codex"), { recursive: true });
   const config = join(home, ".codex", "config.toml");
@@ -149,9 +149,15 @@ test("buildPruneMcpTablesScript removes stale Codex MCP tables", () => {
     ].join("\n"),
   );
 
-  runNodeScript(buildPruneMcpTablesScript("$HOME/.codex/config.toml"), {
-    HOME: home,
-  });
+  runNodeScript(
+    buildCodexMcpConfigScript(
+      "$HOME/.codex/config.toml",
+      ["[mcp_servers.fresh]", 'command = "node"', ""].join("\n"),
+    ),
+    {
+      HOME: home,
+    },
+  );
 
   expect(readFileSync(config, "utf8")).toBe(
     [
@@ -159,6 +165,8 @@ test("buildPruneMcpTablesScript removes stale Codex MCP tables", () => {
       "",
       '[projects."/workspace/project"]',
       'trust_level = "trusted"',
+      "[mcp_servers.fresh]",
+      'command = "node"',
       "",
     ].join("\n"),
   );

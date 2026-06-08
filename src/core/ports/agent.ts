@@ -1,4 +1,5 @@
 import type { HostDeps } from "./host.js";
+import type { NodeScript } from "../sandbox-scripts.js";
 
 export type AgentId = "claude-code" | "codex";
 
@@ -80,7 +81,7 @@ export interface Agent {
   installCmd(version: string): string;
   supportsSettingsScripts(): boolean;
   supportsReinstall(): boolean;
-  preSeed(remoteProj: string): string[];
+  preSeed(remoteProj: string): NodeScript[];
   remoteTranscriptPath(
     home: string,
     remoteEnc: string,

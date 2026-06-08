@@ -25,6 +25,19 @@ const tmuxMultiplexer = {
 const createBootstrap = (agent: Agent): BootstrapService =>
   new BootstrapService(agent, tmuxMultiplexer);
 
+const stageEnrichmentScripts = async (
+  bootstrap: BootstrapService,
+  codePlan: CodePlan,
+): Promise<void> => {
+  const sandbox = new FakeSandbox("stage", {
+    home: "/home/user",
+    username: "user",
+    workdir: "/home/user/project",
+  });
+  await bootstrap.uploadEnrichmentScripts(sandbox, { codePlan });
+  for (const upload of sandbox.uploads) writeFileSync(upload.path, upload.data);
+};
+
 const manifest = buildManifest({
   agent: "claude-code",
   cliVersion: "2.1.160",
@@ -169,7 +182,7 @@ test("BootstrapService injects transport steps before agent install", () => {
   );
 });
 
-test("BootstrapService enrichment installs runtimes and deps, writes rewritten MCP config, and marks completion", () => {
+test("BootstrapService enrichment installs runtimes and deps, writes rewritten MCP config, and marks completion", async () => {
   const codePlan: CodePlan = {
     mappings: [{ localPath: "/home/local/mcp", sandboxPath: "/home/user/mcp" }],
     rewrites: [
@@ -195,6 +208,12 @@ test("BootstrapService enrichment installs runtimes and deps, writes rewritten M
   };
 
   const bootstrap = createBootstrap(CLAUDE_CODE);
+  const sandbox = new FakeSandbox("stage", {
+    home: "/home/user",
+    username: "user",
+    workdir: "/home/user/project",
+  });
+  await bootstrap.uploadEnrichmentScripts(sandbox, { codePlan });
   const script = [
     bootstrap.renderEnrichmentSetup(),
     bootstrap.renderEnrichmentInstalls({ codePlan }),
@@ -215,8 +234,15 @@ test("BootstrapService enrichment installs runtimes and deps, writes rewritten M
   expect(script).toContain("cd /home/user/mcp && npm ci");
   expect(script).toContain("set -e");
   expect(script).not.toContain("node -e");
-  expect(script).toContain("$HOME/.claude.json");
-  expect(script).toContain("/home/user/mcp/server.js");
+  expect(script).toContain("node /tmp/sandhop-mcp-merge-");
+  expect(sandbox.uploads).toContainEqual({
+    path: expect.stringMatching(/^\/tmp\/sandhop-mcp-merge-[0-9a-f]{16}\.js$/),
+    data: expect.stringContaining("$HOME/.claude.json"),
+  });
+  expect(sandbox.uploads).toContainEqual({
+    path: expect.stringMatching(/^\/tmp\/sandhop-mcp-merge-[0-9a-f]{16}\.js$/),
+    data: expect.stringContaining("/home/user/mcp/server.js"),
+  });
   expect(script).toContain("touch /tmp/sandhop-enriched");
   expect(script).toContain(
     "echo '[sandhop] mcp skipped: postgres (binds to localhost / loopback (unreachable from sandbox))'",
@@ -224,9 +250,9 @@ test("BootstrapService enrichment installs runtimes and deps, writes rewritten M
   expect(script).toContain('echo "[sandhop] enrichment summary"');
   expect(script).toContain("echo '[sandhop] ok: setup'");
   expect(script.indexOf("cd /home/user/mcp && npm ci")).toBeLessThan(
-    script.indexOf("$HOME/.claude.json"),
+    script.indexOf("node /tmp/sandhop-mcp-merge-"),
   );
-  expect(script.indexOf("$HOME/.claude.json")).toBeLessThan(
+  expect(script.indexOf("node /tmp/sandhop-mcp-merge-")).toBeLessThan(
     script.indexOf("touch /tmp/sandhop-enriched"),
   );
 });
@@ -243,7 +269,7 @@ test("BootstrapService wraps each reinstall command with a bounded timeout", () 
   expect(script).toContain("export CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1");
 });
 
-test("BootstrapService MCP node scripts avoid eval", () => {
+test("BootstrapService MCP node scripts avoid eval", async () => {
   const home = mkdtempSync(join(tmpdir(), "sandhop-mcp-eval-"));
   const pwned = join(home, "PWNED");
   const codePlan: CodePlan = {
@@ -263,28 +289,38 @@ test("BootstrapService MCP node scripts avoid eval", () => {
     excluded: [],
     classifications: [{ name: "local", kind: "local-path" }],
   };
-  const claudeScript = createBootstrap(CLAUDE_CODE).renderEnrichmentConfig({
+  const claudeBootstrap = createBootstrap(CLAUDE_CODE);
+  const codexBootstrap = createBootstrap(CODEX);
+  await stageEnrichmentScripts(claudeBootstrap, codePlan);
+  await stageEnrichmentScripts(codexBootstrap, codePlan);
+  const claudeScript = claudeBootstrap.renderEnrichmentConfig({
     codePlan,
   });
-  const codexScript = createBootstrap(CODEX).renderEnrichmentConfig({
+  const codexScript = codexBootstrap.renderEnrichmentConfig({
     codePlan,
   });
   const evalCommands = [
     ...claudeScript.split("\n"),
     ...codexScript.split("\n"),
-  ].filter((command) => command === 'node "$sandhop_node_script"');
+  ].filter((command) => command.startsWith("node /tmp/sandhop-"));
 
   expect(evalCommands).toHaveLength(2);
   expect(
     [...claudeScript.split("\n"), ...codexScript.split("\n")].join("\n"),
   ).not.toContain("node -e");
+  expect(
+    [...claudeScript.split("\n"), ...codexScript.split("\n")].join("\n"),
+  ).not.toContain("cat >");
+  expect(
+    [...claudeScript.split("\n"), ...codexScript.split("\n")].join("\n"),
+  ).not.toContain(pwned);
 
   execFileSync("bash", ["-lc", claudeScript], { env: { HOME: home } });
 
   expect(existsSync(pwned)).toBe(false);
 });
 
-test("BootstrapService merges Claude MCP servers into existing claude.json without clobbering preseed keys", () => {
+test("BootstrapService merges Claude MCP servers into existing claude.json without clobbering preseed keys", async () => {
   const home = mkdtempSync(join(tmpdir(), "sandhop-claude-"));
   const remoteProj = join(home, "project");
   const codePlan: CodePlan = {
@@ -320,7 +356,9 @@ test("BootstrapService merges Claude MCP servers into existing claude.json witho
     }),
   );
 
-  const script = createBootstrap(CLAUDE_CODE).renderEnrichmentConfig({
+  const bootstrap = createBootstrap(CLAUDE_CODE);
+  await stageEnrichmentScripts(bootstrap, codePlan);
+  const script = bootstrap.renderEnrichmentConfig({
     codePlan,
   });
 
@@ -360,7 +398,7 @@ test("BootstrapService merges Claude MCP servers into existing claude.json witho
   });
 });
 
-test("BootstrapService prunes stale Codex MCP tables before appending rewritten MCP config", () => {
+test("BootstrapService replaces stale Codex MCP tables from uploaded script", async () => {
   const codePlan: CodePlan = {
     mappings: [],
     rewrites: [
@@ -379,13 +417,25 @@ test("BootstrapService prunes stale Codex MCP tables before appending rewritten 
     classifications: [{ name: "local", kind: "local-path" }],
   };
 
-  const script = createBootstrap(CODEX).renderEnrichmentConfig({ codePlan });
+  const bootstrap = createBootstrap(CODEX);
+  const sandbox = new FakeSandbox("stage", {
+    home: "/home/user",
+    username: "user",
+    workdir: "/home/user/project",
+  });
+  await bootstrap.uploadEnrichmentScripts(sandbox, { codePlan });
+  const script = bootstrap.renderEnrichmentConfig({ codePlan });
 
   expect(script).not.toContain("node -e");
-  expect(script).toContain("[mcp_servers");
-  expect(script).toContain('cat >> "$HOME/.codex/config.toml"');
-  const delimiter = script.match(/<<'(SANDHOP_MCP_CONFIG_\d+)'/)?.[1];
-  if (delimiter === undefined) throw new Error("Missing MCP heredoc delimiter");
-  expect(delimiter).not.toBe("SANDHOP_MCP_CONFIG");
-  expect(script).toContain(`\n${delimiter}`);
+  expect(script).not.toContain("[mcp_servers");
+  expect(script).not.toContain("cat >>");
+  expect(script).toContain("node /tmp/sandhop-mcp-write-");
+  expect(sandbox.uploads).toEqual([
+    {
+      path: expect.stringMatching(
+        /^\/tmp\/sandhop-mcp-write-[0-9a-f]{16}\.js$/,
+      ),
+      data: expect.stringContaining("[mcp_servers.local]"),
+    },
+  ]);
 });

@@ -130,6 +130,10 @@ cwd = "/home/local/mcp"
     path: "/home/user/.env.d/mcp.env",
     data: "TOKEN=value\n",
   });
+  expect(sandbox.uploads).toContainEqual({
+    path: expect.stringMatching(/^\/tmp\/sandhop-mcp-write-[0-9a-f]{16}\.js$/),
+    data: expect.stringContaining("/home/user/mcp/server.js"),
+  });
   expect(host.tarCalls).toEqual(
     expect.arrayContaining([
       expect.objectContaining({ excludes: ["node_modules"] }),
@@ -141,8 +145,8 @@ cwd = "/home/local/mcp"
   expect(execLog).not.toContain(["nice", "-n"].join(" "));
   expect(execLog).not.toContain(["io", "nice"].join(""));
   expect(execLog).toContain("cd /home/user/mcp && npm ci");
-  expect(execLog).toContain('cat >> "$HOME/.codex/config.toml"');
-  expect(execLog).toContain("/home/user/mcp/server.js");
+  expect(execLog).toContain("node /tmp/sandhop-mcp-write-");
+  expect(execLog).not.toContain("cat >>");
   expect(execLog).toContain("[sandhop] enrichment summary");
   expect(execLog).toContain("touch /tmp/sandhop-enriched");
 });
@@ -213,11 +217,14 @@ test("runEnrichment keeps best-effort steps isolated and marks completion after 
     cmd.includes("touch /tmp/sandhop-enriched"),
   );
   const log = sandbox.execs.join("\n");
+  const uploadedLog = sandbox.uploads
+    .map((upload) => (typeof upload.data === "string" ? upload.data : ""))
+    .join("\n");
 
   expect(profileIndex).toBeGreaterThan(-1);
   expect(mcpIndex).toBeGreaterThan(profileIndex);
   expect(markerIndex).toBeGreaterThan(mcpIndex);
-  expect(log).toContain("[sandhop] step failed: mcp_code_transfer");
+  expect(uploadedLog).toContain("[sandhop] step failed: mcp_code_transfer");
   expect(log).not.toContain("cd /home/user/mcp && npm ci");
   expect(log).toContain("[sandhop] enrichment summary");
 });

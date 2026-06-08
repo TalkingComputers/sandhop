@@ -12,8 +12,17 @@ import { expect, test } from "vitest";
 import { CODEX } from "../../src/agents/codex.js";
 import { CLAUDE_CODE } from "../../src/agents/claude-code.js";
 import { selectDefaultAgent } from "../../src/agents/index.js";
+import {
+  renderNodeScript,
+  type NodeScript,
+} from "../../src/core/sandbox-scripts.js";
 import { classify } from "../../src/core/services/mcp-classify.js";
 import { FakeHost } from "../fakes/host.js";
+
+const stageNodeScripts = (scripts: readonly NodeScript[]): string[] => {
+  for (const script of scripts) writeFileSync(script.path, script.content);
+  return scripts.flatMap(renderNodeScript);
+};
 
 test("declarative agents install exact versions and compose native resume commands", () => {
   expect(CLAUDE_CODE.installCmd("2.1.160")).toBe(
@@ -64,14 +73,15 @@ test("agent preseed runs uploaded node script bodies", () => {
   const home = mkdtempSync(join(tmpdir(), "sandhop-preseed-"));
   const pwned = join(home, "PWNED");
   const remoteProj = `x;$(touch ${pwned})'`;
-  const commands = [
+  const commands = stageNodeScripts([
     ...CLAUDE_CODE.preSeed(remoteProj),
     ...CODEX.preSeed(remoteProj),
-  ];
+  ]);
   expect(
-    commands.filter((command) => command === 'node "$sandhop_node_script"'),
+    commands.filter((command) => command.startsWith("node /tmp/sandhop-")),
   ).toHaveLength(2);
   expect(commands.join("\n")).not.toContain("node -e");
+  expect(commands.join("\n")).not.toContain("cat >");
 
   execFileSync("bash", ["-lc", commands.join("\n")], { env: { HOME: home } });
 
@@ -129,7 +139,7 @@ test("Codex preSeed preserves existing config and trusts the sandbox cwd", () =>
 
   execFileSync(
     "bash",
-    ["-lc", CODEX.preSeed("/home/user/project").join("\n")],
+    ["-lc", stageNodeScripts(CODEX.preSeed("/home/user/project")).join("\n")],
     {
       env: { HOME: home, PATH: process.env.PATH! },
     },

@@ -11,7 +11,7 @@ export type SandboxOps = Omit<Sandbox, "home" | "id" | "runtime">;
 const envArgs = (env: Record<string, string> | undefined): string[] =>
   env === undefined
     ? []
-    : Object.entries(env).map(([key, value]) => `${key}=${value}`);
+    : ["env", ...Object.entries(env).map(([key, value]) => `${key}=${value}`)];
 
 const renderRedirects = (
   script: string,

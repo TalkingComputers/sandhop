@@ -1,15 +1,36 @@
+import { createHash } from "node:crypto";
 import { CLAUDE_JSON_PATH } from "../agents/claude-paths.js";
+import { remotePath, type RemotePath } from "./paths.js";
+import type { Sandbox } from "./ports/provider.js";
+import { quote } from "shell-quote";
 
-export const renderNodeScript = (script: string, label: string): string[] => {
-  const delimiter = `SANDHOP_${label}_${Date.now()}`;
-  return [
-    `sandhop_node_script="$(mktemp /tmp/sandhop-${label.toLowerCase()}.XXXXXX.js)"`,
-    `cat > "$sandhop_node_script" <<'${delimiter}'`,
-    script,
-    delimiter,
-    'node "$sandhop_node_script"',
-    'rm -f "$sandhop_node_script"',
-  ];
+export interface NodeScript {
+  readonly path: RemotePath;
+  readonly content: string;
+}
+
+export const buildNodeScript = (
+  content: string,
+  label: string,
+): NodeScript => ({
+  path: remotePath(
+    `/tmp/sandhop-${label.toLowerCase().replaceAll("_", "-")}-${createHash("sha256").update(content).digest("hex").slice(0, 16)}.js`,
+  ),
+  content,
+});
+
+export const renderNodeScript = (script: NodeScript): string[] => [
+  `node ${quote([script.path])}`,
+  `rm -f ${quote([script.path])}`,
+];
+
+export const uploadNodeScripts = async (
+  sandbox: Pick<Sandbox, "uploadFile">,
+  scripts: readonly NodeScript[],
+): Promise<void> => {
+  await Promise.all(
+    scripts.map((script) => sandbox.uploadFile(script.path, script.content)),
+  );
 };
 
 export const buildClaudePreSeedScript = (remoteProj: string): string =>
@@ -56,16 +77,20 @@ export const buildCodexPreSeedScript = (remoteProj: string): string =>
     "fs.renameSync(t,f)",
   ].join(";");
 
-export const buildPruneMcpTablesScript = (path: string): string =>
+export const buildCodexMcpConfigScript = (
+  path: string,
+  content: string,
+): string =>
   [
     'const fs=require("fs")',
     `const f=${JSON.stringify(path)}.replace("$HOME",process.env.HOME)`,
+    `const c=${JSON.stringify(`${content.trimEnd()}\n`)}`,
     'const lines=fs.readFileSync(f,"utf8").split(/\\r?\\n/)',
     "const out=[]",
     "let skip=false",
     "for(const line of lines){if(/^\\s*\\[mcp_servers(?:\\.|\\])/.test(line)){skip=true;continue}if(skip&&/^\\s*\\[/.test(line))skip=false;if(!skip)out.push(line)}",
     'const t=f+".sandhop.tmp"',
-    'fs.writeFileSync(t,out.join("\\n").replace(/\\n*$/,"\\n"))',
+    'fs.writeFileSync(t,out.join("\\n").replace(/\\n*$/,"\\n")+c)',
     "fs.renameSync(t,f)",
   ].join(";");
 

@@ -1,7 +1,7 @@
 import type { Agent, AgentHostDeps, AuthBundle } from "../core/ports/agent.js";
 import {
+  buildNodeScript,
   buildCodexPreSeedScript,
-  renderNodeScript,
 } from "../core/sandbox-scripts.js";
 import { basename } from "../core/paths.js";
 import { quote } from "shell-quote";
@@ -104,7 +104,7 @@ export const CODEX: Agent = {
   supportsSettingsScripts: () => false,
   supportsReinstall: () => false,
   preSeed: (remoteProj) => [
-    ...renderNodeScript(buildCodexPreSeedScript(remoteProj), "CODEX_PRESEED"),
+    buildNodeScript(buildCodexPreSeedScript(remoteProj), "CODEX_PRESEED"),
   ],
   remoteTranscriptPath: (home, remoteEnc, transcriptName) => {
     const { year, month, day } = parseCodexTranscriptName(transcriptName);

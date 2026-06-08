@@ -146,10 +146,17 @@ test("TeleportService fans out collection, transfers one zstd bundle, and starts
   expect(provider.sandbox.execs[1]).not.toContain("apt-get");
   expect(provider.sandbox.uploads.map((upload) => upload.path)).toEqual([
     "/tmp/transcript.jsonl",
+    expect.stringMatching(/^\/tmp\/sandhop-claude-preseed-[0-9a-f]{16}\.js$/),
   ]);
   expect(provider.sandbox.uploads).toContainEqual({
     path: "/tmp/transcript.jsonl",
     data: encoder.encode("transcript"),
+  });
+  expect(provider.sandbox.uploads).toContainEqual({
+    path: expect.stringMatching(
+      /^\/tmp\/sandhop-claude-preseed-[0-9a-f]{16}\.js$/,
+    ),
+    data: expect.stringContaining("hasCompletedOnboarding"),
   });
   expect(provider.sandbox.execs[2]).toContain(
     "git config --global --add safe.directory /workspace/project",

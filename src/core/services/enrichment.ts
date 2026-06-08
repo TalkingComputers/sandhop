@@ -1,6 +1,7 @@
 import { formatErrorStack } from "../errors.js";
 import { expandHome, makeTempPath, remotePath } from "../paths.js";
 import type { Agent } from "../ports/agent.js";
+import { randomToken } from "../rand.js";
 import {
   EnrichmentStepId,
   type EnrichmentProgressListener,
@@ -13,14 +14,19 @@ import type { ReinstallService } from "./reinstall.js";
 import type { SecretsService } from "./secrets.js";
 import type { ScriptCapturePlan, ScriptCaptureService } from "./scripts.js";
 import type { TransferService } from "./transfer.js";
+import { quote } from "shell-quote";
 
 const ENRICHMENT_EXEC_TIMEOUT_MS = 1_800_000;
 
 const appendLog = async (sandbox: Sandbox, text: string): Promise<void> => {
-  const marker = `SANDHOP_ENRICH_LOG_${Date.now()}`;
+  const path = remotePath(`/tmp/sandhop-enrich-log-${randomToken(12)}`);
+  await sandbox.uploadFile(path, `${text}\n`);
   await execShell(
     sandbox,
-    `cat >> /tmp/sandhop-enrich.log <<'${marker}'\n${text}\n${marker}`,
+    [
+      `cat ${quote([path])} >> /tmp/sandhop-enrich.log`,
+      `rm -f ${quote([path])}`,
+    ].join("\n"),
   );
 };
 
@@ -270,6 +276,7 @@ export class EnrichmentService {
         remotePath(expandHome(file.path, this.sandbox.home)),
         file.content,
       );
+    await this.bootstrap.uploadEnrichmentScripts(this.sandbox, { codePlan });
     const result = await runLogged(
       this.sandbox,
       this.bootstrap.renderEnrichmentConfig({ codePlan }),
