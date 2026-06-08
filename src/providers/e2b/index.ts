@@ -1,4 +1,3 @@
-import { CommandExitError, Sandbox as E2bSandbox, Template } from "e2b";
 import type { HostDeps } from "../../core/ports/host.js";
 import type {
   CreateOptions,
@@ -10,13 +9,15 @@ import type {
 } from "../../core/ports/provider.js";
 import { toArrayBuffer } from "../encode.js";
 import { requireCred } from "../index.js";
+import { lazyImport, lazyOnce } from "../lazy-import.js";
 import {
   GenericSandbox,
   readSandboxHome,
   type SandboxOps,
 } from "../sandbox-adapter.js";
 
-type E2bSandboxInstance = Awaited<ReturnType<typeof E2bSandbox.create>>;
+type E2bModule = typeof import("e2b");
+type E2bSandboxInstance = Awaited<ReturnType<E2bModule["Sandbox"]["create"]>>;
 
 interface E2bCredentials {
   apiKey: string;
@@ -27,8 +28,14 @@ const PATH_UPLOAD_TIMEOUT_MS = 3_600_000;
 const SANDHOP_TEMPLATE = "sandhop";
 const TEMPLATE_MEMORY_MB = 4096;
 const TEMPLATE_CPU = 4;
+const E2B_PACKAGE = "e2b";
+const E2B_INSTALL_HINT =
+  "The 'e2b' provider needs the 'e2b' package. Run: npm i e2b";
+const loadE2b = lazyOnce(() =>
+  lazyImport<E2bModule>(E2B_PACKAGE, E2B_INSTALL_HINT),
+);
 
-const buildSandhopTemplate = () =>
+const buildSandhopTemplate = (Template: E2bModule["Template"]) =>
   Template()
     .fromBaseImage()
     .aptInstall(["tmux", "zstd"])
@@ -38,6 +45,7 @@ const buildSandhopTemplate = () =>
     );
 
 const runCommand = async (
+  e2b: E2bModule,
   sandbox: E2bSandboxInstance,
   cmd: string,
   opts?: ExecOptions,
@@ -54,7 +62,7 @@ const runCommand = async (
       stderr: result.stderr,
     };
   } catch (error: unknown) {
-    if (error instanceof CommandExitError)
+    if (error instanceof e2b.CommandExitError)
       return {
         exitCode: error.exitCode,
         stdout: error.stdout,
@@ -65,6 +73,7 @@ const runCommand = async (
 };
 
 const makeOps = (
+  e2b: E2bModule,
   sandbox: E2bSandboxInstance,
   host: Pick<HostDeps, "openBlob">,
   credentials?: E2bCredentials,
@@ -83,7 +92,7 @@ const makeOps = (
     });
   },
 
-  exec: (cmd, opts) => runCommand(sandbox, cmd, opts),
+  exec: (cmd, opts) => runCommand(e2b, sandbox, cmd, opts),
 
   spawn: async (cmd) => {
     await sandbox.commands.run(cmd, { background: true, timeoutMs: 0 });
@@ -93,7 +102,7 @@ const makeOps = (
     Promise.resolve({ url: `https://${sandbox.getHost(port)}` }),
 
   destroy: async () => {
-    await E2bSandbox.kill(sandbox.sandboxId, credentials);
+    await e2b.Sandbox.kill(sandbox.sandboxId, credentials);
   },
 });
 
@@ -106,26 +115,31 @@ export class E2bSandboxProvider implements SandboxProvider {
   }
 
   async create(opts: CreateOptions): Promise<Sandbox> {
+    const e2b = await loadE2b();
     const credentials = this.credentials();
-    if (!(await Template.exists(SANDHOP_TEMPLATE)))
-      await Template.build(buildSandhopTemplate(), SANDHOP_TEMPLATE, {
-        cpuCount: TEMPLATE_CPU,
-        memoryMB: TEMPLATE_MEMORY_MB,
-      });
-    const sandbox = await E2bSandbox.create(SANDHOP_TEMPLATE, {
+    if (!(await e2b.Template.exists(SANDHOP_TEMPLATE)))
+      await e2b.Template.build(
+        buildSandhopTemplate(e2b.Template),
+        SANDHOP_TEMPLATE,
+        {
+          cpuCount: TEMPLATE_CPU,
+          memoryMB: TEMPLATE_MEMORY_MB,
+        },
+      );
+    const sandbox = await e2b.Sandbox.create(SANDHOP_TEMPLATE, {
       ...credentials,
       envs: opts.envs,
       timeoutMs: opts.timeoutMs,
     });
     try {
-      const ops = makeOps(sandbox, this.host, credentials);
+      const ops = makeOps(e2b, sandbox, this.host, credentials);
       return new GenericSandbox(
         sandbox.sandboxId,
         await readSandboxHome(ops.exec),
         ops,
       );
     } catch (error: unknown) {
-      await E2bSandbox.kill(sandbox.sandboxId, credentials).catch(
+      await e2b.Sandbox.kill(sandbox.sandboxId, credentials).catch(
         () => undefined,
       );
       throw error;
@@ -133,14 +147,16 @@ export class E2bSandboxProvider implements SandboxProvider {
   }
 
   async connect(id: string): Promise<Sandbox> {
-    const sandbox = await E2bSandbox.connect(id, this.credentials());
-    const ops = makeOps(sandbox, this.host, this.credentials());
+    const e2b = await loadE2b();
+    const sandbox = await e2b.Sandbox.connect(id, this.credentials());
+    const ops = makeOps(e2b, sandbox, this.host, this.credentials());
     return new GenericSandbox(id, await readSandboxHome(ops.exec), ops);
   }
 
   async list(): Promise<SandboxInfo[]> {
+    const e2b = await loadE2b();
     const sandboxes: SandboxInfo[] = [];
-    const paginator = E2bSandbox.list(this.credentials());
+    const paginator = e2b.Sandbox.list(this.credentials());
     while (paginator.hasNext) {
       for (const sandbox of await paginator.nextItems()) {
         const startedAt =
@@ -155,7 +171,8 @@ export class E2bSandboxProvider implements SandboxProvider {
   }
 
   async destroy(id: string): Promise<boolean> {
-    return E2bSandbox.kill(id, this.credentials());
+    const e2b = await loadE2b();
+    return e2b.Sandbox.kill(id, this.credentials());
   }
 
   private credentials(): E2bCredentials {

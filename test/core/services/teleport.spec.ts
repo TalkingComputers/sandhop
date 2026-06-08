@@ -147,6 +147,10 @@ test("TeleportService fans out collection, transfers one zstd bundle, and starts
   expect(provider.sandbox.uploads.map((upload) => upload.path)).toEqual([
     "/tmp/transcript.jsonl",
   ]);
+  expect(provider.sandbox.uploads).toContainEqual({
+    path: "/tmp/transcript.jsonl",
+    data: encoder.encode("transcript"),
+  });
   expect(provider.sandbox.execs[2]).toContain(
     "git config --global --add safe.directory '/workspace/project'",
   );
@@ -244,6 +248,60 @@ test("TeleportService transfers Claude project memory after the bundle when pres
   expect(provider.sandbox.execs[2]).toContain(
     "/home/user/.claude/projects/-workspace-project/memory",
   );
+});
+
+test("TeleportService uploads Claude transcript before the triggering sandhop command", async () => {
+  const beforeSandhop = [
+    '{"type":"user","message":{"role":"user","content":"fix this"},"uuid":"u1"}',
+    '{"type":"assistant","message":{"role":"assistant","content":"ok"},"uuid":"a1"}',
+  ].join("\n");
+  const transcript = `${beforeSandhop}\n${[
+    '{"type":"user","message":{"role":"user","content":"<command-message>sandhop</command-message>\\n<command-name>/sandhop</command-name>"},"uuid":"u2"}',
+    '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash"}]},"uuid":"a2"}',
+    '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"SANDHOP_URL https://example"}]},"uuid":"u3"}',
+  ].join("\n")}\n`;
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    bytes: {
+      "/home/local/.claude/projects/-workspace-project/session-id.jsonl":
+        encoder.encode(transcript),
+    },
+  });
+  const provider = new FakeProvider();
+  const session: SessionRef = {
+    sessionId: "session-id",
+    transcriptPath:
+      "/home/local/.claude/projects/-workspace-project/session-id.jsonl",
+    transcriptName: "session-id.jsonl",
+  };
+  const service = new TeleportService(provider, CLAUDE_CODE, {
+    host,
+    session: { latest: async () => session, byId: async () => session },
+    secrets: { collect: async () => ({ envs: {}, files: [] }) },
+    auth: {
+      extract: async () => ({
+        envs: { ANTHROPIC_API_KEY: "sk-ant-api03-test" },
+        files: [],
+      }),
+    },
+    version: { detect: async () => "2.1.160" },
+    bootstrap: createBootstrap(CLAUDE_CODE),
+    gitSsh: emptyGitSsh,
+    multiplexer: tmuxMultiplexer,
+  });
+
+  await service.run("/workspace/project", {
+    excludes: [],
+    includes: [],
+    transport: new PublicTransport(),
+    timeoutMs: 3_600_000,
+  });
+
+  expect(provider.sandbox.uploads).toContainEqual({
+    path: "/tmp/transcript.jsonl",
+    data: encoder.encode(`${beforeSandhop}\n`),
+  });
 });
 
 test("TeleportService injects transport bootstrap steps and loopback ttyd bind", async () => {
@@ -541,12 +599,16 @@ test("TeleportService ships SSH bundle, bundle excludes, and mirrored includes",
 });
 
 test("TeleportService wraps Codex resume in the shared tmux ttyd session", async () => {
+  const transcript = [
+    '{"type":"user","message":{"role":"user","content":"<command-name>/sandhop</command-name>"}}',
+    '{"type":"assistant","message":{"role":"assistant","content":"done"}}',
+  ].join("\n");
   const host = new FakeHost({
     home: "/home/local",
     env: {},
     bytes: {
       "/home/local/.codex/sessions/2026/06/05/rollout-2026-06-05T00-00-00-session-id.jsonl":
-        encoder.encode("transcript"),
+        encoder.encode(transcript),
     },
   });
   const provider = new FakeProvider();
@@ -597,5 +659,9 @@ test("TeleportService wraps Codex resume in the shared tmux ttyd session", async
   expect(provider.sandbox.uploads).toContainEqual({
     path: "/home/user/.codex/auth.json",
     data: "{}",
+  });
+  expect(provider.sandbox.uploads).toContainEqual({
+    path: "/tmp/transcript.jsonl",
+    data: encoder.encode(transcript),
   });
 });

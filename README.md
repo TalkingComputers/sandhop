@@ -8,6 +8,8 @@ Claude on the web and Codex cloud are good for clean repo tasks. Sandhop is for 
 
 ## Quickstart
 
+Requires Node.js `^20.19.0 || >=22.12.0`. Older Node 22 builds such as `22.6.0` cannot load the current E2B SDK dependency chain and can fail with `ERR_REQUIRE_ESM` during `sandhop setup`; check with `node -p "process.version + ' require_module=' + process.features.require_module"` and upgrade if `require_module` is not `true`.
+
 ```bash
 npm install -g sandhop
 sandhop setup

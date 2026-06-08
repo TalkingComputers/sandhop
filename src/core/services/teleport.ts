@@ -66,6 +66,29 @@ export interface TeleportServices {
 
 const TTYD_SESSION = "sandhop";
 const TERMINAL_LOG = "/tmp/sandhop-terminal.log";
+const CLAUDE_SANDHOP_COMMAND = "<command-name>/sandhop</command-name>";
+const USER_TRANSCRIPT_LINE = '"type":"user"';
+
+const prepareTranscriptUpload = (
+  agent: Agent,
+  bytes: Uint8Array,
+): Uint8Array => {
+  if (agent.id !== "claude-code") return bytes;
+  const text = new TextDecoder().decode(bytes);
+  const lines = text.split("\n");
+  let end = text.length;
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = lines[i]!;
+    const start = end - line.length;
+    if (
+      line.includes(USER_TRANSCRIPT_LINE) &&
+      line.includes(CLAUDE_SANDHOP_COMMAND)
+    )
+      return new TextEncoder().encode(text.slice(0, start));
+    end = start - 1;
+  }
+  return bytes;
+};
 
 const buildTerminalCommand = (
   bind: string,
@@ -226,7 +249,10 @@ export class TeleportService {
       }
       await sandbox.uploadFile(
         "/tmp/transcript.jsonl",
-        this.services.host.readBytes(session.transcriptPath),
+        prepareTranscriptUpload(
+          this.agent,
+          this.services.host.readBytes(session.transcriptPath),
+        ),
       );
       await uploadModeFiles(this.services.bootstrap, sandbox, [
         ...baseSecrets.files.map((file) => ({ ...file })),

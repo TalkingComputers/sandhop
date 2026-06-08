@@ -1,10 +1,11 @@
 import type { HostDeps } from "../core/ports/host.js";
-import type { SandboxProvider } from "../core/ports/provider.js";
+import type {
+  CreateOptions,
+  Sandbox,
+  SandboxInfo,
+  SandboxProvider,
+} from "../core/ports/provider.js";
 import { CredentialError } from "../core/errors.js";
-import { DaytonaSandboxProvider } from "./daytona/index.js";
-import { E2bSandboxProvider } from "./e2b/index.js";
-import { ModalSandboxProvider } from "./modal/index.js";
-import { VercelSandboxProvider } from "./vercel/index.js";
 
 export type ProviderId = "e2b" | "modal" | "daytona" | "vercel";
 
@@ -109,15 +110,60 @@ export const PROVIDER_INFO: Record<ProviderId, ProviderInfo> = {
   },
 };
 
+type ProviderLoader = (host: HostDeps) => Promise<SandboxProvider>;
+
+const PROVIDER_LOADERS: Record<ProviderId, ProviderLoader> = {
+  e2b: async (host) =>
+    new (await import("./e2b/index.js")).E2bSandboxProvider(host),
+  modal: async (host) =>
+    new (await import("./modal/index.js")).ModalSandboxProvider(host),
+  daytona: async (host) =>
+    new (await import("./daytona/index.js")).DaytonaSandboxProvider(host),
+  vercel: async (host) =>
+    new (await import("./vercel/index.js")).VercelSandboxProvider(host),
+};
+
+class LazySandboxProvider implements SandboxProvider {
+  readonly name: ProviderId;
+  readonly host: HostDeps;
+  readonly loadProvider: ProviderLoader;
+  provider: Promise<SandboxProvider> | undefined;
+
+  constructor(name: ProviderId, host: HostDeps, loadProvider: ProviderLoader) {
+    this.name = name;
+    this.host = host;
+    this.loadProvider = loadProvider;
+  }
+
+  getProvider(): Promise<SandboxProvider> {
+    this.provider ??= this.loadProvider(this.host);
+    return this.provider;
+  }
+
+  async create(opts: CreateOptions): Promise<Sandbox> {
+    return (await this.getProvider()).create(opts);
+  }
+
+  async connect(id: string): Promise<Sandbox> {
+    return (await this.getProvider()).connect(id);
+  }
+
+  async list(): Promise<SandboxInfo[]> {
+    return (await this.getProvider()).list();
+  }
+
+  async destroy(id: string): Promise<boolean> {
+    return (await this.getProvider()).destroy(id);
+  }
+}
+
 export const buildProvider = (
   id: ProviderId,
   host: HostDeps,
 ): SandboxProvider => {
-  if (id === "e2b") return new E2bSandboxProvider(host);
-  if (id === "modal") return new ModalSandboxProvider(host);
-  if (id === "daytona") return new DaytonaSandboxProvider(host);
-  if (id === "vercel") return new VercelSandboxProvider(host);
-  throw new Error(`Unknown provider ${id}`);
+  const loader = PROVIDER_LOADERS[id];
+  if (loader === undefined) throw new Error(`Unknown provider ${id}`);
+  return new LazySandboxProvider(id, host, loader);
 };
 
 const readCredField = (id: ProviderId, env: string): CredField => {
