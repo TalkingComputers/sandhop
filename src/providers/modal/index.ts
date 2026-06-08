@@ -11,7 +11,15 @@ import type {
   SandboxProvider,
   SandboxRuntime,
 } from "../../core/ports/provider.js";
-import { quote } from "shell-quote";
+import {
+  buildRuntimeEnv,
+  buildRuntimeMetadata,
+  buildRuntimeUserScript,
+  buildRunuserArgs,
+  buildSandboxToolInstallScript,
+  readRuntimeMetadata,
+  validateRuntime,
+} from "../../core/sandbox-runtime.js";
 import { destroyOrFalse } from "../destroy.js";
 import { requireCred } from "../index.js";
 import { lazyImport, lazyOnce } from "../lazy-import.js";
@@ -36,10 +44,7 @@ const MODAL_SANDBOX_MEMORY_MIB = 4096;
 const MODAL_INSTALL_HINT =
   "The 'modal' provider needs the 'modal' package. Run: npm i modal";
 const MODAL_PACKAGE = "modal";
-const MODAL_SPAWN_LOG = "/tmp/sandhop-spawn.log";
-const LINUX_USERNAME = /^[a-z_][a-z0-9_-]{0,31}$/;
 
-type ModalRuntime = Pick<SandboxRuntime, "home" | "username">;
 interface ModalProcess {
   stdout: { readText(): Promise<string> };
   stderr: { readText(): Promise<string> };
@@ -53,48 +58,15 @@ const nodeImage = (): string => {
   return `node:${major}`;
 };
 
-const validateLinuxUsername = (username: string): string => {
-  if (!LINUX_USERNAME.test(username))
-    throw new Error(
-      `Modal runtime username must be a Linux username: ${username}`,
-    );
-  return username;
-};
-
-const validateRuntimePath = (path: string, label: string): string => {
-  if (!path.startsWith("/") || path.includes("\n") || path.includes("\r"))
-    throw new Error(`Modal runtime ${label} must be an absolute path: ${path}`);
-  return path;
-};
-
 const buildModalDockerfileCommands = (runtime: SandboxRuntime): string[] => {
-  const username = validateLinuxUsername(runtime.username);
-  const home = validateRuntimePath(runtime.home, "home");
-  const workdir = validateRuntimePath(runtime.workdir, "workdir");
-  const owner = quote([`${username}:${username}`]);
-  const createUser = [
-    `mkdir -p ${quote([home])} ${quote([workdir])}`,
-    `useradd --user-group --home-dir ${quote([home])} --shell /bin/bash ${quote([username])}`,
-    `chown -R ${owner} ${quote([home])} ${quote([workdir])}`,
-  ].join(" && ");
+  const valid = validateRuntime(runtime);
   return [
-    "RUN apt-get update && apt-get install -y --no-install-recommends zstd util-linux",
-    `RUN ${createUser}`,
-    `ENV HOME=${home}`,
+    "RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl zstd tmux util-linux",
+    `RUN ${buildRuntimeUserScript(valid)}`,
+    `RUN ${buildSandboxToolInstallScript()}`,
+    `ENV HOME=${valid.home}`,
   ];
 };
-
-const modalRuntimeCommand = (runtime: ModalRuntime, cmd: string): string[] => [
-  "runuser",
-  "-u",
-  runtime.username,
-  "--",
-  "env",
-  `HOME=${runtime.home}`,
-  "bash",
-  "-lc",
-  cmd,
-];
 
 const readModalProcess = async (process: ModalProcess): Promise<RunResult> => {
   const [stdout, stderr, exitCode] = await Promise.all([
@@ -108,79 +80,21 @@ const readModalProcess = async (process: ModalProcess): Promise<RunResult> => {
 const execModal = async (
   sandbox: ModalSandboxInstance,
   command: string[],
+  runtime: SandboxRuntime,
   timeoutMs: number,
+  opts?: { cwd?: string; env?: Record<string, string> },
 ): Promise<RunResult> => {
-  const process = await sandbox.exec(command, { timeoutMs });
+  const process = await sandbox.exec(command, {
+    env: { ...opts?.env, ...buildRuntimeEnv(runtime) },
+    timeoutMs,
+    workdir: opts?.cwd ?? runtime.workdir,
+  });
   return readModalProcess(process);
-};
-
-const readStoredModalRuntime = async (
-  sandbox: ModalSandboxInstance,
-): Promise<ModalRuntime> => {
-  const result = await execModal(
-    sandbox,
-    [
-      "bash",
-      "-lc",
-      `printf '%s\\n%s\\n' "$SANDHOP_RUNTIME_HOME" "$SANDHOP_RUNTIME_USER"`,
-    ],
-    COMMAND_TIMEOUT_MS,
-  );
-  if (result.exitCode !== 0)
-    throw new Error(
-      `Modal runtime env lookup failed: ${result.stderr.length > 0 ? result.stderr : result.stdout}`,
-    );
-  const [home, username] = result.stdout.trimEnd().split("\n");
-  if (home === undefined || username === undefined)
-    throw new Error(`Modal runtime env lookup failed: ${result.stdout}`);
-  return {
-    home: validateRuntimePath(home, "home"),
-    username: validateLinuxUsername(username),
-  };
-};
-
-const readModalRuntime = async (
-  sandbox: ModalSandboxInstance,
-  runtime: ModalRuntime,
-): Promise<{ home: string; uid: string; username: string }> => {
-  const result = await execModal(
-    sandbox,
-    modalRuntimeCommand(
-      runtime,
-      `printf '%s\\n%s\\n%s\\n' "$HOME" "$(id -u)" "$(id -un)"`,
-    ),
-    COMMAND_TIMEOUT_MS,
-  );
-  if (result.exitCode !== 0)
-    throw new Error(
-      `Modal runtime lookup failed: ${result.stderr.length > 0 ? result.stderr : result.stdout}`,
-    );
-  const [home, uid, username] = result.stdout.trimEnd().split("\n");
-  if (home === undefined || uid === undefined || username === undefined)
-    throw new Error(`Modal runtime lookup failed: ${result.stdout}`);
-  return { home, uid, username };
-};
-
-const assertModalRuntime = async (
-  sandbox: ModalSandboxInstance,
-  runtime: ModalRuntime,
-): Promise<string> => {
-  const actual = await readModalRuntime(sandbox, runtime);
-  if (actual.home !== runtime.home)
-    throw new Error(
-      `Modal sandbox HOME mismatch: expected ${runtime.home} got ${actual.home}`,
-    );
-  if (actual.uid === "0") throw new Error("Modal sandbox must not run as root");
-  if (actual.username !== runtime.username)
-    throw new Error(
-      `Modal sandbox username mismatch: expected ${runtime.username} got ${actual.username}`,
-    );
-  return actual.home;
 };
 
 const makeOps = (
   sandbox: ModalSandboxInstance,
-  runtime: ModalRuntime,
+  runtime: SandboxRuntime,
 ): SandboxOps => ({
   uploadFile: async (path, data) => {
     if (typeof data === "string")
@@ -196,16 +110,22 @@ const makeOps = (
     return execModal(
       sandbox,
       [file, ...args],
+      runtime,
       opts?.timeoutMs ?? COMMAND_TIMEOUT_MS,
+      opts,
     );
   },
 
   spawn: async (file, args, opts) => {
     await sandbox.exec(
-      modalRuntimeCommand(
+      buildRunuserArgs(
         runtime,
         renderDetachedShell(renderShellCall(file, args, opts), opts),
       ),
+      {
+        env: buildRuntimeEnv(runtime),
+        workdir: runtime.workdir,
+      },
     );
   },
 
@@ -232,7 +152,8 @@ export class ModalSandboxProvider implements SandboxProvider {
   }
 
   async create(opts: CreateOptions): Promise<Sandbox> {
-    const dockerfileCommands = buildModalDockerfileCommands(opts.runtime);
+    const runtime = validateRuntime(opts.runtime);
+    const dockerfileCommands = buildModalDockerfileCommands(runtime);
     const client = await this.client();
     const app = await client.apps.fromName("sandhop", {
       createIfMissing: true,
@@ -246,32 +167,20 @@ export class ModalSandboxProvider implements SandboxProvider {
       encryptedPorts: opts.ports,
       env: {
         ...opts.envs,
-        HOME: opts.runtime.home,
-        SANDHOP_RUNTIME_HOME: opts.runtime.home,
-        SANDHOP_RUNTIME_USER: opts.runtime.username,
+        ...buildRuntimeEnv(runtime),
       },
       memoryMiB: MODAL_SANDBOX_MEMORY_MIB,
+      tags: buildRuntimeMetadata(runtime),
       timeoutMs: opts.timeoutMs,
-      workdir: opts.runtime.workdir,
+      workdir: runtime.workdir,
     });
-    try {
-      const ops = makeOps(sandbox, opts.runtime);
-      return createSandbox(
-        sandbox.sandboxId,
-        await assertModalRuntime(sandbox, opts.runtime),
-        ops,
-      );
-    } catch (error: unknown) {
-      await sandbox.terminate().catch(() => undefined);
-      throw error;
-    }
+    return createSandbox(sandbox.sandboxId, runtime, makeOps(sandbox, runtime));
   }
 
   async connect(id: string): Promise<Sandbox> {
     const sandbox = await (await this.client()).sandboxes.fromId(id);
-    const runtime = await readStoredModalRuntime(sandbox);
-    const ops = makeOps(sandbox, runtime);
-    return createSandbox(id, await assertModalRuntime(sandbox, runtime), ops);
+    const runtime = readRuntimeMetadata(await sandbox.getTags());
+    return createSandbox(id, runtime, makeOps(sandbox, runtime));
   }
 
   async list(): Promise<SandboxInfo[]> {

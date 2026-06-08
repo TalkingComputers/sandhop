@@ -185,8 +185,8 @@ export class TransferService {
         this.sandbox,
         [
           "set -e",
-          'SUDO=""; if [ "$(id -u)" != 0 ] && command -v sudo >/dev/null 2>&1; then SUDO="sudo"; fi',
-          'SANDHOP_OWNER="$(id -u):$(id -g)"; if [ "${SANDHOP_RUNTIME_USER:-}" != "" ]; then SANDHOP_OWNER="$(id -u "$SANDHOP_RUNTIME_USER"):$(id -g "$SANDHOP_RUNTIME_USER")"; fi',
+          'SUDO=""',
+          'SANDHOP_OWNER="$(id -u "$SANDHOP_RUNTIME_USER"):$(id -g "$SANDHOP_RUNTIME_USER")"',
           `cat ${catInputs} > ${quote([remoteArchive])}`,
           makeSizeCheckCommand(remoteArchive, totalBytes),
           ...makeExtractionCommands(remoteArchive, sandboxDestDir),
@@ -205,9 +205,7 @@ export class TransferService {
         );
     } finally {
       await Promise.all(
-        [archive, ...chunks].map((path) =>
-          this.host.remove(path).catch(() => undefined),
-        ),
+        [archive, ...chunks].map((path) => this.host.remove(path)),
       );
     }
   }

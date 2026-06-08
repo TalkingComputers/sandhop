@@ -13,7 +13,7 @@ import {
   installCmd,
   rewriteServer,
 } from "./mcp-classify.js";
-import { type PathMapping, nearestRoot, sandboxPath } from "./mcp-paths.js";
+import { type PathMapping, projectRoot, sandboxPath } from "./mcp-paths.js";
 
 export interface CodePlan {
   mappings: PathMapping[];
@@ -60,7 +60,7 @@ export class McpCodeService {
         continue;
       }
       if (classification.kind === "local-path") {
-        const root = nearestRoot(this.host, paths[0]!);
+        const root = projectRoot(this.host, paths[0]!);
         if (!roots.has(root)) {
           roots.add(root);
           const mapped = sandboxPath(this.host, sandboxHome, root);

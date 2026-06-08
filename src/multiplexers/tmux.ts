@@ -5,7 +5,7 @@ export class TmuxMultiplexer implements Multiplexer {
 
   install(): string[] {
     return [
-      `command -v tmux >/dev/null 2>&1 || $SUDO sh -c '(apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y tmux) || dnf install -y tmux || yum install -y tmux || apk add --no-cache tmux'`,
+      "command -v tmux",
       `printf '%s\\n' 'set -g status off' 'set -g window-size latest' > "$HOME/.tmux.conf"`,
     ];
   }

@@ -1,4 +1,4 @@
-import type { CreateSandboxBaseParams, DaytonaConfig } from "@daytona/sdk";
+import type { CreateSandboxFromImageParams, DaytonaConfig } from "@daytona/sdk";
 import type { HostDeps } from "../../core/ports/host.js";
 import type {
   CreateOptions,
@@ -6,15 +6,24 @@ import type {
   Sandbox,
   SandboxInfo,
   SandboxProvider,
+  SandboxRuntime,
 } from "../../core/ports/provider.js";
 import { randomToken } from "../../core/rand.js";
+import {
+  buildRuntimeEnv,
+  buildRuntimeMetadata,
+  buildRuntimeUserScript,
+  buildRunuserArgs,
+  buildSandboxToolInstallScript,
+  readRuntimeMetadata,
+  validateRuntime,
+} from "../../core/sandbox-runtime.js";
 import { destroyOrFalse } from "../destroy.js";
 import { toBuffer } from "../encode.js";
 import { optionalCred, requireCred } from "../index.js";
 import { lazyImport, lazyOnce } from "../lazy-import.js";
 import {
   createSandbox,
-  readSandboxHome,
   renderDetachedShell,
   renderShellCall,
   type SandboxOps,
@@ -54,6 +63,7 @@ interface DaytonaFileSystem {
 interface DaytonaSandboxInstance {
   id: string;
   createdAt?: string;
+  labels: Record<string, string>;
   process: DaytonaProcess;
   fs: DaytonaFileSystem;
   getPreviewLink(port: number): Promise<{ url: string; token?: string }>;
@@ -68,7 +78,6 @@ interface DaytonaCredentials {
 
 const COMMAND_TIMEOUT_SECONDS = 600;
 const PATH_UPLOAD_TIMEOUT_SECONDS = 3600;
-const ZSTD_INSTALL = "apt-get update && apt-get install -y zstd";
 
 const DAYTONA_INSTALL_HINT =
   "The 'daytona' provider needs @daytona/sdk. Run: npm i @daytona/sdk";
@@ -80,11 +89,29 @@ const timeoutSeconds = (timeoutMs: number): number =>
 const autoStopMinutes = (timeoutMs: number): number =>
   Math.max(1, Math.ceil(timeoutMs / 60000));
 
-// daytona rejects `resources` on the default-snapshot path (HTTP 400); resources requires image-based create.
-const buildCreateParams = (opts: CreateOptions): CreateSandboxBaseParams => ({
+const buildImage = (
+  Image: DaytonaModule["Image"],
+  runtime: SandboxRuntime,
+): ReturnType<DaytonaModule["Image"]["debianSlim"]> =>
+  Image.debianSlim("3.13")
+    .runCommands(
+      "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends zstd tmux curl ca-certificates util-linux && rm -rf /var/lib/apt/lists/*",
+      buildRuntimeUserScript(runtime),
+      buildSandboxToolInstallScript(),
+    )
+    .env(buildRuntimeEnv(runtime))
+    .workdir(runtime.workdir);
+
+const buildCreateParams = (
+  Image: DaytonaModule["Image"],
+  opts: CreateOptions,
+): CreateSandboxFromImageParams => ({
   autoStopInterval: autoStopMinutes(opts.timeoutMs),
-  envVars: opts.envs,
+  envVars: { ...opts.envs, ...buildRuntimeEnv(opts.runtime) },
   ephemeral: true,
+  image: buildImage(Image, opts.runtime),
+  labels: buildRuntimeMetadata(opts.runtime),
+  user: "root",
 });
 
 const execInSession = async (
@@ -110,7 +137,7 @@ const execInSession = async (
       stderr: result.stderr,
     };
   } finally {
-    await sandbox.process.deleteSession(sessionId).catch(() => undefined);
+    await sandbox.process.deleteSession(sessionId);
   }
 };
 
@@ -125,6 +152,7 @@ const scriptForCommand = (
 
 const makeOps = (
   sandbox: DaytonaSandboxInstance,
+  runtime: SandboxRuntime,
   defaultTimeoutSeconds: number,
 ): SandboxOps => ({
   uploadFile: async (path, data) => {
@@ -142,7 +170,10 @@ const makeOps = (
   exec: async (file, args, opts) => {
     return execInSession(
       sandbox,
-      scriptForCommand(file, args, opts),
+      scriptForCommand(file, args, {
+        cwd: opts?.cwd ?? runtime.workdir,
+        env: { ...opts?.env, ...buildRuntimeEnv(runtime) },
+      }),
       opts?.timeoutMs === undefined
         ? COMMAND_TIMEOUT_SECONDS
         : timeoutSeconds(opts.timeoutMs),
@@ -150,10 +181,11 @@ const makeOps = (
   },
 
   spawn: async (file, args, opts) => {
+    const script = renderDetachedShell(renderShellCall(file, args, opts), opts);
     await sandbox.process.executeCommand(
-      renderDetachedShell(renderShellCall(file, args, opts), opts),
-      opts?.cwd,
-      opts?.env,
+      renderShellCall("runuser", buildRunuserArgs(runtime, script).slice(1)),
+      runtime.workdir,
+      buildRuntimeEnv(runtime),
       COMMAND_TIMEOUT_SECONDS,
     );
   },
@@ -171,52 +203,59 @@ const makeOps = (
 export class DaytonaSandboxProvider implements SandboxProvider {
   readonly name = "daytona";
   readonly host: Pick<HostDeps, "env">;
+  private readonly sdk: () => Promise<DaytonaModule>;
   private readonly client: () => Promise<DaytonaClient>;
 
   constructor(host: Pick<HostDeps, "env">) {
     this.host = host;
+    this.sdk = lazyOnce(() =>
+      lazyImport<DaytonaModule>(DAYTONA_PACKAGE, DAYTONA_INSTALL_HINT),
+    );
     this.client = lazyOnce(() => this.createClient());
   }
 
   async create(opts: CreateOptions): Promise<Sandbox> {
+    const runtime = validateRuntime(opts.runtime);
     const timeout = timeoutSeconds(opts.timeoutMs);
     const sandbox = (await (
       await this.client()
-    ).create(buildCreateParams(opts), { timeout })) as DaytonaSandboxInstance;
-    try {
-      const ops = makeOps(sandbox, timeout);
-      const home = await readSandboxHome(ops.exec);
-      await ops.exec("bash", ["-lc", ZSTD_INSTALL], {
-        timeoutMs: opts.timeoutMs,
-      });
-      return createSandbox(sandbox.id, home, ops);
-    } catch (error: unknown) {
-      await sandbox.delete(timeout).catch(() => undefined);
-      throw error;
-    }
+    ).create(
+      buildCreateParams((await this.sdk()).Image, { ...opts, runtime }),
+      {
+        timeout,
+      },
+    )) as DaytonaSandboxInstance;
+    return createSandbox(
+      sandbox.id,
+      runtime,
+      makeOps(sandbox, runtime, timeout),
+    );
   }
 
   async connect(id: string): Promise<Sandbox> {
     const sandbox = (await (
       await this.client()
     ).get(id)) as DaytonaSandboxInstance;
-    const ops = makeOps(sandbox, COMMAND_TIMEOUT_SECONDS);
-    const home = await readSandboxHome(ops.exec);
-    await ops.exec("bash", ["-lc", ZSTD_INSTALL]);
-    return createSandbox(id, home, ops);
+    const runtime = readRuntimeMetadata(sandbox.labels);
+    return createSandbox(
+      id,
+      runtime,
+      makeOps(sandbox, runtime, COMMAND_TIMEOUT_SECONDS),
+    );
   }
 
   async list(): Promise<SandboxInfo[]> {
     const sandboxes: SandboxInfo[] = [];
     for await (const sandbox of (await this.client()).list()) {
       const instance = sandbox as DaytonaSandboxInstance;
-      const startedAt =
-        instance.createdAt === undefined
-          ? new Date(0)
-          : new Date(instance.createdAt);
+      if (instance.createdAt === undefined)
+        throw new Error(`Daytona sandbox createdAt missing: ${instance.id}`);
+      const startedAt = new Date(instance.createdAt);
+      if (Number.isNaN(startedAt.getTime()))
+        throw new Error(`Invalid Daytona sandbox createdAt: ${instance.id}`);
       sandboxes.push({
         id: instance.id,
-        startedAt: Number.isNaN(startedAt.getTime()) ? new Date(0) : startedAt,
+        startedAt,
       });
     }
     return sandboxes;
@@ -236,10 +275,7 @@ export class DaytonaSandboxProvider implements SandboxProvider {
   }
 
   private async createClient(): Promise<DaytonaClient> {
-    const { Daytona } = await lazyImport<DaytonaModule>(
-      DAYTONA_PACKAGE,
-      DAYTONA_INSTALL_HINT,
-    );
+    const { Daytona } = await this.sdk();
     const credentials: DaytonaCredentials = {
       apiKey: requireCred(this.host, "daytona", "DAYTONA_API_KEY"),
       apiUrl: optionalCred(this.host, "daytona", "DAYTONA_API_URL"),

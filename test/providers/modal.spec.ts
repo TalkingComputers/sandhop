@@ -15,6 +15,9 @@ const runAsRuntime = (cmd: string): string[] => [
   "--",
   "env",
   "HOME=/Users/parsabahraminejad",
+  "SANDHOP_RUNTIME_HOME=/Users/parsabahraminejad",
+  "SANDHOP_RUNTIME_USER=parsabahraminejad",
+  "SANDHOP_RUNTIME_WORKDIR=/Users/parsabahraminejad/Desktop/project",
   "bash",
   "-lc",
   cmd,
@@ -25,34 +28,24 @@ const modalMocks = vi.hoisted(() => {
   const stderrReadText = vi.fn(async () => "stderr");
   const wait = vi.fn(async () => 7);
   const exec = vi.fn(async (command: string[]) =>
-    command[0] === "runuser" &&
-    command[8] === `printf '%s\\n%s\\n%s\\n' "$HOME" "$(id -u)" "$(id -un)"`
+    command[0] === "bash" &&
+    command[2] ===
+      `printf '%s\\n%s\\n%s\\n' "$SANDHOP_RUNTIME_HOME" "$SANDHOP_RUNTIME_USER" "$SANDHOP_RUNTIME_WORKDIR"`
       ? {
           stdout: {
             readText: vi.fn(
-              async () => "/Users/parsabahraminejad\n1000\nparsabahraminejad\n",
+              async () =>
+                "/Users/parsabahraminejad\nparsabahraminejad\n/Users/parsabahraminejad/Desktop/project\n",
             ),
           },
           stderr: { readText: vi.fn(async () => "") },
           wait: vi.fn(async () => 0),
         }
-      : command[0] === "bash" &&
-          command[2] ===
-            `printf '%s\\n%s\\n' "$SANDHOP_RUNTIME_HOME" "$SANDHOP_RUNTIME_USER"`
-        ? {
-            stdout: {
-              readText: vi.fn(
-                async () => "/Users/parsabahraminejad\nparsabahraminejad\n",
-              ),
-            },
-            stderr: { readText: vi.fn(async () => "") },
-            wait: vi.fn(async () => 0),
-          }
-        : {
-            stdout: { readText: stdoutReadText },
-            stderr: { readText: stderrReadText },
-            wait,
-          },
+      : {
+          stdout: { readText: stdoutReadText },
+          stderr: { readText: stderrReadText },
+          wait,
+        },
   );
   const writeText = vi.fn(async () => undefined);
   const writeBytes = vi.fn(async () => undefined);
@@ -60,11 +53,17 @@ const modalMocks = vi.hoisted(() => {
   const tunnels = vi.fn(async () => ({
     7681: { host: "modal-host.example" },
   }));
+  const getTags = vi.fn(async () => ({
+    "sandhop.runtime.home": "/Users/parsabahraminejad",
+    "sandhop.runtime.user": "parsabahraminejad",
+    "sandhop.runtime.workdir": "/Users/parsabahraminejad/Desktop/project",
+  }));
   const terminate = vi.fn(async () => undefined);
   const sandbox = {
     sandboxId: "modal-sbx",
     exec,
     filesystem: { writeText, writeBytes, copyFromLocal },
+    getTags,
     tunnels,
     terminate,
   };
@@ -97,6 +96,7 @@ const modalMocks = vi.hoisted(() => {
     fromId,
     fromName,
     fromRegistry,
+    getTags,
     image,
     list,
     sandbox,
@@ -118,6 +118,8 @@ const loadProvider = async () => {
 };
 
 const NODE_IMAGE = `node:${process.versions.node.split(".", 1)[0]!}`;
+const TOOL_INSTALL =
+  'RUN ARCH=$(uname -m); case "$ARCH" in aarch64|arm64) TTYD_ARCH=aarch64; CF_ARCH=arm64;; *) TTYD_ARCH=x86_64; CF_ARCH=amd64;; esac && curl -fsSL https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.${TTYD_ARCH} -o /usr/local/bin/ttyd && chmod +x /usr/local/bin/ttyd && curl -fsSL https://github.com/cloudflare/cloudflared/releases/download/2026.5.2/cloudflared-linux-${CF_ARCH} -o /usr/local/bin/cloudflared && chmod +x /usr/local/bin/cloudflared';
 
 test("ModalSandboxProvider creates a sandhop sandbox and maps exec results", async () => {
   const { ModalSandboxProvider } = await loadProvider();
@@ -150,8 +152,9 @@ test("ModalSandboxProvider creates a sandhop sandbox and maps exec results", asy
   });
   expect(modalMocks.fromRegistry).toHaveBeenCalledWith(NODE_IMAGE);
   expect(modalMocks.image.dockerfileCommands).toHaveBeenCalledWith([
-    "RUN apt-get update && apt-get install -y --no-install-recommends zstd util-linux",
-    "RUN mkdir -p /Users/parsabahraminejad /Users/parsabahraminejad/Desktop/project && useradd --user-group --home-dir /Users/parsabahraminejad --shell /bin/bash parsabahraminejad && chown -R parsabahraminejad\\:parsabahraminejad /Users/parsabahraminejad /Users/parsabahraminejad/Desktop/project",
+    "RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl zstd tmux util-linux",
+    "RUN mkdir -p /Users/parsabahraminejad /Users/parsabahraminejad/Desktop/project && useradd --user-group --create-home --home-dir /Users/parsabahraminejad --shell /bin/bash parsabahraminejad && chown -R parsabahraminejad\\:parsabahraminejad /Users/parsabahraminejad /Users/parsabahraminejad/Desktop/project",
+    TOOL_INSTALL,
     "ENV HOME=/Users/parsabahraminejad",
   ]);
   expect(modalMocks.create).toHaveBeenCalledWith(
@@ -159,8 +162,9 @@ test("ModalSandboxProvider creates a sandhop sandbox and maps exec results", asy
     {
       image: "node-image",
       commands: [
-        "RUN apt-get update && apt-get install -y --no-install-recommends zstd util-linux",
-        "RUN mkdir -p /Users/parsabahraminejad /Users/parsabahraminejad/Desktop/project && useradd --user-group --home-dir /Users/parsabahraminejad --shell /bin/bash parsabahraminejad && chown -R parsabahraminejad\\:parsabahraminejad /Users/parsabahraminejad /Users/parsabahraminejad/Desktop/project",
+        "RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl zstd tmux util-linux",
+        "RUN mkdir -p /Users/parsabahraminejad /Users/parsabahraminejad/Desktop/project && useradd --user-group --create-home --home-dir /Users/parsabahraminejad --shell /bin/bash parsabahraminejad && chown -R parsabahraminejad\\:parsabahraminejad /Users/parsabahraminejad /Users/parsabahraminejad/Desktop/project",
+        TOOL_INSTALL,
         "ENV HOME=/Users/parsabahraminejad",
       ],
     },
@@ -173,21 +177,37 @@ test("ModalSandboxProvider creates a sandhop sandbox and maps exec results", asy
         HOME: "/Users/parsabahraminejad",
         SANDHOP_RUNTIME_HOME: "/Users/parsabahraminejad",
         SANDHOP_RUNTIME_USER: "parsabahraminejad",
+        SANDHOP_RUNTIME_WORKDIR: "/Users/parsabahraminejad/Desktop/project",
       },
       memoryMiB: 4096,
+      tags: {
+        "sandhop.runtime.home": "/Users/parsabahraminejad",
+        "sandhop.runtime.user": "parsabahraminejad",
+        "sandhop.runtime.workdir": "/Users/parsabahraminejad/Desktop/project",
+      },
       timeoutMs: 600000,
       workdir: "/Users/parsabahraminejad/Desktop/project",
     },
   );
-  expect(modalMocks.exec).toHaveBeenCalledWith(
-    runAsRuntime(`printf '%s\\n%s\\n%s\\n' "$HOME" "$(id -u)" "$(id -un)"`),
-    { timeoutMs: 600000 },
-  );
   expect(modalMocks.exec).toHaveBeenCalledWith(["echo", "ok"], {
+    env: {
+      HOME: "/Users/parsabahraminejad",
+      SANDHOP_RUNTIME_HOME: "/Users/parsabahraminejad",
+      SANDHOP_RUNTIME_USER: "parsabahraminejad",
+      SANDHOP_RUNTIME_WORKDIR: "/Users/parsabahraminejad/Desktop/project",
+    },
     timeoutMs: 600000,
+    workdir: "/Users/parsabahraminejad/Desktop/project",
   });
   expect(modalMocks.exec).toHaveBeenCalledWith(["echo", "slow"], {
+    env: {
+      HOME: "/Users/parsabahraminejad",
+      SANDHOP_RUNTIME_HOME: "/Users/parsabahraminejad",
+      SANDHOP_RUNTIME_USER: "parsabahraminejad",
+      SANDHOP_RUNTIME_WORKDIR: "/Users/parsabahraminejad/Desktop/project",
+    },
     timeoutMs: 123000,
+    workdir: "/Users/parsabahraminejad/Desktop/project",
   });
 });
 
@@ -212,64 +232,17 @@ test("ModalSandboxProvider spawn starts without awaiting process completion", as
 
   expect(modalMocks.exec).toHaveBeenCalledWith(
     runAsRuntime("nohup bash -lc ttyd >/dev/null 2>&1 &"),
+    {
+      env: {
+        HOME: "/Users/parsabahraminejad",
+        SANDHOP_RUNTIME_HOME: "/Users/parsabahraminejad",
+        SANDHOP_RUNTIME_USER: "parsabahraminejad",
+        SANDHOP_RUNTIME_WORKDIR: "/Users/parsabahraminejad/Desktop/project",
+      },
+      workdir: "/Users/parsabahraminejad/Desktop/project",
+    },
   );
   expect(modalMocks.wait).not.toHaveBeenCalled();
-});
-
-test("ModalSandboxProvider terminates a created sandbox when runtime lookup fails", async () => {
-  const { ModalSandboxProvider } = await loadProvider();
-  modalMocks.exec.mockResolvedValueOnce({
-    stdout: { readText: vi.fn(async () => "") },
-    stderr: { readText: vi.fn(async () => "runtime failed") },
-    wait: vi.fn(async () => 1),
-  });
-  const provider = new ModalSandboxProvider(
-    new FakeHost({
-      home: "/home/local",
-      env: { MODAL_TOKEN_ID: "id", MODAL_TOKEN_SECRET: "secret" },
-    }),
-  );
-
-  await expect(
-    provider.create({
-      envs: {},
-      timeoutMs: 600000,
-      ports: [7681],
-      runtime: RUNTIME,
-    }),
-  ).rejects.toThrow("Modal runtime lookup failed: runtime failed");
-
-  expect(modalMocks.terminate).toHaveBeenCalled();
-});
-
-test("ModalSandboxProvider rejects root runtime user command", async () => {
-  const { ModalSandboxProvider } = await loadProvider();
-  modalMocks.exec.mockResolvedValueOnce({
-    stdout: {
-      readText: vi.fn(
-        async () => "/Users/parsabahraminejad\n0\nparsabahraminejad\n",
-      ),
-    },
-    stderr: { readText: vi.fn(async () => "") },
-    wait: vi.fn(async () => 0),
-  });
-  const provider = new ModalSandboxProvider(
-    new FakeHost({
-      home: "/home/local",
-      env: { MODAL_TOKEN_ID: "id", MODAL_TOKEN_SECRET: "secret" },
-    }),
-  );
-
-  await expect(
-    provider.create({
-      envs: {},
-      timeoutMs: 600000,
-      ports: [7681],
-      runtime: RUNTIME,
-    }),
-  ).rejects.toThrow("Modal sandbox must not run as root");
-
-  expect(modalMocks.terminate).toHaveBeenCalled();
 });
 
 test("ModalSandboxProvider rejects invalid Linux runtime usernames", async () => {
@@ -293,7 +266,7 @@ test("ModalSandboxProvider rejects invalid Linux runtime usernames", async () =>
       },
     }),
   ).rejects.toThrow(
-    "Modal runtime username must be a Linux username: Bad User",
+    "Sandbox runtime username must be a non-root Linux username: Bad User",
   );
 
   expect(modalMocks.create).not.toHaveBeenCalled();

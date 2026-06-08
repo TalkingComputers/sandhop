@@ -6,13 +6,14 @@ import type {
   Sandbox,
   SandboxInfo,
   SandboxProvider,
+  SandboxRuntime,
   SpawnOptions,
 } from "../../src/core/ports/provider.js";
 import type { RemotePath } from "../../src/core/paths.js";
 
 export class FakeSandbox implements Sandbox {
   readonly id: string;
-  readonly home: string;
+  runtime: SandboxRuntime;
   uploads: { path: string; data: Uint8Array | string }[];
   pathUploads: { remotePath: string; localPath: string }[];
   execs: string[];
@@ -22,9 +23,9 @@ export class FakeSandbox implements Sandbox {
   exposedPorts: number[];
   destroyed: boolean;
 
-  constructor(id: string, home: string) {
+  constructor(id: string, runtime: SandboxRuntime) {
     this.id = id;
-    this.home = home;
+    this.runtime = runtime;
     this.uploads = [];
     this.pathUploads = [];
     this.execs = [];
@@ -33,6 +34,10 @@ export class FakeSandbox implements Sandbox {
     this.spawns = [];
     this.exposedPorts = [];
     this.destroyed = false;
+  }
+
+  get home(): string {
+    return this.runtime.home;
   }
 
   async uploadFile(path: RemotePath, data: Uint8Array | string): Promise<void> {
@@ -91,7 +96,13 @@ export class FakeProvider implements SandboxProvider {
   connectedIds: string[];
   destroyedIds: string[];
 
-  constructor(sandbox = new FakeSandbox("sbx-1", "/home/user")) {
+  constructor(
+    sandbox = new FakeSandbox("sbx-1", {
+      home: "/home/user",
+      username: "user",
+      workdir: "/home/user",
+    }),
+  ) {
     this.sandbox = sandbox;
     this.creates = [];
     this.connectedIds = [];
@@ -100,6 +111,7 @@ export class FakeProvider implements SandboxProvider {
 
   async create(opts: CreateOptions): Promise<Sandbox> {
     this.creates.push(opts);
+    this.sandbox.runtime = opts.runtime;
     return this.sandbox;
   }
 

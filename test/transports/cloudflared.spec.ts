@@ -3,7 +3,11 @@ import { CloudflaredTransport } from "../../src/transports/cloudflared.js";
 import { FakeSandbox } from "../fakes/provider.js";
 
 test("CloudflaredTransport quick mode returns the trycloudflare URL", async () => {
-  const sandbox = new FakeSandbox("sbx-1", "/home/user");
+  const sandbox = new FakeSandbox("sbx-1", {
+    home: "/home/user",
+    username: "user",
+    workdir: "/home/user",
+  });
   sandbox.execResults.push({
     exitCode: 0,
     stdout: "https://fresh-pond.trycloudflare.com\n",
@@ -18,9 +22,7 @@ test("CloudflaredTransport quick mode returns the trycloudflare URL", async () =
 
   expect(transport.id).toBe("cloudflared");
   expect(transport.ttydBindAddress()).toBe("127.0.0.1");
-  expect(transport.bootstrapSteps()).toContain(
-    "$SUDO curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${CF_ARCH} -o /usr/local/bin/cloudflared",
-  );
+  expect(transport.bootstrapSteps()).toEqual(["command -v cloudflared"]);
   expect(sandbox.spawns).toEqual([
     'cloudflared tunnel --no-autoupdate --protocol http2 --url http://localhost:7681 {"stdoutPath":"/tmp/sandhop-cloudflared.log","stderrPath":"/tmp/sandhop-cloudflared.log"}',
   ]);
@@ -31,7 +33,11 @@ test("CloudflaredTransport quick mode returns the trycloudflare URL", async () =
 });
 
 test("CloudflaredTransport named mode returns the configured hostname", async () => {
-  const sandbox = new FakeSandbox("sbx-1", "/home/user");
+  const sandbox = new FakeSandbox("sbx-1", {
+    home: "/home/user",
+    username: "user",
+    workdir: "/home/user",
+  });
   sandbox.execResults.push({ exitCode: 0, stdout: "", stderr: "" });
   const transport = new CloudflaredTransport({
     token: "cloudflare-token",
@@ -51,7 +57,11 @@ test("CloudflaredTransport named mode returns the configured hostname", async ()
 });
 
 test("CloudflaredTransport named mode requires a hostname", async () => {
-  const sandbox = new FakeSandbox("sbx-1", "/home/user");
+  const sandbox = new FakeSandbox("sbx-1", {
+    home: "/home/user",
+    username: "user",
+    workdir: "/home/user",
+  });
   const transport = new CloudflaredTransport({ token: "cloudflare-token" });
 
   await expect(
@@ -64,8 +74,12 @@ test("CloudflaredTransport named mode requires a hostname", async () => {
   );
 });
 
-test("CloudflaredTransport surfaces stdout when stderr is empty", async () => {
-  const sandbox = new FakeSandbox("sbx-1", "/home/user");
+test("CloudflaredTransport reports stdout and stderr in command failures", async () => {
+  const sandbox = new FakeSandbox("sbx-1", {
+    home: "/home/user",
+    username: "user",
+    workdir: "/home/user",
+  });
   sandbox.execResults.push({
     exitCode: 1,
     stdout: "stdout failure",
@@ -78,11 +92,17 @@ test("CloudflaredTransport surfaces stdout when stderr is empty", async () => {
       sandbox,
       localPort: 7681,
     }),
-  ).rejects.toThrow("stdout failure");
+  ).rejects.toThrow(
+    'cloudflared exited with 1: stderr="" stdout="stdout failure"',
+  );
 });
 
-test("CloudflaredTransport uses friendly fallback when no output exists", async () => {
-  const sandbox = new FakeSandbox("sbx-1", "/home/user");
+test("CloudflaredTransport reports empty command output explicitly", async () => {
+  const sandbox = new FakeSandbox("sbx-1", {
+    home: "/home/user",
+    username: "user",
+    workdir: "/home/user",
+  });
   sandbox.execResults.push({ exitCode: 1, stdout: "", stderr: "" });
   const transport = new CloudflaredTransport({});
 
@@ -91,5 +111,5 @@ test("CloudflaredTransport uses friendly fallback when no output exists", async 
       sandbox,
       localPort: 7681,
     }),
-  ).rejects.toThrow("cloudflared failed to expose port");
+  ).rejects.toThrow('cloudflared exited with 1: stderr="" stdout=""');
 });

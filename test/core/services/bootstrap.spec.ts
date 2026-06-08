@@ -15,7 +15,7 @@ import { FakeSandbox } from "../../fakes/provider.js";
 const tmuxMultiplexer = {
   id: "tmux",
   install: (): string[] => [
-    "$SUDO bash -lc 'DEBIAN_FRONTEND=noninteractive apt-get install -y tmux'",
+    "command -v tmux",
     `printf '%s\\n' 'set -g status off' 'set -g window-size latest' > "$HOME/.tmux.conf"`,
   ],
   attach: (session: string, command: string): string =>
@@ -33,17 +33,16 @@ const manifest = buildManifest({
   transcriptName: "session-id.jsonl",
   ts: 1,
 });
-const ZSTD_INSTALL =
-  "command -v zstd || $SUDO sh -lc 'command -v apt-get >/dev/null && (apt-get update && apt-get install -y zstd) || (command -v dnf >/dev/null && dnf install -y zstd) || (command -v apk >/dev/null && apk add zstd) || (command -v yum >/dev/null && yum install -y zstd)'";
+const ZSTD_INSTALL = "command -v zstd";
 const OWNER_SETUP =
-  'SANDHOP_OWNER="$(id -u):$(id -g)"; if [ "${SANDHOP_RUNTIME_USER:-}" != "" ]; then SANDHOP_OWNER="$(id -u "$SANDHOP_RUNTIME_USER"):$(id -g "$SANDHOP_RUNTIME_USER")"; fi';
+  'SANDHOP_OWNER="$(id -u "$SANDHOP_RUNTIME_USER"):$(id -g "$SANDHOP_RUNTIME_USER")"';
 test("BootstrapService project prep sudo-creates and owns remote project before transfer", () => {
   const bootstrap = createBootstrap(CLAUDE_CODE);
   const script = bootstrap.renderPathPrep(manifest.remoteProj);
 
   expect(script.split("\n")).toEqual([
     "set -e",
-    'SUDO=""; if [ "$(id -u)" != 0 ] && command -v sudo >/dev/null 2>&1; then SUDO="sudo"; fi',
+    'SUDO=""',
     OWNER_SETUP,
     "$SUDO mkdir -p /private/tmp/sandhop-codex2",
     '$SUDO chown -R "$SANDHOP_OWNER" /private/tmp/sandhop-codex2',
@@ -53,7 +52,11 @@ test("BootstrapService project prep sudo-creates and owns remote project before 
 
 test("BootstrapService prepAndUpload owns uploaded files after provider writes", async () => {
   const bootstrap = createBootstrap(CLAUDE_CODE);
-  const sandbox = new FakeSandbox("sbx", "/Users/local");
+  const sandbox = new FakeSandbox("sbx", {
+    home: "/Users/local",
+    username: "local",
+    workdir: "/Users/local",
+  });
 
   await bootstrap.prepAndUpload(
     sandbox,
@@ -77,22 +80,13 @@ test("BootstrapService core installs exact CLI version, places transcript, and i
     home: "/home/user",
   });
 
-  expect(script).toContain(
-    'npm i -g @anthropic-ai/claude-code@2.1.160 || $SUDO env PATH="$PATH" npm i -g @anthropic-ai/claude-code@2.1.160',
-  );
+  expect(script).toContain("npm i -g @anthropic-ai/claude-code@2.1.160");
   expect(script).not.toContain("zstd");
-  expect(script).toContain(
-    'SUDO=""; if [ "$(id -u)" != 0 ] && command -v sudo >/dev/null 2>&1; then SUDO="sudo"; fi',
-  );
-  expect(script).toContain(
-    'ARCH=$(uname -m); case "$ARCH" in aarch64|arm64) TTYD_ARCH=aarch64; CF_ARCH=arm64;; *) TTYD_ARCH=x86_64; CF_ARCH=amd64;; esac',
-  );
-  expect(script).toContain(
-    "curl -fsSL https://github.com/tsl0922/ttyd/releases/latest/download/ttyd.${TTYD_ARCH} -o /usr/local/bin/ttyd",
-  );
-  expect(script.split("\n").slice(3, 6)).toEqual([
-    "command -v ttyd || { $SUDO curl -fsSL https://github.com/tsl0922/ttyd/releases/latest/download/ttyd.${TTYD_ARCH} -o /usr/local/bin/ttyd && $SUDO chmod +x /usr/local/bin/ttyd; }",
-    "$SUDO bash -lc 'DEBIAN_FRONTEND=noninteractive apt-get install -y tmux'",
+  expect(script).toContain('SUDO=""');
+  expect(script).not.toContain("latest/download");
+  expect(script.split("\n").slice(2, 5)).toEqual([
+    "command -v ttyd",
+    "command -v tmux",
     `printf '%s\\n' 'set -g status off' 'set -g window-size latest' > "$HOME/.tmux.conf"`,
   ]);
   expect(script).toContain(
@@ -210,13 +204,9 @@ test("BootstrapService enrichment installs runtimes and deps, writes rewritten M
     ]),
   ].join("\n");
 
-  expect(script).toContain(
-    'SUDO=""; if [ "$(id -u)" != 0 ] && command -v sudo >/dev/null 2>&1; then SUDO="sudo"; fi',
-  );
+  expect(script).toContain('SUDO=""');
   expect(script).toContain(ZSTD_INSTALL);
-  expect(script).toContain("command -v dnf >/dev/null && dnf install -y zstd");
-  expect(script).toContain("command -v apk >/dev/null && apk add zstd");
-  expect(script).toContain("command -v yum >/dev/null && yum install -y zstd");
+  expect(script).toContain("command -v zstd");
   expect(script).not.toContain(["SANDHOP", "LOW", "PRIORITY"].join("_"));
   expect(script).not.toContain(["nice", "-n"].join(" "));
   expect(script).not.toContain(["io", "nice"].join(""));
@@ -247,12 +237,9 @@ test("BootstrapService wraps each reinstall command with a bounded timeout", () 
     "echo 'two'",
   ]);
 
-  expect(script).toContain(
-    "timeout 180 sh -lc 'echo one' || { echo '[sandhop] reinstall step failed: echo one' >&2; true; }",
-  );
-  expect(script).toContain(
-    "timeout 180 sh -lc \"echo 'two'\" || { echo \"[sandhop] reinstall step failed: echo 'two'\" >&2; true; }",
-  );
+  expect(script).toContain("timeout 180 sh -lc 'echo one'");
+  expect(script).toContain("timeout 180 sh -lc \"echo 'two'\"");
+  expect(script).not.toContain("true");
   expect(script).toContain("export CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1");
 });
 

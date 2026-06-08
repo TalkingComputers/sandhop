@@ -28,23 +28,15 @@ export type EnrichmentStepResult =
   | { step: EnrichmentStepId; ok: true }
   | { step: EnrichmentStepId; ok: false; error: string };
 
-const ARCH_SETUP =
-  'ARCH=$(uname -m); case "$ARCH" in aarch64|arm64) TTYD_ARCH=aarch64; CF_ARCH=arm64;; *) TTYD_ARCH=x86_64; CF_ARCH=amd64;; esac';
-const SUDO_INIT =
-  'SUDO=""; if [ "$(id -u)" != 0 ] && command -v sudo >/dev/null 2>&1; then SUDO="sudo"; fi';
+const SUDO_INIT = 'SUDO=""';
 const OWNER_INIT =
-  'SANDHOP_OWNER="$(id -u):$(id -g)"; if [ "${SANDHOP_RUNTIME_USER:-}" != "" ]; then SANDHOP_OWNER="$(id -u "$SANDHOP_RUNTIME_USER"):$(id -g "$SANDHOP_RUNTIME_USER")"; fi';
-const ZSTD_INSTALL =
-  "command -v zstd || $SUDO sh -lc 'command -v apt-get >/dev/null && (apt-get update && apt-get install -y zstd) || (command -v dnf >/dev/null && dnf install -y zstd) || (command -v apk >/dev/null && apk add zstd) || (command -v yum >/dev/null && yum install -y zstd)'";
-const TTYD_INSTALL =
-  "command -v ttyd || { $SUDO curl -fsSL https://github.com/tsl0922/ttyd/releases/latest/download/ttyd.${TTYD_ARCH} -o /usr/local/bin/ttyd && $SUDO chmod +x /usr/local/bin/ttyd; }";
+  'SANDHOP_OWNER="$(id -u "$SANDHOP_RUNTIME_USER"):$(id -g "$SANDHOP_RUNTIME_USER")"';
+const ZSTD_INSTALL = "command -v zstd";
+const TTYD_INSTALL = "command -v ttyd";
 const REINSTALL_CMD_TIMEOUT_SECONDS = 180;
 
 const shellPath = (path: string): string =>
   path.startsWith("$HOME") ? `"${path}"` : quote([path]);
-
-const ignoreFailure = (cmd: string, label: string): string =>
-  `${cmd} || { echo ${quote([`[sandhop] ${label} failed: ${cmd}`])} >&2; true; }`;
 
 const renderMcpConfig = (agent: Agent, codePlan: CodePlan): string[] => {
   if (codePlan.rewrites.length === 0) return [];
@@ -85,11 +77,11 @@ const renderMcpCode = (codePlan: CodePlan | null | undefined): string[] => {
       : []),
   ];
   return [
-    ...runtimes.map((cmd) => ignoreFailure(cmd, "runtime")),
+    ...runtimes,
     ...(runtimes.length === 0
       ? []
       : ['export PATH="$HOME/.bun/bin:$HOME/.local/bin:$PATH"']),
-    ...codePlan.installCmds.map((cmd) => ignoreFailure(cmd, "install")),
+    ...codePlan.installCmds,
   ];
 };
 
@@ -161,11 +153,10 @@ export class BootstrapService {
     return [
       "set -e",
       SUDO_INIT,
-      ARCH_SETUP,
       TTYD_INSTALL,
       ...this.multiplexer.install(),
       ...(opts.transportSteps ?? []),
-      `${installCmd} || $SUDO env PATH="$PATH" ${installCmd}`,
+      installCmd,
       ...this.agent.preSeed(manifest.remoteProj),
       `git config --global --add safe.directory ${quote([manifest.remoteProj])}`,
       ...(opts.gitUserName === undefined
@@ -200,22 +191,15 @@ export class BootstrapService {
   }
 
   renderEnrichmentInstalls(opts: EnrichmentBootstrapOptions): string {
-    return [
-      SUDO_INIT,
-      ignoreFailure(ZSTD_INSTALL, "zstd install"),
-      ...renderMcpCode(opts.codePlan),
-    ].join("\n");
+    return [SUDO_INIT, ZSTD_INSTALL, ...renderMcpCode(opts.codePlan)].join(
+      "\n",
+    );
   }
 
   renderSettingsScriptInstalls(plan: ScriptCapturePlan | null): string {
     if (plan === null || plan.installCmds.length === 0)
       return 'echo "[sandhop] settings script installs skipped"';
-    return [
-      SUDO_INIT,
-      ...plan.installCmds.map((cmd) =>
-        ignoreFailure(cmd, "settings script install"),
-      ),
-    ].join("\n");
+    return [SUDO_INIT, ...plan.installCmds].join("\n");
   }
 
   renderReinstall(commands: string[]): string {
@@ -224,7 +208,7 @@ export class BootstrapService {
       "export CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1",
       ...commands.map(
         (command) =>
-          `timeout ${REINSTALL_CMD_TIMEOUT_SECONDS} sh -lc ${quote([command])} || { echo ${quote([`[sandhop] reinstall step failed: ${command}`])} >&2; true; }`,
+          `timeout ${REINSTALL_CMD_TIMEOUT_SECONDS} sh -lc ${quote([command])}`,
       ),
     ].join("\n");
   }

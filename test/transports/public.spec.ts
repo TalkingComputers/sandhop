@@ -3,7 +3,11 @@ import { PublicTransport } from "../../src/transports/public.js";
 import { FakeSandbox } from "../fakes/provider.js";
 
 test("PublicTransport exposes the provider port", async () => {
-  const sandbox = new FakeSandbox("sbx-1", "/home/user");
+  const sandbox = new FakeSandbox("sbx-1", {
+    home: "/home/user",
+    username: "user",
+    workdir: "/home/user",
+  });
   const transport = new PublicTransport();
 
   const result = await transport.expose({

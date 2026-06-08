@@ -310,7 +310,14 @@ export class TeleportService {
       opts.onProgress?.({ step: PushProgressId.Ready });
       return { url, sandboxId: sandbox.id, sandbox, user, pass };
     } catch (error: unknown) {
-      await sandbox.destroy().catch(() => undefined);
+      try {
+        await sandbox.destroy();
+      } catch (destroyError: unknown) {
+        throw new AggregateError(
+          [error, destroyError],
+          "Teleport failed and sandbox destroy failed",
+        );
+      }
       throw error;
     }
   }

@@ -121,7 +121,7 @@ export class EnrichmentService {
       await appendLog(
         this.sandbox,
         `sandhop enrichment started ${new Date().toISOString()}`,
-      ).catch(() => undefined);
+      );
       await recordScriptStep(
         this.sandbox,
         steps,

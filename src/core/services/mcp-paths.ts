@@ -41,11 +41,15 @@ export const gitRoot = (
   }
 };
 
-export const nearestRoot = (
+export const projectRoot = (
   host: Pick<HostDeps, "exec" | "isDirectory">,
   path: string,
-): string =>
-  gitRoot(host, path) ?? (host.isDirectory(path) ? path : dirname(path));
+): string => {
+  const root = gitRoot(host, path);
+  if (root === null)
+    throw new Error(`Git root not found for MCP path: ${path}`);
+  return root;
+};
 
 export const sandboxPath = (
   host: HostDeps,
