@@ -12,8 +12,10 @@ import { toBuffer } from "../encode.js";
 import { requireCred } from "../index.js";
 import { lazyImport, lazyOnce } from "../lazy-import.js";
 import {
-  GenericSandbox,
+  createSandbox,
   readSandboxHome,
+  renderDetachedShell,
+  renderShellCall,
   type SandboxOps,
 } from "../sandbox-adapter.js";
 
@@ -82,10 +84,19 @@ const makeOps = (
     ]);
   },
 
-  exec: async (cmd, opts) => {
-    const result = await sandbox.runCommand("bash", ["-lc", cmd], {
-      timeoutMs: opts?.timeoutMs ?? COMMAND_TIMEOUT_MS,
-    });
+  exec: async (file, args, opts) => {
+    const result =
+      opts?.cwd === undefined && opts?.env === undefined
+        ? await sandbox.runCommand(file, [...args], {
+            timeoutMs: opts?.timeoutMs ?? COMMAND_TIMEOUT_MS,
+          })
+        : await sandbox.runCommand({
+            cmd: file,
+            args: [...args],
+            cwd: opts.cwd,
+            env: opts.env,
+            timeoutMs: opts.timeoutMs ?? COMMAND_TIMEOUT_MS,
+          });
     return {
       exitCode: result.exitCode,
       stdout: await result.stdout(),
@@ -93,10 +104,24 @@ const makeOps = (
     };
   },
 
-  spawn: async (cmd) => {
+  spawn: async (file, args, opts) => {
+    if (opts?.stdoutPath !== undefined || opts?.stderrPath !== undefined) {
+      await sandbox.runCommand({
+        cmd: "bash",
+        args: [
+          "-lc",
+          renderDetachedShell(renderShellCall(file, args, opts), opts),
+        ],
+        detached: true,
+        timeoutMs: 0,
+      });
+      return;
+    }
     await sandbox.runCommand({
-      cmd: "bash",
-      args: ["-lc", cmd],
+      cmd: file,
+      args: [...args],
+      cwd: opts?.cwd,
+      env: opts?.env,
       detached: true,
       timeoutMs: 0,
     });
@@ -135,7 +160,7 @@ export class VercelSandboxProvider implements SandboxProvider {
     });
     try {
       const ops = makeOps(sandbox, this.host);
-      return new GenericSandbox(name, await readSandboxHome(ops.exec), ops);
+      return createSandbox(name, await readSandboxHome(ops.exec), ops);
     } catch (error: unknown) {
       await sandbox.stop().catch(() => undefined);
       throw error;
@@ -151,7 +176,7 @@ export class VercelSandboxProvider implements SandboxProvider {
       resume: true,
     });
     const ops = makeOps(sandbox, this.host);
-    return new GenericSandbox(id, await readSandboxHome(ops.exec), ops);
+    return createSandbox(id, await readSandboxHome(ops.exec), ops);
   }
 
   async list(): Promise<SandboxInfo[]> {

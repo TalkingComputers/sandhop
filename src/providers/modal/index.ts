@@ -11,11 +11,16 @@ import type {
   SandboxProvider,
   SandboxRuntime,
 } from "../../core/ports/provider.js";
-import { shellQuote } from "../../core/shell.js";
+import { quote } from "shell-quote";
 import { destroyOrFalse } from "../destroy.js";
 import { requireCred } from "../index.js";
 import { lazyImport, lazyOnce } from "../lazy-import.js";
-import { GenericSandbox, type SandboxOps } from "../sandbox-adapter.js";
+import {
+  createSandbox,
+  renderDetachedShell,
+  renderShellCall,
+  type SandboxOps,
+} from "../sandbox-adapter.js";
 
 type ModalModule = typeof import("modal");
 
@@ -66,11 +71,11 @@ const buildModalDockerfileCommands = (runtime: SandboxRuntime): string[] => {
   const username = validateLinuxUsername(runtime.username);
   const home = validateRuntimePath(runtime.home, "home");
   const workdir = validateRuntimePath(runtime.workdir, "workdir");
-  const owner = shellQuote(`${username}:${username}`);
+  const owner = quote([`${username}:${username}`]);
   const createUser = [
-    `mkdir -p ${shellQuote(home)} ${shellQuote(workdir)}`,
-    `useradd --user-group --home-dir ${shellQuote(home)} --shell /bin/bash ${shellQuote(username)}`,
-    `chown -R ${owner} ${shellQuote(home)} ${shellQuote(workdir)}`,
+    `mkdir -p ${quote([home])} ${quote([workdir])}`,
+    `useradd --user-group --home-dir ${quote([home])} --shell /bin/bash ${quote([username])}`,
+    `chown -R ${owner} ${quote([home])} ${quote([workdir])}`,
   ].join(" && ");
   return [
     "RUN apt-get update && apt-get install -y --no-install-recommends zstd util-linux",
@@ -187,19 +192,19 @@ const makeOps = (
     await sandbox.filesystem.copyFromLocal(localPath, remotePath);
   },
 
-  exec: async (cmd, opts) => {
+  exec: async (file, args, opts) => {
     return execModal(
       sandbox,
-      ["bash", "-lc", cmd],
+      [file, ...args],
       opts?.timeoutMs ?? COMMAND_TIMEOUT_MS,
     );
   },
 
-  spawn: async (cmd) => {
+  spawn: async (file, args, opts) => {
     await sandbox.exec(
       modalRuntimeCommand(
         runtime,
-        `nohup bash -lc ${shellQuote(cmd)} >> ${MODAL_SPAWN_LOG} 2>&1 &`,
+        renderDetachedShell(renderShellCall(file, args, opts), opts),
       ),
     );
   },
@@ -251,7 +256,7 @@ export class ModalSandboxProvider implements SandboxProvider {
     });
     try {
       const ops = makeOps(sandbox, opts.runtime);
-      return new GenericSandbox(
+      return createSandbox(
         sandbox.sandboxId,
         await assertModalRuntime(sandbox, opts.runtime),
         ops,
@@ -266,11 +271,7 @@ export class ModalSandboxProvider implements SandboxProvider {
     const sandbox = await (await this.client()).sandboxes.fromId(id);
     const runtime = await readStoredModalRuntime(sandbox);
     const ops = makeOps(sandbox, runtime);
-    return new GenericSandbox(
-      id,
-      await assertModalRuntime(sandbox, runtime),
-      ops,
-    );
+    return createSandbox(id, await assertModalRuntime(sandbox, runtime), ops);
   }
 
   async list(): Promise<SandboxInfo[]> {

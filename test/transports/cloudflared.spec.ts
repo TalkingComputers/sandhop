@@ -22,10 +22,10 @@ test("CloudflaredTransport quick mode returns the trycloudflare URL", async () =
     "$SUDO curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${CF_ARCH} -o /usr/local/bin/cloudflared",
   );
   expect(sandbox.spawns).toEqual([
-    "cloudflared tunnel --no-autoupdate --protocol http2 --url http://localhost:7681 > /tmp/sandhop-cloudflared.log 2>&1",
+    'cloudflared tunnel --no-autoupdate --protocol http2 --url http://localhost:7681 {"stdoutPath":"/tmp/sandhop-cloudflared.log","stderrPath":"/tmp/sandhop-cloudflared.log"}',
   ]);
   expect(sandbox.execs[0]).toBe(
-    `bash -lc 'for i in $(seq 1 120); do u=$(grep -oE "https://[a-z0-9-]+\\.trycloudflare\\.com" /tmp/sandhop-cloudflared.log | head -1); [ -n "$u" ] && grep -q "Registered tunnel connection" /tmp/sandhop-cloudflared.log && { echo "$u"; exit 0; }; sleep 0.5; done; cat /tmp/sandhop-cloudflared.log >&2; exit 1'`,
+    `for i in $(seq 1 120); do u=$(grep -oE "https://[a-z0-9-]+\\.trycloudflare\\.com" /tmp/sandhop-cloudflared.log | head -1); [ -n "$u" ] && grep -q "Registered tunnel connection" /tmp/sandhop-cloudflared.log && { echo "$u"; exit 0; }; sleep 0.5; done; cat /tmp/sandhop-cloudflared.log >&2; exit 1`,
   );
   expect(result).toEqual({ url: "https://fresh-pond.trycloudflare.com" });
 });
@@ -44,7 +44,7 @@ test("CloudflaredTransport named mode returns the configured hostname", async ()
   });
 
   expect(sandbox.spawns).toEqual([
-    "cloudflared tunnel --no-autoupdate --protocol http2 run --token 'cloudflare-token' > /tmp/sandhop-cloudflared.log 2>&1",
+    'cloudflared tunnel --no-autoupdate --protocol http2 run --token cloudflare-token {"stdoutPath":"/tmp/sandhop-cloudflared.log","stderrPath":"/tmp/sandhop-cloudflared.log"}',
   ]);
   expect(sandbox.execs[0]).toContain("Registered tunnel connection");
   expect(result).toEqual({ url: "https://sandhop.example.com" });

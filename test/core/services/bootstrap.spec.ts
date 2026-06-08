@@ -45,8 +45,8 @@ test("BootstrapService project prep sudo-creates and owns remote project before 
     "set -e",
     'SUDO=""; if [ "$(id -u)" != 0 ] && command -v sudo >/dev/null 2>&1; then SUDO="sudo"; fi',
     OWNER_SETUP,
-    "$SUDO mkdir -p '/private/tmp/sandhop-codex2'",
-    "$SUDO chown -R \"$SANDHOP_OWNER\" '/private/tmp/sandhop-codex2'",
+    "$SUDO mkdir -p /private/tmp/sandhop-codex2",
+    '$SUDO chown -R "$SANDHOP_OWNER" /private/tmp/sandhop-codex2',
   ]);
   expect(bootstrap.renderProjectPrep(manifest)).toBe(script);
 });
@@ -65,9 +65,9 @@ test("BootstrapService prepAndUpload owns uploaded files after provider writes",
     { path: "/Users/local/.claude/.credentials.json", data: "{}" },
   ]);
   expect(sandbox.execs).toEqual([
-    expect.stringContaining("$SUDO mkdir -p '/Users/local/.claude'"),
+    expect.stringContaining("$SUDO mkdir -p /Users/local/.claude"),
     expect.stringContaining(
-      `$SUDO chown "$SANDHOP_OWNER" '/Users/local/.claude/.credentials.json'`,
+      `$SUDO chown "$SANDHOP_OWNER" /Users/local/.claude/.credentials.json`,
     ),
   ]);
 });
@@ -96,16 +96,16 @@ test("BootstrapService core installs exact CLI version, places transcript, and i
     `printf '%s\\n' 'set -g status off' 'set -g window-size latest' > "$HOME/.tmux.conf"`,
   ]);
   expect(script).toContain(
-    "git config --global --add safe.directory '/private/tmp/sandhop-codex2'",
+    "git config --global --add safe.directory /private/tmp/sandhop-codex2",
   );
-  expect(script).not.toContain("$SUDO mkdir -p '/private/tmp/sandhop-codex2'");
+  expect(script).not.toContain("$SUDO mkdir -p /private/tmp/sandhop-codex2");
   expect(
     script.indexOf(
-      "git config --global --add safe.directory '/private/tmp/sandhop-codex2'",
+      "git config --global --add safe.directory /private/tmp/sandhop-codex2",
     ),
   ).toBeLessThan(script.indexOf('cp /tmp/transcript.jsonl "$dest"'));
   expect(script).not.toContain(
-    "$SUDO chown -R \"$SANDHOP_OWNER\" '/private/tmp/sandhop-codex2'",
+    '$SUDO chown -R "$SANDHOP_OWNER" /private/tmp/sandhop-codex2',
   );
   expect(script).not.toContain("tar -xzf /tmp/bundle.tgz");
   expect(script).toContain('cp /tmp/transcript.jsonl "$dest"');
@@ -128,7 +128,7 @@ test("BootstrapService quotes remote project shell paths with metacharacters", (
   const script = bootstrap.render(spacedManifest, {
     home: "/home/user",
   });
-  const quotedRemoteProj = "'/Users/alice/My Project;$(touch pwn)'\\'''";
+  const quotedRemoteProj = `"/Users/alice/My Project;\\$(touch pwn)'"`;
 
   expect(prep).toContain(`$SUDO mkdir -p ${quotedRemoteProj}`);
   expect(prep).toContain(`$SUDO chown -R "$SANDHOP_OWNER" ${quotedRemoteProj}`);
@@ -136,7 +136,7 @@ test("BootstrapService quotes remote project shell paths with metacharacters", (
     `git config --global --add safe.directory ${quotedRemoteProj}`,
   );
   expect(script).toContain(
-    "dest='/home/user/.claude/projects/-Users-alice-My-Project---touch-pwn--/session-id.jsonl'",
+    "dest=/home/user/.claude/projects/-Users-alice-My-Project---touch-pwn--/session-id.jsonl",
   );
   expect(script).not.toContain("tar -xzf /tmp/bundle.tgz");
 });
@@ -149,9 +149,9 @@ test("BootstrapService emits quoted git identity after safe directory when suppl
   });
 
   const safe =
-    "git config --global --add safe.directory '/private/tmp/sandhop-codex2'";
-  const name = "git config --global user.name 'Alice O'\\''Connor'";
-  const email = "git config --global user.email 'alice+test@example.com'";
+    "git config --global --add safe.directory /private/tmp/sandhop-codex2";
+  const name = `git config --global user.name "Alice O'Connor"`;
+  const email = "git config --global user.email alice+test\\@example.com";
 
   expect(script).toContain(safe);
   expect(script).toContain(name);
@@ -159,7 +159,7 @@ test("BootstrapService emits quoted git identity after safe directory when suppl
   expect(script.indexOf(safe)).toBeLessThan(script.indexOf(name));
   expect(script.indexOf(name)).toBeLessThan(script.indexOf(email));
   expect(script.indexOf(email)).toBeLessThan(
-    script.indexOf("dest='/home/user/.claude/projects"),
+    script.indexOf("dest=/home/user/.claude/projects"),
   );
 });
 
@@ -188,7 +188,7 @@ test("BootstrapService enrichment installs runtimes and deps, writes rewritten M
       },
     ],
     runtimes: new Set(["bun", "uv"]),
-    installCmds: ["cd '/home/user/mcp' && npm ci"],
+    installCmds: ["cd /home/user/mcp && npm ci"],
     referencedFiles: [],
     envRefs: [],
     excluded: [
@@ -222,18 +222,18 @@ test("BootstrapService enrichment installs runtimes and deps, writes rewritten M
   expect(script).not.toContain(["io", "nice"].join(""));
   expect(script).toContain("curl -fsSL https://bun.sh/install | bash");
   expect(script).toContain("curl -LsSf https://astral.sh/uv/install.sh | sh");
-  expect(script).toContain("cd '/home/user/mcp' && npm ci");
+  expect(script).toContain("cd /home/user/mcp && npm ci");
   expect(script).toContain("set -e");
-  expect(script).toContain("node -e");
+  expect(script).not.toContain("node -e");
   expect(script).toContain("$HOME/.claude.json");
   expect(script).toContain("/home/user/mcp/server.js");
   expect(script).toContain("touch /tmp/sandhop-enriched");
   expect(script).toContain(
-    'echo "[sandhop] mcp skipped: postgres (binds to localhost / loopback (unreachable from sandbox))"',
+    "echo '[sandhop] mcp skipped: postgres (binds to localhost / loopback (unreachable from sandbox))'",
   );
   expect(script).toContain('echo "[sandhop] enrichment summary"');
-  expect(script).toContain('echo "[sandhop] ok: setup"');
-  expect(script.indexOf("cd '\\''/home/user/mcp'\\'' && npm ci")).toBeLessThan(
+  expect(script).toContain("echo '[sandhop] ok: setup'");
+  expect(script.indexOf("cd /home/user/mcp && npm ci")).toBeLessThan(
     script.indexOf("$HOME/.claude.json"),
   );
   expect(script.indexOf("$HOME/.claude.json")).toBeLessThan(
@@ -248,13 +248,15 @@ test("BootstrapService wraps each reinstall command with a bounded timeout", () 
   ]);
 
   expect(script).toContain(
-    "timeout 180 sh -lc 'echo one' || { echo \"[sandhop] reinstall step failed: echo one\" >&2; true; }",
+    "timeout 180 sh -lc 'echo one' || { echo '[sandhop] reinstall step failed: echo one' >&2; true; }",
   );
-  expect(script).toContain("timeout 180 sh -lc 'echo '\\''two'\\'''");
+  expect(script).toContain(
+    "timeout 180 sh -lc \"echo 'two'\" || { echo \"[sandhop] reinstall step failed: echo 'two'\" >&2; true; }",
+  );
   expect(script).toContain("export CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1");
 });
 
-test("BootstrapService MCP node eval commands single-quote scripts", () => {
+test("BootstrapService MCP node scripts avoid eval", () => {
   const home = mkdtempSync(join(tmpdir(), "sandhop-mcp-eval-"));
   const pwned = join(home, "PWNED");
   const codePlan: CodePlan = {
@@ -283,12 +285,12 @@ test("BootstrapService MCP node eval commands single-quote scripts", () => {
   const evalCommands = [
     ...claudeScript.split("\n"),
     ...codexScript.split("\n"),
-  ].filter((command) => command.startsWith("node -e "));
+  ].filter((command) => command === 'node "$sandhop_node_script"');
 
   expect(evalCommands).toHaveLength(2);
-  expect(evalCommands.every((command) => command.startsWith("node -e '"))).toBe(
-    true,
-  );
+  expect(
+    [...claudeScript.split("\n"), ...codexScript.split("\n")].join("\n"),
+  ).not.toContain("node -e");
 
   execFileSync("bash", ["-lc", claudeScript], { env: { HOME: home } });
 
@@ -335,7 +337,7 @@ test("BootstrapService merges Claude MCP servers into existing claude.json witho
     codePlan,
   });
 
-  expect(script).not.toContain("cat >");
+  expect(script).not.toContain("node -e");
   execFileSync("bash", ["-lc", script], { env: { HOME: home } });
 
   const parsed = JSON.parse(
@@ -392,7 +394,7 @@ test("BootstrapService prunes stale Codex MCP tables before appending rewritten 
 
   const script = createBootstrap(CODEX).renderEnrichmentConfig({ codePlan });
 
-  expect(script).toContain("node -e");
+  expect(script).not.toContain("node -e");
   expect(script).toContain("[mcp_servers");
   expect(script).toContain('cat >> "$HOME/.codex/config.toml"');
   const delimiter = script.match(/<<'(SANDHOP_MCP_CONFIG_\d+)'/)?.[1];

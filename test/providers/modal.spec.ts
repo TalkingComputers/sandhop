@@ -1,4 +1,5 @@
 import { expect, test, vi } from "vitest";
+import { remotePath } from "../../src/core/paths.js";
 import { FakeHost } from "../fakes/host.js";
 
 const RUNTIME = {
@@ -134,12 +135,12 @@ test("ModalSandboxProvider creates a sandhop sandbox and maps exec results", asy
   });
   expect(sandbox.home).toBe("/Users/parsabahraminejad");
 
-  await expect(sandbox.exec("echo ok")).resolves.toEqual({
+  await expect(sandbox.exec("echo", ["ok"])).resolves.toEqual({
     exitCode: 7,
     stdout: "stdout",
     stderr: "stderr",
   });
-  await sandbox.exec("echo slow", { timeoutMs: 123000 });
+  await sandbox.exec("echo", ["slow"], { timeoutMs: 123000 });
   expect(modalMocks.ModalClient).toHaveBeenCalledWith({
     tokenId: "id",
     tokenSecret: "secret",
@@ -150,7 +151,7 @@ test("ModalSandboxProvider creates a sandhop sandbox and maps exec results", asy
   expect(modalMocks.fromRegistry).toHaveBeenCalledWith(NODE_IMAGE);
   expect(modalMocks.image.dockerfileCommands).toHaveBeenCalledWith([
     "RUN apt-get update && apt-get install -y --no-install-recommends zstd util-linux",
-    "RUN mkdir -p '/Users/parsabahraminejad' '/Users/parsabahraminejad/Desktop/project' && useradd --user-group --home-dir '/Users/parsabahraminejad' --shell /bin/bash 'parsabahraminejad' && chown -R 'parsabahraminejad:parsabahraminejad' '/Users/parsabahraminejad' '/Users/parsabahraminejad/Desktop/project'",
+    "RUN mkdir -p /Users/parsabahraminejad /Users/parsabahraminejad/Desktop/project && useradd --user-group --home-dir /Users/parsabahraminejad --shell /bin/bash parsabahraminejad && chown -R parsabahraminejad\\:parsabahraminejad /Users/parsabahraminejad /Users/parsabahraminejad/Desktop/project",
     "ENV HOME=/Users/parsabahraminejad",
   ]);
   expect(modalMocks.create).toHaveBeenCalledWith(
@@ -159,7 +160,7 @@ test("ModalSandboxProvider creates a sandhop sandbox and maps exec results", asy
       image: "node-image",
       commands: [
         "RUN apt-get update && apt-get install -y --no-install-recommends zstd util-linux",
-        "RUN mkdir -p '/Users/parsabahraminejad' '/Users/parsabahraminejad/Desktop/project' && useradd --user-group --home-dir '/Users/parsabahraminejad' --shell /bin/bash 'parsabahraminejad' && chown -R 'parsabahraminejad:parsabahraminejad' '/Users/parsabahraminejad' '/Users/parsabahraminejad/Desktop/project'",
+        "RUN mkdir -p /Users/parsabahraminejad /Users/parsabahraminejad/Desktop/project && useradd --user-group --home-dir /Users/parsabahraminejad --shell /bin/bash parsabahraminejad && chown -R parsabahraminejad\\:parsabahraminejad /Users/parsabahraminejad /Users/parsabahraminejad/Desktop/project",
         "ENV HOME=/Users/parsabahraminejad",
       ],
     },
@@ -182,10 +183,10 @@ test("ModalSandboxProvider creates a sandhop sandbox and maps exec results", asy
     runAsRuntime(`printf '%s\\n%s\\n%s\\n' "$HOME" "$(id -u)" "$(id -un)"`),
     { timeoutMs: 600000 },
   );
-  expect(modalMocks.exec).toHaveBeenCalledWith(["bash", "-lc", "echo ok"], {
+  expect(modalMocks.exec).toHaveBeenCalledWith(["echo", "ok"], {
     timeoutMs: 600000,
   });
-  expect(modalMocks.exec).toHaveBeenCalledWith(["bash", "-lc", "echo slow"], {
+  expect(modalMocks.exec).toHaveBeenCalledWith(["echo", "slow"], {
     timeoutMs: 123000,
   });
 });
@@ -207,10 +208,10 @@ test("ModalSandboxProvider spawn starts without awaiting process completion", as
   modalMocks.exec.mockClear();
   modalMocks.wait.mockClear();
 
-  await sandbox.spawn("ttyd");
+  await sandbox.spawn("ttyd", []);
 
   expect(modalMocks.exec).toHaveBeenCalledWith(
-    runAsRuntime("nohup bash -lc 'ttyd' >> /tmp/sandhop-spawn.log 2>&1 &"),
+    runAsRuntime("nohup bash -lc ttyd >/dev/null 2>&1 &"),
   );
   expect(modalMocks.wait).not.toHaveBeenCalled();
 });
@@ -314,9 +315,12 @@ test("ModalSandboxProvider uploads files, exposes ports, and destroys", async ()
     runtime: RUNTIME,
   });
 
-  await sandbox.uploadFile("/tmp/nested/a", "hello");
-  await sandbox.uploadFile("/tmp/b", new Uint8Array([1, 2]));
-  await sandbox.uploadPath("/tmp/nested/profile.tgz", "/tmp/profile.tgz");
+  await sandbox.uploadFile(remotePath("/tmp/nested/a"), "hello");
+  await sandbox.uploadFile(remotePath("/tmp/b"), new Uint8Array([1, 2]));
+  await sandbox.uploadPath(
+    remotePath("/tmp/nested/profile.tgz"),
+    "/tmp/profile.tgz",
+  );
   await expect(sandbox.exposePort(7681)).resolves.toEqual({
     url: "https://modal-host.example",
   });

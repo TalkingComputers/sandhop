@@ -1,11 +1,11 @@
 import { tmpdir } from "node:os";
 import pLimit from "p-limit";
-import { basename, dirname } from "../paths.js";
+import { quote } from "shell-quote";
+import { basename, dirname, remotePath } from "../paths.js";
 import type { HostDeps } from "../ports/host.js";
 import type { TransferProgress } from "../ports/progress.js";
-import type { Sandbox } from "../ports/provider.js";
+import { execShell, type Sandbox } from "../ports/provider.js";
 import { randomToken } from "../rand.js";
-import { SANDHOP_OWNER_SETUP, SUDO_SETUP, shellQuote } from "../shell.js";
 
 // 16MB: benchmarked fastest on bandwidth-limited links (more parallel chunks
 // saturate the upload than a few 90MB ones) and gives finer transfer progress.
@@ -18,8 +18,8 @@ type TransferHost = Pick<
   | "fileSize"
   | "isDirectory"
   | "remove"
-  | "spawnPipe"
   | "splitFile"
+  | "tarZstd"
 >;
 
 export interface TransferOptions {
@@ -39,12 +39,6 @@ const makeLocalArchivePath = (safe: string, id: string): string =>
 const makeRemoteArchivePath = (safe: string, id: string): string =>
   `/tmp/${makeArchiveName(safe, id)}`;
 
-const TAR_CREATE_SETUP = [
-  "export COPYFILE_DISABLE=1",
-  'SANDHOP_TAR_MAC_FLAGS=""',
-  'case "$(tar --help 2>/dev/null)" in *--no-mac-metadata*) SANDHOP_TAR_MAC_FLAGS="--no-mac-metadata";; esac',
-].join("; ");
-
 export interface TarCreateOptions {
   isDirectory?: boolean;
   excludes?: string[];
@@ -58,49 +52,15 @@ const tarSource = (
     ? { cwd: path, entry: "." }
     : { cwd: dirname(path), entry: basename(path) };
 
-const tarExcludeArgs = (excludes: string[] | undefined): string =>
-  excludes === undefined
-    ? ""
-    : excludes.map((exclude) => ` --exclude ${shellQuote(exclude)}`).join("");
-
-const tarEntryArg = (entry: string): string =>
-  entry === "." ? "." : shellQuote(entry);
-
-const makeTarStreamCommand = (
-  path: string,
-  isDirectory: boolean,
-  excludes: string[] | undefined,
-): string => {
-  const source = tarSource(path, isDirectory);
-  return [
-    `${TAR_CREATE_SETUP}; tar $SANDHOP_TAR_MAC_FLAGS${tarExcludeArgs(excludes)}`,
-    "-cf -",
-    `-C ${shellQuote(source.cwd)}`,
-    tarEntryArg(source.entry),
-  ].join(" ");
-};
-
-const makeCompressionCommand = (
-  localPath: string,
-  archive: string,
-  isDirectory: boolean,
-  excludes: string[] | undefined,
-): string => {
-  return [
-    `set -o pipefail; ${makeTarStreamCommand(localPath, isDirectory, excludes)}`,
-    `zstd -T0 -8 --long=27 --check -o ${shellQuote(archive)} -f`,
-  ].join(" | ");
-};
-
 const makeExtractionCommands = (
   remoteArchive: string,
   sandboxDestDir: string,
 ): string[] => {
-  const extract = `zstd -d --long=27 -c ${shellQuote(remoteArchive)} | tar -xf - -C ${shellQuote(sandboxDestDir)}`;
+  const extract = `zstd -d --long=27 -c ${quote([remoteArchive])} | tar -xf - -C ${quote([sandboxDestDir])}`;
   return [
-    `zstd -t ${shellQuote(remoteArchive)}`,
-    `mkdir -p ${shellQuote(sandboxDestDir)}`,
-    `bash -lc ${shellQuote(`set -o pipefail; ${extract}`)}`,
+    `zstd -t ${quote([remoteArchive])}`,
+    `mkdir -p ${quote([sandboxDestDir])}`,
+    `bash -lc ${quote([`set -o pipefail; ${extract}`])}`,
   ];
 };
 
@@ -109,9 +69,9 @@ const makeSizeCheckCommand = (
   totalBytes: number,
 ): string =>
   [
-    `actual="$(wc -c < ${shellQuote(remoteArchive)} | tr -d ' ')"`,
-    `if [ "$actual" != ${shellQuote(String(totalBytes))} ]; then`,
-    `  echo "archive size mismatch for ${shellQuote(remoteArchive)}: expected ${totalBytes} got $actual" >&2`,
+    `actual="$(wc -c < ${quote([remoteArchive])} | tr -d ' ')"`,
+    `if [ "$actual" != ${quote([String(totalBytes)])} ]; then`,
+    `  echo "archive size mismatch for ${quote([remoteArchive])}: expected ${totalBytes} got $actual" >&2`,
     "  exit 1",
     "fi",
   ].join("\n");
@@ -170,8 +130,12 @@ export class TransferService {
     const prefix = `${tmpdir()}/sandhop-${safe}-${id}.part.`;
     let chunks: string[] = [];
     try {
-      await this.host.spawnPipe(
-        makeCompressionCommand(localPath, archive, isDirectory, opts?.excludes),
+      const source = tarSource(localPath, isDirectory);
+      await this.host.tarZstd(
+        source.cwd,
+        [source.entry],
+        archive,
+        opts.excludes === undefined ? undefined : { excludes: opts.excludes },
       );
       chunks = await this.host.splitFile(archive, CHUNK_BYTES, prefix);
       const chunkSizes = chunks.map((chunk) => this.host.fileSize(chunk));
@@ -189,7 +153,10 @@ export class TransferService {
         chunks.map((chunk, index) =>
           limit(
             async (localChunk: string, remoteChunk: string): Promise<void> => {
-              await this.sandbox.uploadPath(remoteChunk, localChunk);
+              await this.sandbox.uploadPath(
+                remotePath(remoteChunk),
+                localChunk,
+              );
               uploadedBytes += chunkSizes[index]!;
               opts.onProgress?.({
                 label,
@@ -204,9 +171,9 @@ export class TransferService {
         ),
       );
       const remoteArchive = makeRemoteArchivePath(safe, id);
-      const catInputs = remoteChunks.map(shellQuote).join(" ");
+      const catInputs = remoteChunks.map((chunk) => quote([chunk])).join(" ");
       const cleanup = [remoteArchive, ...remoteChunks]
-        .map(shellQuote)
+        .map((path) => quote([path]))
         .join(" ");
       opts.onProgress?.({
         label,
@@ -214,15 +181,16 @@ export class TransferService {
         bytesDone: totalBytes,
         bytesTotal: totalBytes,
       });
-      const restore = await this.sandbox.exec(
+      const restore = await execShell(
+        this.sandbox,
         [
           "set -e",
-          SUDO_SETUP,
-          SANDHOP_OWNER_SETUP,
-          `cat ${catInputs} > ${shellQuote(remoteArchive)}`,
+          'SUDO=""; if [ "$(id -u)" != 0 ] && command -v sudo >/dev/null 2>&1; then SUDO="sudo"; fi',
+          'SANDHOP_OWNER="$(id -u):$(id -g)"; if [ "${SANDHOP_RUNTIME_USER:-}" != "" ]; then SANDHOP_OWNER="$(id -u "$SANDHOP_RUNTIME_USER"):$(id -g "$SANDHOP_RUNTIME_USER")"; fi',
+          `cat ${catInputs} > ${quote([remoteArchive])}`,
           makeSizeCheckCommand(remoteArchive, totalBytes),
           ...makeExtractionCommands(remoteArchive, sandboxDestDir),
-          `$SUDO chown -R "$SANDHOP_OWNER" ${shellQuote(sandboxDestPath)}`,
+          `$SUDO chown -R "$SANDHOP_OWNER" ${quote([sandboxDestPath])}`,
           `rm -f ${cleanup}`,
         ].join("\n"),
       );

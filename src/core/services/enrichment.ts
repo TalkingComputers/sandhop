@@ -1,11 +1,11 @@
 import { formatErrorStack } from "../errors.js";
-import { expandHome, makeTempPath } from "../paths.js";
+import { expandHome, makeTempPath, remotePath } from "../paths.js";
 import type { Agent } from "../ports/agent.js";
 import {
   EnrichmentStepId,
   type EnrichmentProgressListener,
 } from "../ports/progress.js";
-import type { RunResult, Sandbox } from "../ports/provider.js";
+import { execShell, type RunResult, type Sandbox } from "../ports/provider.js";
 import type { BootstrapService, EnrichmentStepResult } from "./bootstrap.js";
 import type { CodePlan, McpCodeService } from "./mcp-code.js";
 import type { ProfileService } from "./profile.js";
@@ -18,7 +18,8 @@ const ENRICHMENT_EXEC_TIMEOUT_MS = 1_800_000;
 
 const appendLog = async (sandbox: Sandbox, text: string): Promise<void> => {
   const marker = `SANDHOP_ENRICH_LOG_${Date.now()}`;
-  await sandbox.exec(
+  await execShell(
+    sandbox,
     `cat >> /tmp/sandhop-enrich.log <<'${marker}'\n${text}\n${marker}`,
   );
 };
@@ -28,7 +29,8 @@ const runLogged = async (
   script: string,
   opts?: { timeoutMs?: number },
 ): Promise<RunResult> =>
-  sandbox.exec(
+  execShell(
+    sandbox,
     ["{", script, "} >> /tmp/sandhop-enrich.log 2>&1"].join("\n"),
     opts,
   );
@@ -229,7 +231,10 @@ export class EnrichmentService {
       ),
     );
     for (const rewrite of scriptPlan.rewrites)
-      await this.sandbox.uploadFile(rewrite.sandboxPath, rewrite.content);
+      await this.sandbox.uploadFile(
+        remotePath(rewrite.sandboxPath),
+        rewrite.content,
+      );
     return scriptPlan;
   }
 
@@ -262,7 +267,7 @@ export class EnrichmentService {
     });
     for (const file of bundle.files)
       await this.sandbox.uploadFile(
-        expandHome(file.path, this.sandbox.home),
+        remotePath(expandHome(file.path, this.sandbox.home)),
         file.content,
       );
     const result = await runLogged(

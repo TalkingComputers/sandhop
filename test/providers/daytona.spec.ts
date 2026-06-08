@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
 import { expect, test, vi } from "vitest";
+import { remotePath } from "../../src/core/paths.js";
 import { FakeHost } from "../fakes/host.js";
 
 const daytonaMocks = vi.hoisted(() => {
@@ -112,17 +113,17 @@ test("DaytonaSandboxProvider creates a sandbox and maps session stdout and stder
   });
   expect(sandbox.home).toBe("/home/daytona");
 
-  await expect(sandbox.exec("echo ok")).resolves.toEqual({
+  await expect(sandbox.exec("echo", ["ok"])).resolves.toEqual({
     exitCode: 0,
     stdout: "ok\n",
     stderr: "",
   });
-  await expect(sandbox.exec("echo err")).resolves.toEqual({
+  await expect(sandbox.exec("echo", ["err"])).resolves.toEqual({
     exitCode: 3,
     stdout: "out\n",
     stderr: "err\n",
   });
-  await sandbox.exec("echo slow", { timeoutMs: 123000 });
+  await sandbox.exec("echo", ["slow"], { timeoutMs: 123000 });
   expect(daytonaMocks.Daytona).toHaveBeenCalledWith({
     apiKey: "api-key",
     apiUrl: "https://api.daytona.example",
@@ -216,19 +217,19 @@ test("DaytonaSandboxProvider spawn backgrounds commands without a session", asyn
   });
   daytonaMocks.executeCommand.mockClear();
 
-  await sandbox.spawn("ttyd");
-  await sandbox.spawn("cloudflared");
+  await sandbox.spawn("ttyd", []);
+  await sandbox.spawn("cloudflared", []);
 
   expect(daytonaMocks.executeCommand).toHaveBeenNthCalledWith(
     1,
-    "nohup bash -lc 'ttyd' >/dev/null 2>&1 &",
+    "nohup bash -lc ttyd >/dev/null 2>&1 &",
     undefined,
     undefined,
     600,
   );
   expect(daytonaMocks.executeCommand).toHaveBeenNthCalledWith(
     2,
-    "nohup bash -lc 'cloudflared' >/dev/null 2>&1 &",
+    "nohup bash -lc cloudflared >/dev/null 2>&1 &",
     undefined,
     undefined,
     600,
@@ -251,8 +252,8 @@ test("DaytonaSandboxProvider uses fixed command timeout after long create", asyn
   daytonaMocks.executeCommand.mockClear();
   daytonaMocks.executeSessionCommand.mockClear();
 
-  await sandbox.exec("echo ok");
-  await sandbox.spawn("ttyd");
+  await sandbox.exec("echo", ["ok"]);
+  await sandbox.spawn("ttyd", []);
 
   expect(daytonaMocks.executeSessionCommand).toHaveBeenNthCalledWith(
     1,
@@ -266,7 +267,7 @@ test("DaytonaSandboxProvider uses fixed command timeout after long create", asyn
   );
   expect(daytonaMocks.executeCommand).toHaveBeenNthCalledWith(
     1,
-    "nohup bash -lc 'ttyd' >/dev/null 2>&1 &",
+    "nohup bash -lc ttyd >/dev/null 2>&1 &",
     undefined,
     undefined,
     600,
@@ -306,9 +307,12 @@ test("DaytonaSandboxProvider uploads files, exposes ports, and destroys", async 
     ports: [7681],
   });
 
-  await sandbox.uploadFile("/tmp/a", "hello");
-  await sandbox.uploadFile("/tmp/b", new Uint8Array([1, 2]));
-  await sandbox.uploadPath("/tmp/profile.tgz", "/local/profile.tgz");
+  await sandbox.uploadFile(remotePath("/tmp/a"), "hello");
+  await sandbox.uploadFile(remotePath("/tmp/b"), new Uint8Array([1, 2]));
+  await sandbox.uploadPath(
+    remotePath("/tmp/profile.tgz"),
+    "/local/profile.tgz",
+  );
   await expect(sandbox.exposePort(7681)).resolves.toEqual({
     url: "https://daytona-preview.example",
   });

@@ -21,20 +21,20 @@ test("declarative agents install exact versions and compose native resume comman
   );
   expect(
     CLAUDE_CODE.resumeCmd("session-id", "/home/user/project", undefined),
-  ).toBe("cd '/home/user/project' && claude --resume 'session-id'");
+  ).toBe("cd /home/user/project && claude --resume session-id");
   expect(
     CLAUDE_CODE.resumeCmd("session-id", "/home/user/project", "120000"),
   ).toBe(
-    "cd '/home/user/project' && MCP_TIMEOUT='120000' claude --resume 'session-id'",
+    "cd /home/user/project && MCP_TIMEOUT=120000 claude --resume session-id",
   );
   expect(CODEX.installCmd("0.136.0")).toBe("npm i -g @openai/codex@0.136.0");
   expect(CODEX.resumeCmd("session-id", "/home/user/project", undefined)).toBe(
-    "cd '/home/user/project' && codex resume 'session-id'",
+    "cd /home/user/project && codex resume session-id",
   );
   expect(
     CLAUDE_CODE.resumeCmd("session;$(id)'", "/tmp/proj;$(touch pwn)'", "1;id"),
   ).toBe(
-    "cd '/tmp/proj;$(touch pwn)'\\''' && MCP_TIMEOUT='1;id' claude --resume 'session;$(id)'\\'''",
+    `cd "/tmp/proj;\\$(touch pwn)'" && MCP_TIMEOUT=1\\;id claude --resume "session;\\$(id)'"`,
   );
   expect(
     CLAUDE_CODE.remoteTranscriptPath(
@@ -60,7 +60,7 @@ test("declarative agents install exact versions and compose native resume comman
   ).toBeNull();
 });
 
-test("agent preseed node eval commands single-quote scripts", () => {
+test("agent preseed runs uploaded node script bodies", () => {
   const home = mkdtempSync(join(tmpdir(), "sandhop-preseed-"));
   const pwned = join(home, "PWNED");
   const remoteProj = `x;$(touch ${pwned})'`;
@@ -68,14 +68,10 @@ test("agent preseed node eval commands single-quote scripts", () => {
     ...CLAUDE_CODE.preSeed(remoteProj),
     ...CODEX.preSeed(remoteProj),
   ];
-  const evalCommands = commands.filter((command) =>
-    command.startsWith("node -e "),
-  );
-
-  expect(evalCommands).toHaveLength(2);
-  expect(evalCommands.every((command) => command.startsWith("node -e '"))).toBe(
-    true,
-  );
+  expect(
+    commands.filter((command) => command === 'node "$sandhop_node_script"'),
+  ).toHaveLength(2);
+  expect(commands.join("\n")).not.toContain("node -e");
 
   execFileSync("bash", ["-lc", commands.join("\n")], { env: { HOME: home } });
 

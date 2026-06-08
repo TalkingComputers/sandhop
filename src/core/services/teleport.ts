@@ -1,6 +1,6 @@
 import { buildManifest } from "../manifest.js";
 import { TTYD_PORT } from "../constants.js";
-import { dirname, expandHome } from "../paths.js";
+import { dirname, expandHome, remotePath } from "../paths.js";
 import type { Agent } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
 import type { Multiplexer } from "../ports/multiplexer.js";
@@ -8,10 +8,15 @@ import {
   PushProgressId,
   type PushProgressListener,
 } from "../ports/progress.js";
-import type { Sandbox, SandboxProvider } from "../ports/provider.js";
+import {
+  execShell,
+  spawnShell,
+  type Sandbox,
+  type SandboxProvider,
+} from "../ports/provider.js";
 import type { Transport } from "../ports/transport.js";
 import { randomToken } from "../rand.js";
-import { shellQuote } from "../shell.js";
+import { quote } from "shell-quote";
 import type { AuthExtractor } from "./auth.js";
 import type { BootstrapService } from "./bootstrap.js";
 import type { SshBundle, SshCollector } from "./git-ssh.js";
@@ -51,8 +56,8 @@ export interface TeleportServices {
     | "readBytes"
     | "realpath"
     | "remove"
-    | "spawnPipe"
     | "splitFile"
+    | "tarZstd"
     | "username"
   >;
   session: SessionReader;
@@ -96,21 +101,22 @@ const buildTerminalCommand = (
   pass: string,
   command: string,
 ): string => {
-  const bindFlag = bind === "0.0.0.0" ? "" : `-i ${shellQuote(bind)} `;
-  return `ttyd ${bindFlag}-p ${TTYD_PORT} -W -c ${shellQuote(`${user}:${pass}`)} ${command} >> ${TERMINAL_LOG} 2>&1`;
+  const bindFlag = bind === "0.0.0.0" ? "" : `-i ${quote([bind])} `;
+  return `ttyd ${bindFlag}-p ${TTYD_PORT} -W -c ${quote([`${user}:${pass}`])} ${command} >> ${TERMINAL_LOG} 2>&1`;
 };
 
 const verifyTerminalReady = async (sandbox: Sandbox): Promise<void> => {
-  const result = await sandbox.exec(
+  const result = await execShell(
+    sandbox,
     [
       "i=0",
       'while [ "$i" -lt 50 ]; do',
-      `  if pgrep -f ${shellQuote(`ttyd .*${TTYD_PORT}`)} >/dev/null 2>&1; then exit 0; fi`,
+      `  if pgrep -f ${quote([`ttyd .*${TTYD_PORT}`])} >/dev/null 2>&1; then exit 0; fi`,
       "  i=$((i+1))",
       "  sleep 0.1",
       "done",
       'echo "[sandhop] terminal failed to start" >&2',
-      `if [ -f ${shellQuote(TERMINAL_LOG)} ]; then tail -n 80 ${shellQuote(TERMINAL_LOG)} >&2; fi`,
+      `if [ -f ${quote([TERMINAL_LOG])} ]; then tail -n 80 ${quote([TERMINAL_LOG])} >&2; fi`,
       "exit 1",
     ].join("\n"),
     { timeoutMs: 10000 },
@@ -129,8 +135,7 @@ const uploadModeFiles = async (
   for (const file of files) {
     const dest = expandHome(file.path, sandbox.home);
     await bootstrap.prepAndUpload(sandbox, dest, file.content);
-    if (file.mode !== undefined)
-      await sandbox.exec(`chmod ${shellQuote(file.mode)} ${shellQuote(dest)}`);
+    if (file.mode !== undefined) await sandbox.exec("chmod", [file.mode, dest]);
   }
 };
 
@@ -141,10 +146,8 @@ const uploadSshBundle = async (
 ): Promise<void> => {
   if (bundle.files.length === 0) return;
   await uploadModeFiles(bootstrap, sandbox, bundle.files);
-  const dirs = bundle.dirs.map((dir) =>
-    shellQuote(expandHome(dir, sandbox.home)),
-  );
-  if (dirs.length > 0) await sandbox.exec(`chmod 700 ${dirs.join(" ")}`);
+  const dirs = bundle.dirs.map((dir) => expandHome(dir, sandbox.home));
+  await Promise.all(dirs.map((dir) => sandbox.exec("chmod", ["700", dir])));
 };
 
 const readGitConfig = (
@@ -211,7 +214,10 @@ export class TeleportService {
     });
     try {
       opts.onProgress?.({ step: PushProgressId.UploadingBundle });
-      await sandbox.exec(this.services.bootstrap.renderProjectPrep(manifest));
+      await execShell(
+        sandbox,
+        this.services.bootstrap.renderProjectPrep(manifest),
+      );
       const transfer = new TransferService(this.services.host, sandbox);
       await transfer.send(bundle, manifest.remoteProj, "bundle", {
         excludes: opts.excludes,
@@ -242,13 +248,16 @@ export class TeleportService {
         const destDir = this.services.host.isDirectory(realInclude)
           ? dest
           : dirname(dest);
-        await sandbox.exec(this.services.bootstrap.renderPathPrep(destDir));
+        await execShell(
+          sandbox,
+          this.services.bootstrap.renderPathPrep(destDir),
+        );
         await transfer.send(realInclude, dest, `include-${index}`, {
           excludes: opts.excludes,
         });
       }
       await sandbox.uploadFile(
-        "/tmp/transcript.jsonl",
+        remotePath("/tmp/transcript.jsonl"),
         prepareTranscriptUpload(
           this.agent,
           this.services.host.readBytes(session.transcriptPath),
@@ -264,7 +273,8 @@ export class TeleportService {
         packageName: this.agent.pkg,
         version: manifest.cliVersion,
       });
-      const restore = await sandbox.exec(
+      const restore = await execShell(
+        sandbox,
         this.services.bootstrap.render(manifest, {
           home: sandbox.home,
           transportSteps: opts.transport.bootstrapSteps(),
@@ -286,9 +296,12 @@ export class TeleportService {
       const bind = opts.transport.ttydBindAddress();
       const command = this.services.multiplexer.attach(
         TTYD_SESSION,
-        `bash -lc ${shellQuote(resume)}`,
+        `bash -lc ${quote([resume])}`,
       );
-      await sandbox.spawn(buildTerminalCommand(bind, user, pass, command));
+      await spawnShell(
+        sandbox,
+        buildTerminalCommand(bind, user, pass, command),
+      );
       await verifyTerminalReady(sandbox);
       const { url } = await opts.transport.expose({
         sandbox,

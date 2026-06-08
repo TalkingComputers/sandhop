@@ -11,13 +11,21 @@ import { FakeHost } from "../fakes/host.js";
 import { FakeSandbox } from "../fakes/provider.js";
 
 class FailingMcpSandbox extends FakeSandbox {
-  async exec(cmd: string, opts?: ExecOptions): Promise<RunResult> {
-    if (cmd.includes("/tmp/sandhop-mcp-0-") && cmd.includes("zstd -d")) {
-      this.execs.push(cmd);
+  async exec(
+    file: string,
+    args: readonly string[],
+    opts?: ExecOptions,
+  ): Promise<RunResult> {
+    const script =
+      file === "bash" && args[0] === "-lc" && args[1] !== undefined
+        ? args[1]
+        : [file, ...args].join(" ");
+    if (script.includes("/tmp/sandhop-mcp-0-") && script.includes("zstd -d")) {
+      this.execs.push(script);
       this.execOptions.push(opts);
       return { exitCode: 1, stdout: "", stderr: "npm run build failed" };
     }
-    return super.exec(cmd, opts);
+    return super.exec(file, args, opts);
   }
 }
 
@@ -115,10 +123,9 @@ cwd = "/home/local/mcp"
     path: "/home/user/.env.d/mcp.env",
     data: "TOKEN=value\n",
   });
-  expect(host.spawnPipeCalls).toEqual(
+  expect(host.tarCalls).toEqual(
     expect.arrayContaining([
-      expect.stringContaining("zstd -T0 -8 --long=27 --check"),
-      expect.stringContaining("--exclude 'node_modules'"),
+      expect.objectContaining({ excludes: ["node_modules"] }),
     ]),
   );
   expect(host.copyCalls[0]!.excludes).toEqual(["node_modules"]);
@@ -126,7 +133,7 @@ cwd = "/home/local/mcp"
   expect(execLog).not.toContain(["SANDHOP", "LOW", "PRIORITY"].join("_"));
   expect(execLog).not.toContain(["nice", "-n"].join(" "));
   expect(execLog).not.toContain(["io", "nice"].join(""));
-  expect(execLog).toContain("cd '/home/user/mcp' && npm ci");
+  expect(execLog).toContain("cd /home/user/mcp && npm ci");
   expect(execLog).toContain('cat >> "$HOME/.codex/config.toml"');
   expect(execLog).toContain("/home/user/mcp/server.js");
   expect(execLog).toContain("[sandhop] enrichment summary");
@@ -197,7 +204,7 @@ test("runEnrichment keeps best-effort steps isolated and marks completion after 
   expect(mcpIndex).toBeGreaterThan(profileIndex);
   expect(markerIndex).toBeGreaterThan(mcpIndex);
   expect(log).toContain("[sandhop] step failed: mcp_code_transfer");
-  expect(log).not.toContain("cd '/home/user/mcp' && npm ci");
+  expect(log).not.toContain("cd /home/user/mcp && npm ci");
   expect(log).toContain("[sandhop] enrichment summary");
 });
 
@@ -283,15 +290,22 @@ test("runEnrichment ships Claude settings scripts and uploads rewritten settings
     hooks: { Stop: { hooks: { command: string }[] }[] };
   };
 
-  expect(host.spawnPipeCalls).toEqual(
+  expect(host.tarCalls).toEqual(
     expect.arrayContaining([
-      expect.stringContaining("-C '/home/local/hook-app' ."),
-      expect.stringContaining("-C '/home/local/.claude' 'statusline.sh'"),
-      expect.stringContaining("-C '/home/local/bin' 'api-key-helper.sh'"),
-      expect.stringContaining(
-        "-C '/home/local/work/scripts' 'project-hook.py'",
-      ),
-      expect.stringContaining("--exclude 'dist'"),
+      expect.objectContaining({ cwd: "/home/local/hook-app", entries: ["."] }),
+      expect.objectContaining({
+        cwd: "/home/local/.claude",
+        entries: ["statusline.sh"],
+      }),
+      expect.objectContaining({
+        cwd: "/home/local/bin",
+        entries: ["api-key-helper.sh"],
+      }),
+      expect.objectContaining({
+        cwd: "/home/local/work/scripts",
+        entries: ["project-hook.py"],
+      }),
+      expect.objectContaining({ excludes: ["dist"] }),
     ]),
   );
   expect(userSettings.hooks.PreToolUse[0]!.hooks[0]!.command).toBe(

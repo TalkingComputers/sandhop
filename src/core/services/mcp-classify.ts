@@ -2,7 +2,7 @@ import { collectEnvRefs } from "../env.js";
 import { basename, expandEnv, joinPath, uniqueSorted } from "../paths.js";
 import type { McpServer } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
-import { shellQuote } from "../shell.js";
+import { quote } from "shell-quote";
 import { installCommandFor } from "./install-cmd.js";
 import { type PathMapping, maybeRealpath, remapValue } from "./mcp-paths.js";
 
@@ -244,7 +244,7 @@ export const installCmd = (
   sandboxRoot: string,
 ): string[] => {
   const cmd = installCommandFor(host, root);
-  return cmd === null ? [] : [`cd ${shellQuote(sandboxRoot)} && ${cmd}`];
+  return cmd === null ? [] : [`cd ${quote([sandboxRoot])} && ${cmd}`];
 };
 
 export const classify = (

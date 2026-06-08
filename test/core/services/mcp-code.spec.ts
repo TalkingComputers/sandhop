@@ -76,7 +76,7 @@ command = "/Applications/Foo.app/Contents/MacOS/foo"
       envHttpHeaders: { Authorization: "AUTH_TOKEN" },
     },
   ]);
-  expect(plan.installCmds).toEqual(["cd '/home/user/mcp' && npm ci"]);
+  expect(plan.installCmds).toEqual(["cd /home/user/mcp && npm ci"]);
   expect(plan.envRefs).toEqual([
     "API_TOKEN",
     "AUTH_TOKEN",
@@ -126,8 +126,8 @@ cwd = "/home/local/py"
 
   expect([...plan.runtimes].sort()).toEqual(["bun", "uv"]);
   expect(plan.installCmds).toEqual([
-    "cd '/home/user/bun-app' && bun install --frozen-lockfile",
-    "cd '/home/user/py' && uv sync",
+    "cd /home/user/bun-app && bun install --frozen-lockfile",
+    "cd /home/user/py && uv sync",
   ]);
   expect(plan.referencedFiles).toEqual(["/home/local/.env.d/mcp.env"]);
   expect(plan.rewrites[0]!.args).toEqual([

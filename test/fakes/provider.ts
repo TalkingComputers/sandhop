@@ -6,7 +6,9 @@ import type {
   Sandbox,
   SandboxInfo,
   SandboxProvider,
+  SpawnOptions,
 } from "../../src/core/ports/provider.js";
+import type { RemotePath } from "../../src/core/paths.js";
 
 export class FakeSandbox implements Sandbox {
   readonly id: string;
@@ -33,24 +35,43 @@ export class FakeSandbox implements Sandbox {
     this.destroyed = false;
   }
 
-  async uploadFile(path: string, data: Uint8Array | string): Promise<void> {
+  async uploadFile(path: RemotePath, data: Uint8Array | string): Promise<void> {
     this.uploads.push({ path, data });
   }
 
-  async uploadPath(remotePath: string, localPath: string): Promise<void> {
+  async uploadPath(remotePath: RemotePath, localPath: string): Promise<void> {
     this.pathUploads.push({ remotePath, localPath });
   }
 
-  async exec(cmd: string, opts?: ExecOptions): Promise<RunResult> {
-    this.execs.push(cmd);
+  async exec(
+    file: string,
+    args: readonly string[],
+    opts?: ExecOptions,
+  ): Promise<RunResult> {
+    this.execs.push(
+      file === "bash" && args[0] === "-lc" && args[1] !== undefined
+        ? args[1]
+        : [file, ...args].join(" "),
+    );
     this.execOptions.push(opts);
     const result = this.execResults.shift();
     if (result !== undefined) return result;
     return { exitCode: 0, stdout: "SANDHOP_RESTORE_OK\n", stderr: "" };
   }
 
-  async spawn(cmd: string): Promise<void> {
-    this.spawns.push(cmd);
+  async spawn(
+    file: string,
+    args: readonly string[],
+    opts?: SpawnOptions,
+  ): Promise<void> {
+    this.spawns.push(
+      [
+        file === "bash" && args[0] === "-lc" && args[1] !== undefined
+          ? args[1]
+          : [file, ...args].join(" "),
+        JSON.stringify(opts),
+      ].join(" "),
+    );
   }
 
   async exposePort(port: number): Promise<ExposedPort> {

@@ -8,14 +8,15 @@ import type {
   SandboxProvider,
 } from "../../core/ports/provider.js";
 import { randomToken } from "../../core/rand.js";
-import { shellQuote } from "../../core/shell.js";
 import { destroyOrFalse } from "../destroy.js";
 import { toBuffer } from "../encode.js";
 import { optionalCred, requireCred } from "../index.js";
 import { lazyImport, lazyOnce } from "../lazy-import.js";
 import {
-  GenericSandbox,
+  createSandbox,
   readSandboxHome,
+  renderDetachedShell,
+  renderShellCall,
   type SandboxOps,
 } from "../sandbox-adapter.js";
 
@@ -97,7 +98,7 @@ const execInSession = async (
     const result = await sandbox.process.executeSessionCommand(
       sessionId,
       {
-        command: `bash -lc ${shellQuote(cmd)}`,
+        command: renderShellCall("bash", ["-lc", cmd]),
         runAsync: false,
         suppressInputEcho: true,
       },
@@ -112,6 +113,15 @@ const execInSession = async (
     await sandbox.process.deleteSession(sessionId).catch(() => undefined);
   }
 };
+
+const scriptForCommand = (
+  file: string,
+  args: readonly string[],
+  opts?: { cwd?: string; env?: Record<string, string> },
+): string =>
+  file === "bash" && args[0] === "-lc" && args[1] !== undefined
+    ? args[1]
+    : renderShellCall(file, args, opts);
 
 const makeOps = (
   sandbox: DaytonaSandboxInstance,
@@ -129,21 +139,21 @@ const makeOps = (
     );
   },
 
-  exec: async (cmd, opts) => {
+  exec: async (file, args, opts) => {
     return execInSession(
       sandbox,
-      cmd,
+      scriptForCommand(file, args, opts),
       opts?.timeoutMs === undefined
         ? COMMAND_TIMEOUT_SECONDS
         : timeoutSeconds(opts.timeoutMs),
     );
   },
 
-  spawn: async (cmd) => {
+  spawn: async (file, args, opts) => {
     await sandbox.process.executeCommand(
-      `nohup bash -lc ${shellQuote(cmd)} >/dev/null 2>&1 &`,
-      undefined,
-      undefined,
+      renderDetachedShell(renderShellCall(file, args, opts), opts),
+      opts?.cwd,
+      opts?.env,
       COMMAND_TIMEOUT_SECONDS,
     );
   },
@@ -176,8 +186,10 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     try {
       const ops = makeOps(sandbox, timeout);
       const home = await readSandboxHome(ops.exec);
-      await ops.exec(ZSTD_INSTALL, { timeoutMs: opts.timeoutMs });
-      return new GenericSandbox(sandbox.id, home, ops);
+      await ops.exec("bash", ["-lc", ZSTD_INSTALL], {
+        timeoutMs: opts.timeoutMs,
+      });
+      return createSandbox(sandbox.id, home, ops);
     } catch (error: unknown) {
       await sandbox.delete(timeout).catch(() => undefined);
       throw error;
@@ -190,8 +202,8 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     ).get(id)) as DaytonaSandboxInstance;
     const ops = makeOps(sandbox, COMMAND_TIMEOUT_SECONDS);
     const home = await readSandboxHome(ops.exec);
-    await ops.exec(ZSTD_INSTALL);
-    return new GenericSandbox(id, home, ops);
+    await ops.exec("bash", ["-lc", ZSTD_INSTALL]);
+    return createSandbox(id, home, ops);
   }
 
   async list(): Promise<SandboxInfo[]> {

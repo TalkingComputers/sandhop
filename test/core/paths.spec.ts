@@ -6,6 +6,7 @@ import {
   joinPath,
   listSkillNames,
   makeTempPath,
+  remotePath,
 } from "../../src/core/paths.js";
 import { FakeHost } from "../fakes/host.js";
 
@@ -53,4 +54,9 @@ test("listSkillNames returns sorted first-level skill directories", () => {
     "zeta",
   ]);
   expect(listSkillNames(host, "/home/local/.claude/missing")).toEqual([]);
+});
+
+test("remote paths validate absolutes", () => {
+  expect(remotePath("/tmp/a")).toBe("/tmp/a");
+  expect(() => remotePath("tmp/a")).toThrow("Remote path must be absolute");
 });

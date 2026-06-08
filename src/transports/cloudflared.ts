@@ -3,18 +3,18 @@ import type {
   TransportContext,
   TransportResult,
 } from "../core/ports/transport.js";
-import type { RunResult } from "../core/ports/provider.js";
-import { shellQuote } from "../core/shell.js";
+import { execShell, type RunResult } from "../core/ports/provider.js";
+import { remotePath } from "../core/paths.js";
 
 export interface CloudflaredOptions {
   token?: string;
   hostname?: string;
 }
 
-const LOG_PATH = "/tmp/sandhop-cloudflared.log";
+const LOG_PATH = remotePath("/tmp/sandhop-cloudflared.log");
 
 const tunnelWaitScript = (probe: string): string =>
-  `bash -lc 'for i in $(seq 1 120); do ${probe}; sleep 0.5; done; cat ${LOG_PATH} >&2; exit 1'`;
+  `for i in $(seq 1 120); do ${probe}; sleep 0.5; done; cat ${LOG_PATH} >&2; exit 1`;
 
 const tunnelError = (result: RunResult): string =>
   result.stderr || result.stdout || "cloudflared failed to expose port";
@@ -53,9 +53,23 @@ export class CloudflaredTransport implements Transport {
         "CLOUDFLARE_TUNNEL_HOSTNAME is required for a named cloudflared tunnel",
       );
     await ctx.sandbox.spawn(
-      `cloudflared tunnel --no-autoupdate --protocol http2 run --token ${shellQuote(token)} > ${LOG_PATH} 2>&1`,
+      "cloudflared",
+      [
+        "tunnel",
+        "--no-autoupdate",
+        "--protocol",
+        "http2",
+        "run",
+        "--token",
+        token,
+      ],
+      {
+        stdoutPath: LOG_PATH,
+        stderrPath: LOG_PATH,
+      },
     );
-    const result = await ctx.sandbox.exec(
+    const result = await execShell(
+      ctx.sandbox,
       tunnelWaitScript(
         `grep -q "Registered tunnel connection" ${LOG_PATH} && exit 0`,
       ),
@@ -66,9 +80,22 @@ export class CloudflaredTransport implements Transport {
 
   private async exposeQuick(ctx: TransportContext): Promise<TransportResult> {
     await ctx.sandbox.spawn(
-      `cloudflared tunnel --no-autoupdate --protocol http2 --url http://localhost:${ctx.localPort} > ${LOG_PATH} 2>&1`,
+      "cloudflared",
+      [
+        "tunnel",
+        "--no-autoupdate",
+        "--protocol",
+        "http2",
+        "--url",
+        `http://localhost:${ctx.localPort}`,
+      ],
+      {
+        stdoutPath: LOG_PATH,
+        stderrPath: LOG_PATH,
+      },
     );
-    const result = await ctx.sandbox.exec(
+    const result = await execShell(
+      ctx.sandbox,
       tunnelWaitScript(
         `u=$(grep -oE "https://[a-z0-9-]+\\.trycloudflare\\.com" ${LOG_PATH} | head -1); [ -n "$u" ] && grep -q "Registered tunnel connection" ${LOG_PATH} && { echo "$u"; exit 0; }`,
       ),

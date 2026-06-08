@@ -33,7 +33,6 @@ export class FakeHost implements HostDeps {
     excludes?: string[];
   }[];
   execCalls: { bin: string; args: string[] }[];
-  spawnPipeCalls: string[];
   removedPaths: string[];
 
   constructor(args: {
@@ -59,7 +58,6 @@ export class FakeHost implements HostDeps {
     this.tarCalls = [];
     this.copyCalls = [];
     this.execCalls = [];
-    this.spawnPipeCalls = [];
     this.removedPaths = [];
   }
 
@@ -178,13 +176,6 @@ export class FakeHost implements HostDeps {
     throw new Error(`missing exec ${key}`);
   }
 
-  async spawnPipe(cmd: string): Promise<void> {
-    this.spawnPipeCalls.push(cmd);
-    const zstdArchive = cmd.match(/ -o '([^']+)' -f/)?.[1];
-    if (zstdArchive !== undefined)
-      this.bytes[zstdArchive] = encoder.encode("archive");
-  }
-
   async remove(path: string): Promise<void> {
     this.removedPaths.push(path);
     delete this.files[path];
@@ -254,5 +245,19 @@ export class FakeHost implements HostDeps {
         : { cwd, entries, outPath, excludes: opts.excludes };
     this.tarCalls.push(call);
     this.bytes[outPath] = encoder.encode(`tar:${cwd}:${entries.join(",")}`);
+  }
+
+  async tarZstd(
+    cwd: string,
+    entries: string[],
+    outPath: string,
+    opts?: { excludes: string[] },
+  ): Promise<void> {
+    const call =
+      opts === undefined
+        ? { cwd, entries, outPath }
+        : { cwd, entries, outPath, excludes: opts.excludes };
+    this.tarCalls.push(call);
+    this.bytes[outPath] = encoder.encode("archive");
   }
 }

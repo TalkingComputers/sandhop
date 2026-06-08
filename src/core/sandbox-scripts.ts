@@ -1,5 +1,17 @@
 import { CLAUDE_JSON_PATH } from "../agents/claude-paths.js";
 
+export const renderNodeScript = (script: string, label: string): string[] => {
+  const delimiter = `SANDHOP_${label}_${Date.now()}`;
+  return [
+    `sandhop_node_script="$(mktemp /tmp/sandhop-${label.toLowerCase()}.XXXXXX.js)"`,
+    `cat > "$sandhop_node_script" <<'${delimiter}'`,
+    script,
+    delimiter,
+    'node "$sandhop_node_script"',
+    'rm -f "$sandhop_node_script"',
+  ];
+};
+
 export const buildClaudePreSeedScript = (remoteProj: string): string =>
   [
     'const fs=require("fs")',

@@ -56,15 +56,15 @@ test("ReinstallService plans marketplace, plugin, disable, git skill, and symlin
 
   expect(new ReinstallService(host, CLAUDE_CODE).plan()).toEqual({
     commands: [
-      "git clone 'https://github.com/acme/gstack.git' \"$HOME/.claude/skills/gstack\" && git -C \"$HOME/.claude/skills/gstack\" checkout '0123456789abcdef0123456789abcdef01234567'",
+      'git clone https\\://github.com/acme/gstack.git "$HOME/.claude/skills/gstack" && git -C "$HOME/.claude/skills/gstack" checkout 0123456789abcdef0123456789abcdef01234567',
       'cd "$HOME/.claude/skills/gstack" && npm ci',
       'cd "$HOME/.claude/skills/gstack" && npm run build',
       'mkdir -p "$HOME/.claude/skills/office-hours" && ln -sf "$HOME/.claude/skills/gstack/skills/office-hours/SKILL.md" "$HOME/.claude/skills/office-hours/SKILL.md"',
-      "claude plugin marketplace add 'anthropics/claude-plugins'",
-      "claude plugin marketplace add 'https://example.com/plugins.git'",
-      "claude plugin install 'frontend-design@official' --scope project",
-      "claude plugin install 'internal-tool@internal' --scope user",
-      "claude plugin disable 'serena@official'",
+      "claude plugin marketplace add anthropics/claude-plugins",
+      "claude plugin marketplace add https\\://example.com/plugins.git",
+      "claude plugin install frontend-design\\@official --scope project",
+      "claude plugin install internal-tool\\@internal --scope user",
+      "claude plugin disable serena\\@official",
     ],
   });
   expect(host.execCalls).toEqual([
@@ -157,7 +157,7 @@ test("ReinstallService copies dirty and unpushed git skills instead of cloning t
   });
 
   expect(new ReinstallService(host, CLAUDE_CODE).plan().commands).toEqual([
-    "git clone 'https://github.com/acme/clean.git' \"$HOME/.claude/skills/clean\" && git -C \"$HOME/.claude/skills/clean\" checkout '1111111111111111111111111111111111111111'",
+    'git clone https\\://github.com/acme/clean.git "$HOME/.claude/skills/clean" && git -C "$HOME/.claude/skills/clean" checkout 1111111111111111111111111111111111111111',
     'cd "$HOME/.claude/skills/dirty" && pnpm install --frozen-lockfile',
     'cd "$HOME/.claude/skills/unpushed" && bun install --frozen-lockfile',
   ]);
@@ -192,7 +192,7 @@ test("ReinstallService links directory symlink skills and installs external syml
   });
 
   expect(new ReinstallService(host, CLAUDE_CODE).plan().commands).toEqual([
-    "git clone 'https://github.com/acme/gstack.git' \"$HOME/.claude/skills/gstack\" && git -C \"$HOME/.claude/skills/gstack\" checkout '3333333333333333333333333333333333333333'",
+    'git clone https\\://github.com/acme/gstack.git "$HOME/.claude/skills/gstack" && git -C "$HOME/.claude/skills/gstack" checkout 3333333333333333333333333333333333333333',
     'cd "$HOME/.claude/skills/external" && yarn install --frozen-lockfile',
     'mkdir -p "$HOME/.claude/skills" && ln -sfn "$HOME/.claude/skills/gstack/skills/linked-dir" "$HOME/.claude/skills/linked-dir"',
   ]);
@@ -233,9 +233,9 @@ test("ReinstallService quotes marketplace and plugin metacharacters", () => {
   });
 
   expect(new ReinstallService(host, CLAUDE_CODE).plan().commands).toEqual([
-    "claude plugin marketplace add 'https://example.com/a;$(id)'\\'''",
-    "claude plugin install 'plugin;$(id)'\\''@official' --scope user",
-    "claude plugin disable 'disabled;$(id)'\\''@official'",
+    'claude plugin marketplace add "https://example.com/a;\\$(id)\'"',
+    'claude plugin install "plugin;\\$(id)\'@official" --scope user',
+    'claude plugin disable "disabled;\\$(id)\'@official"',
   ]);
 });
 
@@ -255,7 +255,7 @@ test("ReinstallService treats corrupt plugin and settings JSON as absent", () =>
   });
 
   expect(new ReinstallService(host, CLAUDE_CODE).plan().commands).toEqual([
-    "claude plugin marketplace add 'anthropics/claude-plugins'",
+    "claude plugin marketplace add anthropics/claude-plugins",
   ]);
 });
 
@@ -272,7 +272,7 @@ test("ReinstallService treats corrupt marketplaces JSON as absent", () => {
   });
 
   expect(new ReinstallService(host, CLAUDE_CODE).plan().commands).toEqual([
-    "claude plugin install 'serena@official' --scope user",
+    "claude plugin install serena\\@official --scope user",
   ]);
 });
 
@@ -288,7 +288,7 @@ test("ReinstallService plans local-scope Claude plugin installs", () => {
   });
 
   expect(new ReinstallService(host, CLAUDE_CODE).plan().commands).toEqual([
-    "claude plugin install 'serena@official' --scope local",
+    "claude plugin install serena\\@official --scope local",
   ]);
 });
 
@@ -306,8 +306,8 @@ test("ReinstallService preserves duplicate Claude plugin install records", () =>
   });
 
   expect(new ReinstallService(host, CLAUDE_CODE).plan().commands).toEqual([
-    "claude plugin install 'serena@official' --scope user",
-    "claude plugin install 'serena@official' --scope user",
+    "claude plugin install serena\\@official --scope user",
+    "claude plugin install serena\\@official --scope user",
   ]);
 });
 

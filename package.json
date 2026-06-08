@@ -32,7 +32,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc && node -e \"require('node:fs').chmodSync('dist/cli/main.js', 0o755)\"",
+    "build": "node tools/build.mjs",
     "prepare": "npm run build",
     "test": "vitest run",
     "dev": "tsx src/cli/main.ts"
@@ -42,12 +42,15 @@
     "@daytona/sdk": "^0.184.0",
     "citty": "^0.2.2",
     "e2b": "^2.28.0",
+    "execa": "^9.6.1",
     "p-limit": "^7.3.0",
+    "shell-quote": "^1.8.4",
     "smol-toml": "^1.6.1",
     "tar": "^7.5.16"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "@types/shell-quote": "^1.7.5",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^3.0.0"

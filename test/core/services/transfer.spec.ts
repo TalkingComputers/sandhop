@@ -48,10 +48,15 @@ test("TransferService chunks zstd archives, verifies size and integrity, and ext
     "bundle",
   );
 
-  expect(host.spawnPipeCalls).toHaveLength(1);
-  expect(host.spawnPipeCalls[0]).toContain("set -o pipefail; ");
-  expect(host.spawnPipeCalls[0]).toContain("-cf - -C '/workspace/project' .");
-  expect(host.spawnPipeCalls[0]).toContain("| zstd -T0 -8 --long=27 --check");
+  expect(host.tarCalls).toEqual([
+    expect.objectContaining({
+      cwd: "/workspace/project",
+      entries: ["."],
+      outPath: expect.stringMatching(
+        new RegExp(`${tmpdir()}/sandhop-bundle-.+\\.tar\\.zst$`),
+      ),
+    }),
+  ]);
   expect(provider.sandbox.pathUploads).toEqual([
     {
       remotePath: expect.stringMatching(
@@ -72,7 +77,7 @@ test("TransferService chunks zstd archives, verifies size and integrity, and ext
     'SANDHOP_OWNER="$(id -u):$(id -g)"; if [ "${SANDHOP_RUNTIME_USER:-}" != "" ]; then SANDHOP_OWNER="$(id -u "$SANDHOP_RUNTIME_USER"):$(id -g "$SANDHOP_RUNTIME_USER")"; fi',
   );
   expect(provider.sandbox.execs[0]).toContain(
-    "$SUDO chown -R \"$SANDHOP_OWNER\" '/home/user/project'",
+    '$SUDO chown -R "$SANDHOP_OWNER" /home/user/project',
   );
   expect(provider.sandbox.execs[0]).toContain("/home/user/project");
   expect(provider.sandbox.execs[0]).not.toContain("apt-get");
@@ -84,7 +89,7 @@ test("TransferService chunks zstd archives, verifies size and integrity, and ext
   );
 });
 
-test("TransferService disables macOS AppleDouble metadata while creating archives", async () => {
+test("TransferService creates zstd tar archives through host API", async () => {
   const host = new FakeHost({ home: "/home/local", env: {} });
   const provider = new FakeProvider();
 
@@ -94,8 +99,12 @@ test("TransferService disables macOS AppleDouble metadata while creating archive
     "bundle",
   );
 
-  expect(host.spawnPipeCalls[0]).toContain("COPYFILE_DISABLE=1");
-  expect(host.spawnPipeCalls[0]).toContain("--no-mac-metadata");
+  expect(host.tarCalls[0]).toEqual(
+    expect.objectContaining({
+      cwd: "/workspace/project",
+      entries: ["."],
+    }),
+  );
 });
 
 test("TransferService runs zstd extraction with pipefail", async () => {

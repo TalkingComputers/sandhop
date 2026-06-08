@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
 import { expect, test, vi } from "vitest";
+import { remotePath } from "../../src/core/paths.js";
 import { FakeHost } from "../fakes/host.js";
 
 const vercelMocks = vi.hoisted(() => {
@@ -107,12 +108,12 @@ test("VercelSandboxProvider creates a named sandbox with creds and maps exec res
   });
   expect(sandbox.home).toBe("/home/vercel-sandbox");
 
-  await expect(sandbox.exec("echo ok")).resolves.toEqual({
+  await expect(sandbox.exec("echo", ["ok"])).resolves.toEqual({
     exitCode: 5,
     stdout: "stdout",
     stderr: "stderr",
   });
-  await sandbox.exec("echo slow", { timeoutMs: 123000 });
+  await sandbox.exec("echo", ["slow"], { timeoutMs: 123000 });
   expect(vercelMocks.create).toHaveBeenCalledWith({
     token: "token",
     teamId: "team",
@@ -134,20 +135,12 @@ test("VercelSandboxProvider creates a named sandbox with creds and maps exec res
       timeoutMs: 600000,
     },
   );
-  expect(vercelMocks.runCommand).toHaveBeenCalledWith(
-    "bash",
-    ["-lc", "echo ok"],
-    {
-      timeoutMs: 600000,
-    },
-  );
-  expect(vercelMocks.runCommand).toHaveBeenCalledWith(
-    "bash",
-    ["-lc", "echo slow"],
-    {
-      timeoutMs: 123000,
-    },
-  );
+  expect(vercelMocks.runCommand).toHaveBeenCalledWith("echo", ["ok"], {
+    timeoutMs: 600000,
+  });
+  expect(vercelMocks.runCommand).toHaveBeenCalledWith("echo", ["slow"], {
+    timeoutMs: 123000,
+  });
   expect(
     vercelMocks.runCommand.mock.calls.some((call) =>
       JSON.stringify(call).includes("zstd"),
@@ -172,18 +165,23 @@ test("VercelSandboxProvider spawn uses detached bash and upload uses mkdir plus 
     ports: [7681],
   });
 
-  await sandbox.spawn("ttyd");
-  await sandbox.uploadFile("/tmp/nested/a.txt", "hello");
-  await sandbox.uploadFile("/tmp/b.bin", new Uint8Array([1, 2]));
-  await sandbox.uploadPath("/tmp/profile.tgz", "/local/profile.tgz");
+  await sandbox.spawn("ttyd", []);
+  await sandbox.uploadFile(remotePath("/tmp/nested/a.txt"), "hello");
+  await sandbox.uploadFile(remotePath("/tmp/b.bin"), new Uint8Array([1, 2]));
+  await sandbox.uploadPath(
+    remotePath("/tmp/profile.tgz"),
+    "/local/profile.tgz",
+  );
   await expect(sandbox.exposePort(7681)).resolves.toEqual({
     url: "https://vercel-7681.example",
   });
   await sandbox.destroy();
 
   expect(vercelMocks.runCommand).toHaveBeenCalledWith({
-    cmd: "bash",
-    args: ["-lc", "ttyd"],
+    cmd: "ttyd",
+    args: [],
+    cwd: undefined,
+    env: undefined,
     detached: true,
     timeoutMs: 0,
   });

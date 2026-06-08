@@ -11,8 +11,10 @@ import { toArrayBuffer } from "../encode.js";
 import { requireCred } from "../index.js";
 import { lazyImport, lazyOnce } from "../lazy-import.js";
 import {
-  GenericSandbox,
+  createSandbox,
   readSandboxHome,
+  renderDetachedShell,
+  renderShellCall,
   type SandboxOps,
 } from "../sandbox-adapter.js";
 
@@ -92,10 +94,15 @@ const makeOps = (
     });
   },
 
-  exec: (cmd, opts) => runCommand(e2b, sandbox, cmd, opts),
+  exec: (file, args, opts) =>
+    runCommand(e2b, sandbox, renderShellCall(file, args, opts), opts),
 
-  spawn: async (cmd) => {
-    await sandbox.commands.run(cmd, { background: true, timeoutMs: 0 });
+  spawn: async (file, args, opts) => {
+    const command =
+      opts?.stdoutPath === undefined && opts?.stderrPath === undefined
+        ? renderShellCall(file, args, opts)
+        : renderDetachedShell(renderShellCall(file, args, opts), opts);
+    await sandbox.commands.run(command, { background: true, timeoutMs: 0 });
   },
 
   exposePort: (port) =>
@@ -133,7 +140,7 @@ export class E2bSandboxProvider implements SandboxProvider {
     });
     try {
       const ops = makeOps(e2b, sandbox, this.host, credentials);
-      return new GenericSandbox(
+      return createSandbox(
         sandbox.sandboxId,
         await readSandboxHome(ops.exec),
         ops,
@@ -150,7 +157,7 @@ export class E2bSandboxProvider implements SandboxProvider {
     const e2b = await loadE2b();
     const sandbox = await e2b.Sandbox.connect(id, this.credentials());
     const ops = makeOps(e2b, sandbox, this.host, this.credentials());
-    return new GenericSandbox(id, await readSandboxHome(ops.exec), ops);
+    return createSandbox(id, await readSandboxHome(ops.exec), ops);
   }
 
   async list(): Promise<SandboxInfo[]> {

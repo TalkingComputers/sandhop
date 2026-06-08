@@ -2,8 +2,11 @@ import { projectDirName } from "../core/encode.js";
 import { collectEnvRefs } from "../core/env.js";
 import { isRecord, parseJsonRecord } from "../core/json.js";
 import { basename } from "../core/paths.js";
-import { shellQuote } from "../core/shell.js";
-import { buildClaudePreSeedScript } from "../core/sandbox-scripts.js";
+import { quote } from "shell-quote";
+import {
+  buildClaudePreSeedScript,
+  renderNodeScript,
+} from "../core/sandbox-scripts.js";
 import type {
   Agent,
   AgentHostDeps,
@@ -290,16 +293,15 @@ export const CLAUDE_CODE: Agent = {
   installCmd: (version) => `npm i -g @anthropic-ai/claude-code@${version}`,
   supportsSettingsScripts: () => true,
   supportsReinstall: () => true,
-  preSeed: (remoteProj) => [
-    `node -e ${shellQuote(buildClaudePreSeedScript(remoteProj))}`,
-  ],
+  preSeed: (remoteProj) =>
+    renderNodeScript(buildClaudePreSeedScript(remoteProj), "CLAUDE_PRESEED"),
   remoteTranscriptPath: (home, remoteEnc, transcriptName) =>
     `${home}/${CLAUDE_PROJECTS_PATH}/${remoteEnc}/${transcriptName}`,
   projectMemoryDir: (home, remoteEnc) =>
     `${home}/${CLAUDE_PROJECTS_PATH}/${remoteEnc}/memory`,
   resumeCmd: (sessionId, remoteProj, mcpTimeout) => {
     const env =
-      mcpTimeout === undefined ? "" : `MCP_TIMEOUT=${shellQuote(mcpTimeout)} `;
-    return `cd ${shellQuote(remoteProj)} && ${env}claude --resume ${shellQuote(sessionId)}`;
+      mcpTimeout === undefined ? "" : `MCP_TIMEOUT=${quote([mcpTimeout])} `;
+    return `cd ${quote([remoteProj])} && ${env}claude --resume ${quote([sessionId])}`;
   },
 };

@@ -1,55 +1,62 @@
+import { quote } from "shell-quote";
 import type {
   ExecOptions,
-  ExposedPort,
   RunResult,
   Sandbox,
+  SpawnOptions,
 } from "../core/ports/provider.js";
 
-export interface SandboxOps {
-  uploadFile(path: string, data: Uint8Array | string): Promise<void>;
-  uploadPath(remotePath: string, localPath: string): Promise<void>;
-  exec(cmd: string, opts?: ExecOptions): Promise<RunResult>;
-  spawn(cmd: string): Promise<void>;
-  exposePort(port: number): Promise<ExposedPort>;
-  destroy(): Promise<void>;
-}
+export type SandboxOps = Omit<Sandbox, "home" | "id">;
 
-export class GenericSandbox implements Sandbox {
-  constructor(
-    readonly id: string,
-    readonly home: string,
-    private readonly ops: SandboxOps,
-  ) {}
+const envArgs = (env: Record<string, string> | undefined): string[] =>
+  env === undefined
+    ? []
+    : Object.entries(env).map(([key, value]) => `${key}=${value}`);
 
-  uploadFile(path: string, data: Uint8Array | string): Promise<void> {
-    return this.ops.uploadFile(path, data);
-  }
+const renderRedirects = (
+  script: string,
+  opts: SpawnOptions | undefined,
+): string => {
+  if (opts?.stdoutPath === undefined && opts?.stderrPath === undefined)
+    return script;
+  const stdout =
+    opts.stdoutPath === undefined
+      ? ""
+      : ` ${opts.appendOutput === true ? ">>" : ">"} ${quote([opts.stdoutPath])}`;
+  const stderr =
+    opts.stderrPath === undefined
+      ? ""
+      : opts.stdoutPath === opts.stderrPath
+        ? " 2>&1"
+        : ` ${opts.appendOutput === true ? "2>>" : "2>"} ${quote([opts.stderrPath])}`;
+  return `${script}${stdout}${stderr}`;
+};
 
-  uploadPath(remotePath: string, localPath: string): Promise<void> {
-    return this.ops.uploadPath(remotePath, localPath);
-  }
+export const renderShellCall = (
+  file: string,
+  args: readonly string[],
+  opts?: Pick<ExecOptions, "cwd" | "env">,
+): string => {
+  const call = quote([...envArgs(opts?.env), file, ...args]);
+  return opts?.cwd === undefined ? call : `cd ${quote([opts.cwd])} && ${call}`;
+};
 
-  exec(cmd: string, opts?: ExecOptions): Promise<RunResult> {
-    return this.ops.exec(cmd, opts);
-  }
+export const renderDetachedShell = (
+  script: string,
+  opts?: SpawnOptions,
+): string =>
+  `nohup bash -lc ${quote([renderRedirects(script, opts)])} >/dev/null 2>&1 &`;
 
-  spawn(cmd: string): Promise<void> {
-    return this.ops.spawn(cmd);
-  }
-
-  exposePort(port: number): Promise<ExposedPort> {
-    return this.ops.exposePort(port);
-  }
-
-  destroy(): Promise<void> {
-    return this.ops.destroy();
-  }
-}
+export const createSandbox = (
+  id: string,
+  home: string,
+  ops: SandboxOps,
+): Sandbox => ({ id, home, ...ops });
 
 export const readSandboxHome = async (
-  run: (cmd: string) => Promise<RunResult>,
+  run: (file: string, args: readonly string[]) => Promise<RunResult>,
 ): Promise<string> => {
-  const result = await run('printf %s "$HOME"');
+  const result = await run("bash", ["-lc", 'printf %s "$HOME"']);
   if (result.exitCode !== 0)
     throw new Error(
       `Home lookup failed: ${result.stderr.length > 0 ? result.stderr : result.stdout}`,

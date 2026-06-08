@@ -6,6 +6,15 @@ export const dirname = posix.dirname;
 export const basename = posix.basename;
 export const joinPath = posix.join;
 
+declare const remotePathBrand: unique symbol;
+export type RemotePath = string & { readonly [remotePathBrand]: true };
+
+export const remotePath = (value: string): RemotePath => {
+  if (!value.startsWith("/"))
+    throw new TypeError(`Remote path must be absolute: ${value}`);
+  return value as RemotePath;
+};
+
 export const expandHome = (path: string, home: string): string =>
   path
     .replace(/^~/, home)

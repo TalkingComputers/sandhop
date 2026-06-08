@@ -1,4 +1,5 @@
 import { expect, test, vi } from "vitest";
+import { remotePath } from "../../src/core/paths.js";
 import { E2bSandboxProvider } from "../../src/providers/e2b/index.js";
 import { FakeHost } from "../fakes/host.js";
 
@@ -93,15 +94,15 @@ test("E2bSandboxProvider creates sandboxes, uploads octet-stream bytes and paths
     ports: [7681],
   });
   expect(sandbox.home).toBe("/home/e2b");
-  await sandbox.uploadFile("/tmp/a", new Uint8Array([1, 2]));
-  await sandbox.uploadPath("/tmp/large", localPath);
-  await expect(sandbox.exec("echo ok")).resolves.toEqual({
+  await sandbox.uploadFile(remotePath("/tmp/a"), new Uint8Array([1, 2]));
+  await sandbox.uploadPath(remotePath("/tmp/large"), localPath);
+  await expect(sandbox.exec("echo", ["ok"])).resolves.toEqual({
     exitCode: 0,
     stdout: "ok",
     stderr: "",
   });
-  await sandbox.exec("echo slow", { timeoutMs: 123000 });
-  await sandbox.spawn("ttyd");
+  await sandbox.exec("echo", ["slow"], { timeoutMs: 123000 });
+  await sandbox.spawn("ttyd", []);
   await expect(sandbox.exposePort(7681)).resolves.toEqual({
     url: "https://sbx-created-7681.e2b.app",
   });
@@ -163,7 +164,7 @@ test("E2bSandboxProvider returns non-zero command exits as RunResult data", asyn
     ports: [7681],
   });
 
-  await expect(sandbox.exec("false")).resolves.toEqual({
+  await expect(sandbox.exec("false", [])).resolves.toEqual({
     exitCode: 42,
     stdout: "partial",
     stderr: "boom",

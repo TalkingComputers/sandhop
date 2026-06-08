@@ -1,7 +1,10 @@
 import type { Agent, AgentHostDeps, AuthBundle } from "../core/ports/agent.js";
-import { buildCodexPreSeedScript } from "../core/sandbox-scripts.js";
+import {
+  buildCodexPreSeedScript,
+  renderNodeScript,
+} from "../core/sandbox-scripts.js";
 import { basename } from "../core/paths.js";
-import { shellQuote } from "../core/shell.js";
+import { quote } from "shell-quote";
 import { makeVersionParser, sortNewest } from "./shared.js";
 import {
   formatMcpConfig,
@@ -101,8 +104,7 @@ export const CODEX: Agent = {
   supportsSettingsScripts: () => false,
   supportsReinstall: () => false,
   preSeed: (remoteProj) => [
-    "mkdir -p $HOME/.codex",
-    `node -e ${shellQuote(buildCodexPreSeedScript(remoteProj))}`,
+    ...renderNodeScript(buildCodexPreSeedScript(remoteProj), "CODEX_PRESEED"),
   ],
   remoteTranscriptPath: (home, remoteEnc, transcriptName) => {
     const { year, month, day } = parseCodexTranscriptName(transcriptName);
@@ -110,5 +112,5 @@ export const CODEX: Agent = {
   },
   projectMemoryDir: () => null,
   resumeCmd: (sessionId, remoteProj) =>
-    `cd ${shellQuote(remoteProj)} && codex resume ${shellQuote(sessionId)}`,
+    `cd ${quote([remoteProj])} && codex resume ${quote([sessionId])}`,
 };

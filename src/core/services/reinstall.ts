@@ -10,7 +10,7 @@ import type { Agent } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
 import { readJsonRecord } from "../json.js";
 import { dirname, listSkillNames } from "../paths.js";
-import { quoteShellPath, shellQuote } from "../shell.js";
+import { quote } from "shell-quote";
 import {
   type GitSkill,
   readGitSkillState,
@@ -28,8 +28,11 @@ export interface ReinstallPlan {
   commands: string[];
 }
 
+const shellPath = (path: string): string =>
+  path.startsWith("$HOME") ? `"${path}"` : quote([path]);
+
 const inRemoteDir = (remoteDir: string, cmd: string): string =>
-  `cd ${quoteShellPath(remoteDir)} && ${cmd}`;
+  `cd ${shellPath(remoteDir)} && ${cmd}`;
 
 const listInstallAndBuildCommands = (
   host: HostDeps,
@@ -75,7 +78,7 @@ export class ReinstallService {
     if (record === null) return [];
     return Object.keys(record).map(
       (name) =>
-        `claude plugin marketplace add ${shellQuote(readMarketplaceSource(path, name, record[name]))}`,
+        `claude plugin marketplace add ${quote([readMarketplaceSource(path, name, record[name])])}`,
     );
   }
 
@@ -88,7 +91,7 @@ export class ReinstallService {
     if (record === null) return [];
     return readPluginInstalls(path, record).map(
       (plugin) =>
-        `claude plugin install ${shellQuote(plugin.name)} --scope ${plugin.scope}`,
+        `claude plugin install ${quote([plugin.name])} --scope ${plugin.scope}`,
     );
   }
 
@@ -97,7 +100,7 @@ export class ReinstallService {
     const record = readJsonRecord(this.host, path);
     if (record === null) return [];
     return readDisabledPlugins(path, record).map(
-      (plugin) => `claude plugin disable ${shellQuote(plugin)}`,
+      (plugin) => `claude plugin disable ${quote([plugin])}`,
     );
   }
 
@@ -122,8 +125,8 @@ export class ReinstallService {
       const url = this.host
         .exec("git", ["-C", localDir, "config", "--get", "remote.origin.url"])
         .trim();
-      const clone = `git clone ${shellQuote(url)} ${quoteShellPath(remoteDir)}`;
-      const checkout = `git -C ${quoteShellPath(remoteDir)} checkout ${shellQuote(state.ref)}`;
+      const clone = `git clone ${quote([url])} ${shellPath(remoteDir)}`;
+      const checkout = `git -C ${shellPath(remoteDir)} checkout ${quote([state.ref])}`;
       commands.push(`${clone} && ${checkout}`);
       commands.push(
         ...listInstallAndBuildCommands(this.host, localDir, remoteDir),
@@ -169,14 +172,14 @@ export class ReinstallService {
         continue;
       }
       if (localSource.isDirectory) {
-        const mkdir = `mkdir -p ${quoteShellPath(dirname(remoteSkillDir))}`;
-        const link = `ln -sfn ${quoteShellPath(remoteSource)} ${quoteShellPath(
+        const mkdir = `mkdir -p ${shellPath(dirname(remoteSkillDir))}`;
+        const link = `ln -sfn ${shellPath(remoteSource)} ${shellPath(
           remoteSkillDir,
         )}`;
         commands.push(`${mkdir} && ${link}`);
       } else {
-        const mkdir = `mkdir -p ${quoteShellPath(remoteSkillDir)}`;
-        const link = `ln -sf ${quoteShellPath(remoteSource)} ${quoteShellPath(
+        const mkdir = `mkdir -p ${shellPath(remoteSkillDir)}`;
+        const link = `ln -sf ${shellPath(remoteSource)} ${shellPath(
           `${remoteSkillDir}/SKILL.md`,
         )}`;
         commands.push(`${mkdir} && ${link}`);

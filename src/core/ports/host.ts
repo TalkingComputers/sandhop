@@ -17,7 +17,6 @@ export interface HostDeps {
   realpath(path: string): string;
   sha256Hex(input: string): string;
   exec(bin: string, args: string[]): string;
-  spawnPipe(cmd: string): Promise<void>;
   remove(path: string): Promise<void>;
   splitFile(
     path: string,
@@ -31,6 +30,12 @@ export interface HostDeps {
     opts?: { excludes: string[] },
   ): Promise<void>;
   tarGz(
+    cwd: string,
+    entries: string[],
+    outPath: string,
+    opts?: { excludes: string[] },
+  ): Promise<void>;
+  tarZstd(
     cwd: string,
     entries: string[],
     outPath: string,
