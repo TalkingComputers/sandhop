@@ -51,8 +51,15 @@ cwd = "/home/local/mcp"
       "/home/local/mcp/package-lock.json": "{}",
       "/home/local/mcp/server.js": "",
     },
+    execValues: {
+      "git -C /home/local/mcp rev-parse --show-toplevel": "/home/local/mcp\n",
+    },
   });
-  const sandbox = new FakeSandbox("sbx-1", "/home/user");
+  const sandbox = new FakeSandbox("sbx-1", {
+    home: "/home/user",
+    username: "user",
+    workdir: "/home/user",
+  });
   const events: EnrichmentProgressEvent[] = [];
 
   const steps = await runEnrichment(
@@ -170,8 +177,15 @@ test("runEnrichment keeps best-effort steps isolated and marks completion after 
       "/home/local/mcp/package-lock.json": "{}",
       "/home/local/mcp/server.js": "",
     },
+    execValues: {
+      "git -C /home/local/mcp rev-parse --show-toplevel": "/home/local/mcp\n",
+    },
   });
-  const sandbox = new FailingMcpSandbox("sbx-1", "/home/user");
+  const sandbox = new FailingMcpSandbox("sbx-1", {
+    home: "/home/user",
+    username: "user",
+    workdir: "/home/user",
+  });
 
   const steps = await runEnrichment(
     {
@@ -262,7 +276,11 @@ test("runEnrichment ships Claude settings scripts and uploads rewritten settings
         "/home/local/hook-app\n",
     },
   });
-  const sandbox = new FakeSandbox("sbx-1", "/home/user");
+  const sandbox = new FakeSandbox("sbx-1", {
+    home: "/home/user",
+    username: "user",
+    workdir: "/home/user",
+  });
 
   await runEnrichment(
     {

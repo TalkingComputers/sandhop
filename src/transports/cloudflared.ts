@@ -17,7 +17,7 @@ const tunnelWaitScript = (probe: string): string =>
   `for i in $(seq 1 120); do ${probe}; sleep 0.5; done; cat ${LOG_PATH} >&2; exit 1`;
 
 const tunnelError = (result: RunResult): string =>
-  result.stderr || result.stdout || "cloudflared failed to expose port";
+  `cloudflared exited with ${result.exitCode}: stderr=${JSON.stringify(result.stderr)} stdout=${JSON.stringify(result.stdout)}`;
 
 export class CloudflaredTransport implements Transport {
   readonly id = "cloudflared" as const;
@@ -32,10 +32,7 @@ export class CloudflaredTransport implements Transport {
   }
 
   bootstrapSteps(): string[] {
-    return [
-      "$SUDO curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${CF_ARCH} -o /usr/local/bin/cloudflared",
-      "$SUDO chmod +x /usr/local/bin/cloudflared",
-    ];
+    return ["command -v cloudflared"];
   }
 
   async expose(ctx: TransportContext): Promise<TransportResult> {

@@ -61,7 +61,8 @@ const expandTokenPath = (
 
 const readScriptRoot = (host: HostDeps, localPath: string): string => {
   const root = gitRoot(host, localPath);
-  return root ?? localPath;
+  if (root !== null) return root;
+  return localPath;
 };
 
 const readScriptTokens = (

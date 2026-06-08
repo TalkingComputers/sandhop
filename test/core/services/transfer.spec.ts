@@ -74,7 +74,7 @@ test("TransferService chunks zstd archives, verifies size and integrity, and ext
   expect(provider.sandbox.execs[0]).toContain("zstd -d --long=27 -c");
   expect(provider.sandbox.execs[0]).toContain("tar -xf - -C ");
   expect(provider.sandbox.execs[0]).toContain(
-    'SANDHOP_OWNER="$(id -u):$(id -g)"; if [ "${SANDHOP_RUNTIME_USER:-}" != "" ]; then SANDHOP_OWNER="$(id -u "$SANDHOP_RUNTIME_USER"):$(id -g "$SANDHOP_RUNTIME_USER")"; fi',
+    'SANDHOP_OWNER="$(id -u "$SANDHOP_RUNTIME_USER"):$(id -g "$SANDHOP_RUNTIME_USER")"',
   );
   expect(provider.sandbox.execs[0]).toContain(
     '$SUDO chown -R "$SANDHOP_OWNER" /home/user/project',

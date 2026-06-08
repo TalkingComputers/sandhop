@@ -250,7 +250,7 @@ test("TeleportService transfers Claude project memory after the bundle when pres
   expect(provider.sandbox.execs[2]).toContain("zstd -d --long=27 -c");
   expect(provider.sandbox.execs[2]).toContain("tar -xf - -C");
   expect(provider.sandbox.execs[2]).toContain(
-    "/home/user/.claude/projects/-workspace-project/memory",
+    "/home/local/.claude/projects/-workspace-project/memory",
   );
 });
 
@@ -435,18 +435,18 @@ test("TeleportService uploads secret and auth files without MCP code bundles", a
     data: encoder.encode("archive"),
   });
   expect(provider.sandbox.uploads).toContainEqual({
-    path: "/home/user/.env.d/mcp.env",
+    path: "/home/local/.env.d/mcp.env",
     data: "MCP_TOKEN=token\n",
   });
   expect(provider.sandbox.uploads).toContainEqual({
-    path: "/home/user/.claude/.credentials.json",
+    path: "/home/local/.claude/.credentials.json",
     data: '{"mcpOAuth":{}}',
   });
   expect(provider.sandbox.execs).toEqual(
     expect.arrayContaining([
-      expect.stringContaining("$SUDO mkdir -p /home/user/.env.d"),
-      expect.stringContaining("$SUDO mkdir -p /home/user/.claude"),
-      "chmod 600 /home/user/.claude/.credentials.json",
+      expect.stringContaining("$SUDO mkdir -p /home/local/.env.d"),
+      expect.stringContaining("$SUDO mkdir -p /home/local/.claude"),
+      "chmod 600 /home/local/.claude/.credentials.json",
     ]),
   );
   expect(provider.sandbox.execs.join("\n")).not.toContain("mcp-code");
@@ -573,11 +573,11 @@ test("TeleportService ships SSH bundle, bundle excludes, and mirrored includes",
     }),
   );
   expect(provider.sandbox.execs[2]).toBe(
-    bootstrap.renderPathPrep("/home/user"),
+    bootstrap.renderPathPrep("/home/local"),
   );
   expect(provider.sandbox.execs[3]).toContain("zstd -d --long=27 -c");
   expect(provider.sandbox.execs[3]).toContain("tar -xf - -C");
-  expect(provider.sandbox.execs[3]).toContain("/home/user");
+  expect(provider.sandbox.execs[3]).toContain("/home/local");
   expect(host.tarCalls[2]!.outPath).toContain(`${tmpdir()}/sandhop-include-2-`);
   expect(host.tarCalls[2]).toEqual(
     expect.objectContaining({
@@ -591,18 +591,18 @@ test("TeleportService ships SSH bundle, bundle excludes, and mirrored includes",
   );
   expect(provider.sandbox.execs[5]).toContain("/opt/shared");
   expect(provider.sandbox.uploads).toContainEqual({
-    path: "/home/user/.ssh/id_git",
+    path: "/home/local/.ssh/id_git",
     data: "PRIVATE",
   });
   expect(provider.sandbox.uploads).toContainEqual({
-    path: "/home/user/.ssh/config",
+    path: "/home/local/.ssh/config",
     data: "CONFIG",
   });
   const sshExecLog = provider.sandbox.execs.join("\n");
-  expect(sshExecLog).toContain("mkdir -p /home/user/.ssh");
-  expect(sshExecLog).toContain("chmod 700 /home/user/.ssh");
-  expect(sshExecLog).toContain("chmod 600 /home/user/.ssh/id_git");
-  expect(sshExecLog).toContain("chmod 644 /home/user/.ssh/known_hosts");
+  expect(sshExecLog).toContain("mkdir -p /home/local/.ssh");
+  expect(sshExecLog).toContain("chmod 700 /home/local/.ssh");
+  expect(sshExecLog).toContain("chmod 600 /home/local/.ssh/id_git");
+  expect(sshExecLog).toContain("chmod 644 /home/local/.ssh/known_hosts");
 });
 
 test("TeleportService wraps Codex resume in the shared tmux ttyd session", async () => {
@@ -660,11 +660,11 @@ test("TeleportService wraps Codex resume in the shared tmux ttyd session", async
   expect(provider.sandbox.spawns[0]).toContain("codex resume");
   expect(provider.sandbox.execs).toEqual(
     expect.arrayContaining([
-      expect.stringContaining("$SUDO mkdir -p /home/user/.codex"),
+      expect.stringContaining("$SUDO mkdir -p /home/local/.codex"),
     ]),
   );
   expect(provider.sandbox.uploads).toContainEqual({
-    path: "/home/user/.codex/auth.json",
+    path: "/home/local/.codex/auth.json",
     data: "{}",
   });
   expect(provider.sandbox.uploads).toContainEqual({

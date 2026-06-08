@@ -19,11 +19,19 @@ const e2bMocks = vi.hoisted(() => {
   }
   const filesWrite = vi.fn();
   const commandsRun = vi.fn();
+  const getInfo = vi.fn(async () => ({
+    metadata: {
+      "sandhop.runtime.home": "/home/local",
+      "sandhop.runtime.user": "local",
+      "sandhop.runtime.workdir": "/workspace/project",
+    },
+  }));
   const listItems: { sandboxId: string; startedAt: Date | string }[] = [];
   const sandbox = {
     sandboxId: "sbx-created",
     files: { write: filesWrite },
     commands: { run: commandsRun },
+    getInfo,
     getHost: vi.fn((port: number) => `sbx-created-${port}.e2b.app`),
   };
   const Sandbox = {
@@ -51,6 +59,7 @@ const e2bMocks = vi.hoisted(() => {
     CommandExitError,
     filesWrite,
     commandsRun,
+    getInfo,
     listItems,
     sandbox,
     Sandbox,
@@ -65,16 +74,16 @@ vi.mock("e2b", () => ({
 }));
 
 const env = { E2B_API_KEY: "e2b-key" };
+const RUNTIME = {
+  home: "/home/local",
+  username: "local",
+  workdir: "/workspace/project",
+};
 
 test("E2bSandboxProvider creates sandboxes, uploads octet-stream bytes and paths, runs commands, exposes HTTPS URLs, and destroys", async () => {
   e2bMocks.commandsRun.mockReset();
   e2bMocks.Template.exists.mockClear();
   e2bMocks.Template.build.mockClear();
-  e2bMocks.commandsRun.mockResolvedValueOnce({
-    exitCode: 0,
-    stdout: "/home/e2b",
-    stderr: "",
-  });
   e2bMocks.commandsRun.mockResolvedValue({
     exitCode: 0,
     stdout: "ok",
@@ -92,8 +101,9 @@ test("E2bSandboxProvider creates sandboxes, uploads octet-stream bytes and paths
     envs: { A: "1" },
     timeoutMs: 600000,
     ports: [7681],
+    runtime: RUNTIME,
   });
-  expect(sandbox.home).toBe("/home/e2b");
+  expect(sandbox.home).toBe("/home/local");
   await sandbox.uploadFile(remotePath("/tmp/a"), new Uint8Array([1, 2]));
   await sandbox.uploadPath(remotePath("/tmp/large"), localPath);
   await expect(sandbox.exec("echo", ["ok"])).resolves.toEqual({
@@ -108,18 +118,36 @@ test("E2bSandboxProvider creates sandboxes, uploads octet-stream bytes and paths
   });
   await expect(provider.destroy("sbx-created")).resolves.toBe(true);
 
-  expect(e2bMocks.Template.exists).toHaveBeenCalledWith("sandhop");
+  expect(e2bMocks.Template.exists).toHaveBeenCalledWith(
+    expect.stringMatching(/^sandhop-/),
+    { apiKey: "e2b-key" },
+  );
   expect(e2bMocks.Template.build).not.toHaveBeenCalled();
-  expect(e2bMocks.Sandbox.create).toHaveBeenCalledWith("sandhop", {
-    apiKey: "e2b-key",
-    envs: { A: "1" },
-    timeoutMs: 600000,
-  });
+  expect(e2bMocks.Sandbox.create).toHaveBeenCalledWith(
+    expect.stringMatching(/^sandhop-/),
+    {
+      apiKey: "e2b-key",
+      envs: {
+        A: "1",
+        HOME: "/home/local",
+        SANDHOP_RUNTIME_HOME: "/home/local",
+        SANDHOP_RUNTIME_USER: "local",
+        SANDHOP_RUNTIME_WORKDIR: "/workspace/project",
+      },
+      metadata: {
+        "sandhop.runtime.home": "/home/local",
+        "sandhop.runtime.user": "local",
+        "sandhop.runtime.workdir": "/workspace/project",
+      },
+      timeoutMs: 600000,
+    },
+  );
   expect(e2bMocks.filesWrite).toHaveBeenCalledWith(
     "/tmp/a",
     new Uint8Array([1, 2]).buffer,
     {
       requestTimeoutMs: 600000,
+      user: "local",
       useOctetStream: true,
     },
   );
@@ -128,14 +156,31 @@ test("E2bSandboxProvider creates sandboxes, uploads octet-stream bytes and paths
     expect.any(Blob),
     {
       requestTimeoutMs: 3_600_000,
+      user: "local",
       useOctetStream: true,
     },
   );
   expect(e2bMocks.commandsRun).toHaveBeenCalledWith("ttyd", {
     background: true,
+    cwd: "/workspace/project",
+    envs: {
+      HOME: "/home/local",
+      SANDHOP_RUNTIME_HOME: "/home/local",
+      SANDHOP_RUNTIME_USER: "local",
+      SANDHOP_RUNTIME_WORKDIR: "/workspace/project",
+    },
     timeoutMs: 0,
+    user: "local",
   });
   expect(e2bMocks.commandsRun).toHaveBeenCalledWith("echo slow", {
+    cwd: "/workspace/project",
+    envs: {
+      HOME: "/home/local",
+      SANDHOP_RUNTIME_HOME: "/home/local",
+      SANDHOP_RUNTIME_USER: "local",
+      SANDHOP_RUNTIME_WORKDIR: "/workspace/project",
+    },
+    user: "root",
     timeoutMs: 123000,
     requestTimeoutMs: 123000,
   });
@@ -143,11 +188,6 @@ test("E2bSandboxProvider creates sandboxes, uploads octet-stream bytes and paths
 
 test("E2bSandboxProvider returns non-zero command exits as RunResult data", async () => {
   e2bMocks.commandsRun.mockReset();
-  e2bMocks.commandsRun.mockResolvedValueOnce({
-    exitCode: 0,
-    stdout: "/home/e2b",
-    stderr: "",
-  });
   e2bMocks.commandsRun.mockRejectedValueOnce(
     new e2bMocks.CommandExitError({
       exitCode: 42,
@@ -162,6 +202,7 @@ test("E2bSandboxProvider returns non-zero command exits as RunResult data", asyn
     envs: {},
     timeoutMs: 600000,
     ports: [7681],
+    runtime: RUNTIME,
   });
 
   await expect(sandbox.exec("false", [])).resolves.toEqual({
@@ -171,14 +212,8 @@ test("E2bSandboxProvider returns non-zero command exits as RunResult data", asyn
   });
 });
 
-test("E2bSandboxProvider kills a created sandbox when home lookup fails", async () => {
-  e2bMocks.commandsRun.mockReset();
-  e2bMocks.commandsRun.mockResolvedValueOnce({
-    exitCode: 1,
-    stdout: "",
-    stderr: "home failed",
-  });
-  e2bMocks.Sandbox.kill.mockClear();
+test("E2bSandboxProvider rejects invalid runtime before sandbox create", async () => {
+  e2bMocks.Sandbox.create.mockClear();
   const provider = new E2bSandboxProvider(
     new FakeHost({ home: "/home/local", env }),
   );
@@ -188,22 +223,18 @@ test("E2bSandboxProvider kills a created sandbox when home lookup fails", async 
       envs: {},
       timeoutMs: 600000,
       ports: [7681],
+      runtime: { home: "/home/local", username: "root", workdir: "/work" },
     }),
-  ).rejects.toThrow("Home lookup failed: home failed");
+  ).rejects.toThrow(
+    "Sandbox runtime username must be a non-root Linux username: root",
+  );
 
-  expect(e2bMocks.Sandbox.kill).toHaveBeenCalledWith("sbx-created", {
-    apiKey: "e2b-key",
-  });
+  expect(e2bMocks.Sandbox.create).not.toHaveBeenCalled();
 });
 
-test("E2bSandboxProvider rejects empty home lookup output", async () => {
+test("E2bSandboxProvider rejects invalid runtime paths before sandbox create", async () => {
   e2bMocks.commandsRun.mockReset();
-  e2bMocks.commandsRun.mockResolvedValueOnce({
-    exitCode: 0,
-    stdout: "",
-    stderr: "",
-  });
-  e2bMocks.Sandbox.kill.mockClear();
+  e2bMocks.Sandbox.create.mockClear();
   const provider = new E2bSandboxProvider(
     new FakeHost({ home: "/home/local", env }),
   );
@@ -213,21 +244,19 @@ test("E2bSandboxProvider rejects empty home lookup output", async () => {
       envs: {},
       timeoutMs: 600000,
       ports: [7681],
+      runtime: { home: "relative", username: "local", workdir: "/work" },
     }),
-  ).rejects.toThrow("Home lookup returned empty path");
+  ).rejects.toThrow("Sandbox runtime home must be an absolute path: relative");
 
-  expect(e2bMocks.Sandbox.kill).toHaveBeenCalledWith("sbx-created", {
-    apiKey: "e2b-key",
-  });
+  expect(e2bMocks.Sandbox.create).not.toHaveBeenCalled();
 });
 
-test("E2bSandboxProvider guards list startedAt values", async () => {
+test("E2bSandboxProvider lists valid startedAt values", async () => {
   const valid = new Date("2026-06-01T00:00:00Z");
   e2bMocks.listItems.splice(
     0,
     e2bMocks.listItems.length,
     { sandboxId: "valid", startedAt: valid },
-    { sandboxId: "invalid-date", startedAt: new Date("not-a-date") },
     { sandboxId: "string-date", startedAt: "2026-06-01T00:00:00Z" },
   );
   const provider = new E2bSandboxProvider(
@@ -236,20 +265,34 @@ test("E2bSandboxProvider guards list startedAt values", async () => {
 
   await expect(provider.list()).resolves.toEqual([
     { id: "valid", startedAt: valid },
-    { id: "invalid-date", startedAt: new Date(0) },
-    { id: "string-date", startedAt: new Date(0) },
+    { id: "string-date", startedAt: valid },
   ]);
 
   expect(e2bMocks.Sandbox.list).toHaveBeenCalledWith({ apiKey: "e2b-key" });
+});
+
+test("E2bSandboxProvider rejects invalid list startedAt values", async () => {
+  e2bMocks.listItems.splice(0, e2bMocks.listItems.length, {
+    sandboxId: "invalid-date",
+    startedAt: new Date("not-a-date"),
+  });
+  const provider = new E2bSandboxProvider(
+    new FakeHost({ home: "/home/local", env }),
+  );
+
+  await expect(provider.list()).rejects.toThrow(
+    "Invalid E2B sandbox startedAt: invalid-date",
+  );
 });
 
 test("E2bSandboxProvider reconnects after adapter destroy", async () => {
   e2bMocks.commandsRun.mockReset();
   e2bMocks.commandsRun.mockResolvedValue({
     exitCode: 0,
-    stdout: "/home/e2b",
+    stdout: "ok",
     stderr: "",
   });
+  e2bMocks.getInfo.mockClear();
   e2bMocks.Sandbox.connect.mockClear();
   const provider = new E2bSandboxProvider(
     new FakeHost({ home: "/home/local", env }),
@@ -258,12 +301,13 @@ test("E2bSandboxProvider reconnects after adapter destroy", async () => {
     envs: {},
     timeoutMs: 600000,
     ports: [7681],
+    runtime: RUNTIME,
   });
-
   await sandbox.destroy();
   await provider.connect("sbx-created");
 
   expect(e2bMocks.Sandbox.connect).toHaveBeenCalledWith("sbx-created", {
     apiKey: "e2b-key",
   });
+  expect(e2bMocks.getInfo).toHaveBeenCalled();
 });

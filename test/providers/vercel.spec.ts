@@ -3,22 +3,35 @@ import { expect, test, vi } from "vitest";
 import { remotePath } from "../../src/core/paths.js";
 import { FakeHost } from "../fakes/host.js";
 
+const RUNTIME = {
+  home: "/home/local",
+  username: "local",
+  workdir: "/workspace/project",
+};
+
 const vercelMocks = vi.hoisted(() => {
   const stdout = vi.fn(async () => "stdout");
   const stderr = vi.fn(async () => "stderr");
   const runCommand = vi.fn(
-    async (
-      cmd: string | { cmd: string },
-      args?: string[],
-      opts?: { timeoutMs: number },
-    ) =>
-      cmd === "bash" && args?.[1] === 'printf %s "$HOME"'
-        ? {
-            exitCode: 0,
-            stdout: vi.fn(async () => "/home/vercel-sandbox"),
-            stderr: vi.fn(async () => ""),
-          }
-        : { exitCode: 5, stdout, stderr },
+    async (cmd: string | { cmd: string; args?: string[] }) => {
+      if (
+        typeof cmd !== "string" &&
+        cmd.cmd === "bash" &&
+        cmd.args?.[1]?.includes("SANDHOP_RUNTIME")
+      )
+        return {
+          exitCode: 0,
+          stdout: vi.fn(async () => "/home/local\nlocal\n/workspace/project\n"),
+          stderr: vi.fn(async () => ""),
+        };
+      if (typeof cmd !== "string" && cmd.cmd === "bash")
+        return {
+          exitCode: 0,
+          stdout: vi.fn(async () => ""),
+          stderr: vi.fn(async () => ""),
+        };
+      return { exitCode: 5, stdout, stderr };
+    },
   );
   const mkDir = vi.fn(async () => undefined);
   const writeFiles = vi.fn(async () => undefined);
@@ -27,6 +40,7 @@ const vercelMocks = vi.hoisted(() => {
   const sandbox: {
     name: string;
     createdAt: Date | string;
+    tags: Record<string, string>;
     runCommand: typeof runCommand;
     mkDir: typeof mkDir;
     writeFiles: typeof writeFiles;
@@ -35,6 +49,11 @@ const vercelMocks = vi.hoisted(() => {
   } = {
     name: "sdk-name",
     createdAt: new Date("2026-06-01T00:00:00Z"),
+    tags: {
+      "sandhop.runtime.home": "/home/local",
+      "sandhop.runtime.user": "local",
+      "sandhop.runtime.workdir": "/workspace/project",
+    },
     runCommand,
     mkDir,
     writeFiles,
@@ -78,14 +97,16 @@ const vercelRuntime = (): VercelNodeRuntime => {
   const major = Number(process.versions.node.split(".", 1)[0]);
   if (!Number.isInteger(major))
     throw new Error(`Invalid Node version ${process.versions.node}`);
-  let nearest: (typeof VERCEL_NODE_MAJORS)[number] = VERCEL_NODE_MAJORS[0];
-  for (const candidate of VERCEL_NODE_MAJORS)
-    if (Math.abs(candidate - major) < Math.abs(nearest - major))
-      nearest = candidate;
-  return `node${nearest}`;
+  if (
+    !VERCEL_NODE_MAJORS.includes(major as (typeof VERCEL_NODE_MAJORS)[number])
+  )
+    throw new Error(`Vercel Sandbox does not support Node ${major}`);
+  return `node${major as (typeof VERCEL_NODE_MAJORS)[number]}`;
 };
 
 const VERCEL_RUNTIME = vercelRuntime();
+const TOOL_INSTALL =
+  'ARCH=$(uname -m); case "$ARCH" in aarch64|arm64) TTYD_ARCH=aarch64; CF_ARCH=arm64;; *) TTYD_ARCH=x86_64; CF_ARCH=amd64;; esac && curl -fsSL https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.${TTYD_ARCH} -o /usr/local/bin/ttyd && chmod +x /usr/local/bin/ttyd && curl -fsSL https://github.com/cloudflare/cloudflared/releases/download/2026.5.2/cloudflared-linux-${CF_ARCH} -o /usr/local/bin/cloudflared && chmod +x /usr/local/bin/cloudflared';
 
 const loadProvider = async () => {
   vi.resetModules();
@@ -105,8 +126,9 @@ test("VercelSandboxProvider creates a named sandbox with creds and maps exec res
     envs: { A: "1" },
     timeoutMs: 3_600_000,
     ports: [3000, 7681],
+    runtime: RUNTIME,
   });
-  expect(sandbox.home).toBe("/home/vercel-sandbox");
+  expect(sandbox.home).toBe("/home/local");
 
   await expect(sandbox.exec("echo", ["ok"])).resolves.toEqual({
     exitCode: 5,
@@ -118,39 +140,70 @@ test("VercelSandboxProvider creates a named sandbox with creds and maps exec res
     token: "token",
     teamId: "team",
     projectId: "project",
+    env: {
+      A: "1",
+      HOME: "/home/local",
+      SANDHOP_RUNTIME_HOME: "/home/local",
+      SANDHOP_RUNTIME_USER: "local",
+      SANDHOP_RUNTIME_WORKDIR: "/workspace/project",
+    },
     name: expect.stringMatching(/^sandhop-/),
+    persistent: false,
     timeout: 3_600_000,
     ports: [3000, 7681],
     resources: { vcpus: 2 },
     runtime: VERCEL_RUNTIME,
+    tags: {
+      "sandhop.runtime.home": "/home/local",
+      "sandhop.runtime.user": "local",
+      "sandhop.runtime.workdir": "/workspace/project",
+    },
   });
   expect(sandbox.id).toBe(
     (vercelMocks.create.mock.calls[0]![0] as { name: string }).name,
   );
-  expect(vercelMocks.runCommand).toHaveBeenNthCalledWith(
-    1,
-    "bash",
-    ["-lc", 'printf %s "$HOME"'],
-    {
-      timeoutMs: 600000,
-    },
-  );
-  expect(vercelMocks.runCommand).toHaveBeenCalledWith("echo", ["ok"], {
+  expect(vercelMocks.runCommand).toHaveBeenNthCalledWith(1, {
+    cmd: "bash",
+    args: [
+      "-lc",
+      `dnf install -y ca-certificates curl zstd tmux util-linux shadow-utils && mkdir -p /home/local /workspace/project && useradd --user-group --create-home --home-dir /home/local --shell /bin/bash local && chown -R local\\:local /home/local /workspace/project && ${TOOL_INSTALL}`,
+    ],
+    sudo: true,
+    timeoutMs: 3_600_000,
+  });
+  expect(vercelMocks.runCommand).toHaveBeenCalledWith({
+    cmd: "env",
+    args: [
+      "HOME=/home/local",
+      "SANDHOP_RUNTIME_HOME=/home/local",
+      "SANDHOP_RUNTIME_USER=local",
+      "SANDHOP_RUNTIME_WORKDIR=/workspace/project",
+      "echo",
+      "ok",
+    ],
+    cwd: "/workspace/project",
+    sudo: true,
     timeoutMs: 600000,
   });
-  expect(vercelMocks.runCommand).toHaveBeenCalledWith("echo", ["slow"], {
+  expect(vercelMocks.runCommand).toHaveBeenCalledWith({
+    cmd: "env",
+    args: [
+      "HOME=/home/local",
+      "SANDHOP_RUNTIME_HOME=/home/local",
+      "SANDHOP_RUNTIME_USER=local",
+      "SANDHOP_RUNTIME_WORKDIR=/workspace/project",
+      "echo",
+      "slow",
+    ],
+    cwd: "/workspace/project",
+    sudo: true,
     timeoutMs: 123000,
   });
-  expect(
-    vercelMocks.runCommand.mock.calls.some((call) =>
-      JSON.stringify(call).includes("zstd"),
-    ),
-  ).toBe(false);
   expect(vercelMocks.stdout).toHaveBeenCalled();
   expect(vercelMocks.stderr).toHaveBeenCalled();
 });
 
-test("VercelSandboxProvider spawn uses detached bash and upload uses mkdir plus writeFiles", async () => {
+test("VercelSandboxProvider spawn uses runtime runuser and upload stages files", async () => {
   const { VercelSandboxProvider } = await loadProvider();
   const provider = new VercelSandboxProvider(
     new FakeHost({
@@ -163,6 +216,7 @@ test("VercelSandboxProvider spawn uses detached bash and upload uses mkdir plus 
     envs: {},
     timeoutMs: 600000,
     ports: [7681],
+    runtime: RUNTIME,
   });
 
   await sandbox.spawn("ttyd", []);
@@ -178,34 +232,38 @@ test("VercelSandboxProvider spawn uses detached bash and upload uses mkdir plus 
   await sandbox.destroy();
 
   expect(vercelMocks.runCommand).toHaveBeenCalledWith({
-    cmd: "ttyd",
-    args: [],
-    cwd: undefined,
-    env: undefined,
+    cmd: "runuser",
+    args: expect.arrayContaining(["-u", "local"]),
     detached: true,
+    sudo: true,
     timeoutMs: 0,
   });
-  expect(vercelMocks.mkDir).toHaveBeenCalledWith("/tmp/nested");
+  expect(vercelMocks.mkDir).not.toHaveBeenCalled();
   expect(vercelMocks.writeFiles).toHaveBeenCalledWith([
-    { path: "/tmp/nested/a.txt", content: Buffer.from("hello") },
+    {
+      path: expect.stringMatching(/^\/tmp\/sandhop-upload-/),
+      content: Buffer.from("hello"),
+    },
   ]);
   expect(vercelMocks.writeFiles).toHaveBeenCalledWith([
-    { path: "/tmp/b.bin", content: Buffer.from(new Uint8Array([1, 2])) },
+    {
+      path: expect.stringMatching(/^\/tmp\/sandhop-upload-/),
+      content: Buffer.from(new Uint8Array([1, 2])),
+    },
   ]);
   expect(vercelMocks.writeFiles).toHaveBeenCalledWith([
-    { path: "/tmp/profile.tgz", content: Buffer.from(new Uint8Array([9, 8])) },
+    {
+      path: expect.stringMatching(/^\/tmp\/sandhop-upload-/),
+      content: Buffer.from(new Uint8Array([9, 8])),
+    },
   ]);
   expect(vercelMocks.domain).toHaveBeenCalledWith(7681);
   expect(vercelMocks.stop).toHaveBeenCalled();
 });
 
-test("VercelSandboxProvider stops a created sandbox when home lookup fails", async () => {
+test("VercelSandboxProvider rejects invalid runtime before sandbox create", async () => {
   const { VercelSandboxProvider } = await loadProvider();
-  vercelMocks.runCommand.mockResolvedValueOnce({
-    exitCode: 1,
-    stdout: vi.fn(async () => ""),
-    stderr: vi.fn(async () => "home failed"),
-  });
+  vercelMocks.create.mockClear();
   const provider = new VercelSandboxProvider(
     new FakeHost({ home: "/home/local", env }),
   );
@@ -215,10 +273,13 @@ test("VercelSandboxProvider stops a created sandbox when home lookup fails", asy
       envs: {},
       timeoutMs: 600000,
       ports: [7681],
+      runtime: { home: "/home/local", username: "root", workdir: "/work" },
     }),
-  ).rejects.toThrow("Home lookup failed: home failed");
+  ).rejects.toThrow(
+    "Sandbox runtime username must be a non-root Linux username: root",
+  );
 
-  expect(vercelMocks.stop).toHaveBeenCalled();
+  expect(vercelMocks.create).not.toHaveBeenCalled();
 });
 
 test("VercelSandboxProvider connects and destroys by SDK lookup", async () => {
@@ -231,6 +292,7 @@ test("VercelSandboxProvider connects and destroys by SDK lookup", async () => {
     envs: {},
     timeoutMs: 600000,
     ports: [7681],
+    runtime: RUNTIME,
   });
   const connectedCreated = await provider.connect(created.id);
 
@@ -238,9 +300,9 @@ test("VercelSandboxProvider connects and destroys by SDK lookup", async () => {
   await expect(provider.destroy(created.id)).resolves.toBe(true);
 
   expect(connectedCreated).not.toBe(created);
-  expect(connectedCreated.home).toBe("/home/vercel-sandbox");
+  expect(connectedCreated.home).toBe("/home/local");
   expect(connected.id).toBe("sandhop-existing");
-  expect(connected.home).toBe("/home/vercel-sandbox");
+  expect(connected.home).toBe("/home/local");
   expect(vercelMocks.get).toHaveBeenNthCalledWith(1, {
     token: "token",
     teamId: "team",
@@ -289,16 +351,16 @@ test("VercelSandboxProvider lists and destroys sandboxes by name", async () => {
   expect(vercelMocks.stop).toHaveBeenCalled();
 });
 
-test("VercelSandboxProvider maps invalid createdAt to epoch", async () => {
+test("VercelSandboxProvider rejects invalid createdAt", async () => {
   const { VercelSandboxProvider } = await loadProvider();
   vercelMocks.sandbox.createdAt = "not-a-date";
   const provider = new VercelSandboxProvider(
     new FakeHost({ home: "/home/local", env }),
   );
 
-  await expect(provider.list()).resolves.toEqual([
-    { id: "sdk-name", startedAt: new Date(0) },
-  ]);
+  await expect(provider.list()).rejects.toThrow(
+    "Invalid Vercel sandbox createdAt: sdk-name",
+  );
 });
 
 test("VercelSandboxProvider destroy returns false when sandbox is missing", async () => {
@@ -337,6 +399,7 @@ test("VercelSandboxProvider missing package throws install hint", async () => {
       envs: {},
       timeoutMs: 600000,
       ports: [7681],
+      runtime: RUNTIME,
     }),
   ).rejects.toThrow(
     "The 'vercel' provider needs @vercel/sandbox. Run: npm i @vercel/sandbox",
@@ -359,6 +422,7 @@ test("VercelSandboxProvider requires env credentials", async () => {
         envs: {},
         timeoutMs: 600000,
         ports: [7681],
+        runtime: RUNTIME,
       }),
     ).rejects.toThrow(`${key} is required — set it or run \`sandhop setup\``);
   }

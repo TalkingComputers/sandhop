@@ -1,12 +1,12 @@
 import { quote } from "shell-quote";
 import type {
   ExecOptions,
-  RunResult,
   Sandbox,
+  SandboxRuntime,
   SpawnOptions,
 } from "../core/ports/provider.js";
 
-export type SandboxOps = Omit<Sandbox, "home" | "id">;
+export type SandboxOps = Omit<Sandbox, "home" | "id" | "runtime">;
 
 const envArgs = (env: Record<string, string> | undefined): string[] =>
   env === undefined
@@ -41,6 +41,11 @@ export const renderShellCall = (
   return opts?.cwd === undefined ? call : `cd ${quote([opts.cwd])} && ${call}`;
 };
 
+export const renderCommandCall = (
+  file: string,
+  args: readonly string[],
+): string => quote([file, ...args]);
+
 export const renderDetachedShell = (
   script: string,
   opts?: SpawnOptions,
@@ -49,19 +54,6 @@ export const renderDetachedShell = (
 
 export const createSandbox = (
   id: string,
-  home: string,
+  runtime: SandboxRuntime,
   ops: SandboxOps,
-): Sandbox => ({ id, home, ...ops });
-
-export const readSandboxHome = async (
-  run: (file: string, args: readonly string[]) => Promise<RunResult>,
-): Promise<string> => {
-  const result = await run("bash", ["-lc", 'printf %s "$HOME"']);
-  if (result.exitCode !== 0)
-    throw new Error(
-      `Home lookup failed: ${result.stderr.length > 0 ? result.stderr : result.stdout}`,
-    );
-  const home = result.stdout.trim();
-  if (home.length === 0) throw new Error("Home lookup returned empty path");
-  return home;
-};
+): Sandbox => ({ id, runtime, home: runtime.home, ...ops });
