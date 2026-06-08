@@ -88,6 +88,7 @@ const daytonaMocks = vi.hoisted(() => {
     workdir: vi.fn(() => image),
   };
   const Image = {
+    base: vi.fn(() => image),
     debianSlim: vi.fn(() => image),
   };
   return {
@@ -155,6 +156,8 @@ test("DaytonaSandboxProvider creates a sandbox and maps session stdout and stder
     apiUrl: "https://api.daytona.example",
     target: "target",
   });
+  expect(daytonaMocks.Image.base).toHaveBeenCalledWith("node:22-bookworm-slim");
+  expect(daytonaMocks.Image.debianSlim).not.toHaveBeenCalled();
   expect(daytonaMocks.create).toHaveBeenCalledWith(
     {
       envVars: {

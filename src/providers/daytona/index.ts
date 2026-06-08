@@ -82,6 +82,7 @@ const PATH_UPLOAD_TIMEOUT_SECONDS = 3600;
 const DAYTONA_INSTALL_HINT =
   "The 'daytona' provider needs @daytona/sdk. Run: npm i @daytona/sdk";
 const DAYTONA_PACKAGE = "@daytona/sdk";
+const DAYTONA_NODE_IMAGE = "node:22-bookworm-slim";
 
 const timeoutSeconds = (timeoutMs: number): number =>
   Math.ceil(timeoutMs / 1000);
@@ -92,8 +93,8 @@ const autoStopMinutes = (timeoutMs: number): number =>
 const buildImage = (
   Image: DaytonaModule["Image"],
   runtime: SandboxRuntime,
-): ReturnType<DaytonaModule["Image"]["debianSlim"]> =>
-  Image.debianSlim("3.13")
+): ReturnType<DaytonaModule["Image"]["base"]> =>
+  Image.base(DAYTONA_NODE_IMAGE)
     .runCommands(
       "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends zstd tmux curl ca-certificates util-linux && rm -rf /var/lib/apt/lists/*",
       buildRuntimeUserScript(runtime),
