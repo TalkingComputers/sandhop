@@ -61,7 +61,7 @@ const nodeImage = (): string => {
 const buildModalDockerfileCommands = (runtime: SandboxRuntime): string[] => {
   const valid = validateRuntime(runtime);
   return [
-    "RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl zstd tmux util-linux",
+    "RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git zstd tmux util-linux",
     `RUN ${buildRuntimeUserScript(valid)}`,
     `RUN ${buildSandboxToolInstallScript()}`,
     `ENV HOME=${valid.home}`,

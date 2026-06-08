@@ -96,7 +96,7 @@ const buildImage = (
 ): ReturnType<DaytonaModule["Image"]["base"]> =>
   Image.base(DAYTONA_NODE_IMAGE)
     .runCommands(
-      "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends zstd tmux curl ca-certificates util-linux && rm -rf /var/lib/apt/lists/*",
+      "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends zstd tmux curl ca-certificates git util-linux && rm -rf /var/lib/apt/lists/*",
       buildRuntimeUserScript(runtime),
       buildSandboxToolInstallScript(),
     )

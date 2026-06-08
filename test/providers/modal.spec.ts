@@ -152,7 +152,7 @@ test("ModalSandboxProvider creates a sandhop sandbox and maps exec results", asy
   });
   expect(modalMocks.fromRegistry).toHaveBeenCalledWith(NODE_IMAGE);
   expect(modalMocks.image.dockerfileCommands).toHaveBeenCalledWith([
-    "RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl zstd tmux util-linux",
+    "RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git zstd tmux util-linux",
     "RUN mkdir -p /Users/parsabahraminejad /Users/parsabahraminejad/Desktop/project && useradd --user-group --create-home --home-dir /Users/parsabahraminejad --shell /bin/bash parsabahraminejad && chown -R parsabahraminejad\\:parsabahraminejad /Users/parsabahraminejad /Users/parsabahraminejad/Desktop/project",
     TOOL_INSTALL,
     "ENV HOME=/Users/parsabahraminejad",
@@ -162,7 +162,7 @@ test("ModalSandboxProvider creates a sandhop sandbox and maps exec results", asy
     {
       image: "node-image",
       commands: [
-        "RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl zstd tmux util-linux",
+        "RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git zstd tmux util-linux",
         "RUN mkdir -p /Users/parsabahraminejad /Users/parsabahraminejad/Desktop/project && useradd --user-group --create-home --home-dir /Users/parsabahraminejad --shell /bin/bash parsabahraminejad && chown -R parsabahraminejad\\:parsabahraminejad /Users/parsabahraminejad /Users/parsabahraminejad/Desktop/project",
         TOOL_INSTALL,
         "ENV HOME=/Users/parsabahraminejad",

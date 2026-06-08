@@ -158,6 +158,11 @@ test("DaytonaSandboxProvider creates a sandbox and maps session stdout and stder
   });
   expect(daytonaMocks.Image.base).toHaveBeenCalledWith("node:22-bookworm-slim");
   expect(daytonaMocks.Image.debianSlim).not.toHaveBeenCalled();
+  expect(daytonaMocks.image.runCommands).toHaveBeenCalledWith(
+    "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends zstd tmux curl ca-certificates git util-linux && rm -rf /var/lib/apt/lists/*",
+    expect.any(String),
+    expect.any(String),
+  );
   expect(daytonaMocks.create).toHaveBeenCalledWith(
     {
       envVars: {

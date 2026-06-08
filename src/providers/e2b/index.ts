@@ -57,7 +57,14 @@ const buildSandhopTemplate = (
 ) =>
   Template()
     .fromBaseImage()
-    .aptInstall(["ca-certificates", "curl", "tmux", "zstd", "util-linux"])
+    .aptInstall([
+      "ca-certificates",
+      "curl",
+      "git",
+      "tmux",
+      "zstd",
+      "util-linux",
+    ])
     .runCmd(buildRuntimeUserScript(runtime), { user: "root" })
     .setWorkdir(runtime.workdir)
     .setUser(runtime.username)

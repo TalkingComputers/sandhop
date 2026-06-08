@@ -34,6 +34,13 @@ const e2bMocks = vi.hoisted(() => {
     getInfo,
     getHost: vi.fn((port: number) => `sbx-created-${port}.e2b.app`),
   };
+  const templateBuilder = {
+    aptInstall: vi.fn(() => templateBuilder),
+    fromBaseImage: vi.fn(() => templateBuilder),
+    runCmd: vi.fn(() => templateBuilder),
+    setUser: vi.fn(() => templateBuilder),
+    setWorkdir: vi.fn(() => templateBuilder),
+  };
   const Sandbox = {
     create: vi.fn(async () => sandbox),
     connect: vi.fn(async () => sandbox),
@@ -55,6 +62,7 @@ const e2bMocks = vi.hoisted(() => {
     exists: vi.fn(async () => true),
     build: vi.fn(),
   });
+  Template.mockImplementation(() => templateBuilder);
   return {
     CommandExitError,
     filesWrite,
@@ -64,6 +72,7 @@ const e2bMocks = vi.hoisted(() => {
     sandbox,
     Sandbox,
     Template,
+    templateBuilder,
   };
 });
 
@@ -184,6 +193,36 @@ test("E2bSandboxProvider creates sandboxes, uploads octet-stream bytes and paths
     timeoutMs: 123000,
     requestTimeoutMs: 123000,
   });
+});
+
+test("E2bSandboxProvider builds runtime templates with git installed", async () => {
+  e2bMocks.Template.exists.mockResolvedValueOnce(false);
+  e2bMocks.Template.build.mockClear();
+  e2bMocks.templateBuilder.aptInstall.mockClear();
+  const provider = new E2bSandboxProvider(
+    new FakeHost({ home: "/home/local", env }),
+  );
+
+  await provider.create({
+    envs: {},
+    timeoutMs: 600000,
+    ports: [],
+    runtime: RUNTIME,
+  });
+
+  expect(e2bMocks.templateBuilder.aptInstall).toHaveBeenCalledWith([
+    "ca-certificates",
+    "curl",
+    "git",
+    "tmux",
+    "zstd",
+    "util-linux",
+  ]);
+  expect(e2bMocks.Template.build).toHaveBeenCalledWith(
+    e2bMocks.templateBuilder,
+    expect.stringMatching(/^sandhop-/),
+    { apiKey: "e2b-key", cpuCount: 4, memoryMB: 4096 },
+  );
 });
 
 test("E2bSandboxProvider returns non-zero command exits as RunResult data", async () => {

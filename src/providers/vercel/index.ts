@@ -161,7 +161,7 @@ const setupRuntime = async (
   const result = await runRootShell(
     sandbox,
     [
-      "dnf install -y ca-certificates curl zstd tmux util-linux shadow-utils",
+      "dnf install -y ca-certificates curl git zstd tmux util-linux shadow-utils",
       buildRuntimeUserScript(runtime),
       buildSandboxToolInstallScript(),
     ].join(" && "),

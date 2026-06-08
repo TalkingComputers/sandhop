@@ -166,7 +166,7 @@ test("VercelSandboxProvider creates a named sandbox with creds and maps exec res
     cmd: "bash",
     args: [
       "-lc",
-      `dnf install -y ca-certificates curl zstd tmux util-linux shadow-utils && mkdir -p /home/local /workspace/project && useradd --user-group --create-home --home-dir /home/local --shell /bin/bash local && chown -R local\\:local /home/local /workspace/project && ${TOOL_INSTALL}`,
+      `dnf install -y ca-certificates curl git zstd tmux util-linux shadow-utils && mkdir -p /home/local /workspace/project && useradd --user-group --create-home --home-dir /home/local --shell /bin/bash local && chown -R local\\:local /home/local /workspace/project && ${TOOL_INSTALL}`,
     ],
     sudo: true,
     timeoutMs: 3_600_000,
