@@ -1,0 +1,42 @@
+# Release flow: `npm version patch|minor|major && git push --follow-tags`
+# npm version bumps package.json (the single version source, read at runtime
+# by src/cli/usage.ts), commits, and creates the vX.Y.Z tag that triggers this.
+# Publishing uses npm trusted publishing (OIDC) — no token secrets; configure
+# the trusted publisher for the package on npmjs.com pointing at this file.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - name: Update npm for trusted publishing
+        run: npm install -g npm@latest
+      - run: npm ci
+      - name: Verify tag matches package.json version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "Tag v$tag does not match package.json version $pkg" >&2
+            exit 1
+          fi
+      - run: npx tsc --noEmit
+      - run: npx vitest run
+      - run: npm publish --provenance --access public
+      - name: Create GitHub release
+        run: gh release create "$GITHUB_REF_NAME" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}

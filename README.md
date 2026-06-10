@@ -130,6 +130,17 @@ npm run build
 npx vitest run
 ```
 
+## Releasing
+
+`package.json` is the single version source (the CLI reads it at runtime). To cut a release:
+
+```bash
+npm version patch   # or minor / major — bumps package.json, commits, tags vX.Y.Z
+git push --follow-tags
+```
+
+CI publishes the tag to npm (trusted publishing, with provenance) and creates the GitHub release.
+
 ## License
 
 MIT © Talking Computers
