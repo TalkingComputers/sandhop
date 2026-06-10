@@ -173,6 +173,7 @@ test("TeleportService collects, transfers one zstd bundle, and starts HTTPS ttyd
   expect(provider.sandbox.uploads.map((upload) => upload.path)).toEqual([
     "/tmp/transcript.jsonl",
     expect.stringMatching(/^\/tmp\/sandhop-claude-preseed-[0-9a-f]{16}\.js$/),
+    "/tmp/sandhop-terminal-proxy.cjs",
   ]);
   expect(provider.sandbox.uploads).toContainEqual({
     path: "/tmp/transcript.jsonl",
@@ -197,11 +198,13 @@ test("TeleportService collects, transfers one zstd bundle, and starts HTTPS ttyd
   );
   expect(restoreExec).not.toContain("tar -xzf /tmp/bundle.tgz");
   expect(provider.sandbox.services).toHaveLength(1);
-  expect(provider.sandbox.services[0]!.file).toBe("ttyd");
+  expect(provider.sandbox.services[0]!.file).toBe("bash");
   expect(provider.sandbox.services[0]!.args.join(" ")).toContain(
-    `-p ${TTYD_PORT} -W -t disableLeaveAlert=true -t disableResizeOverlay=true -c host-user:`,
+    "ttyd -i 127.0.0.1 -p 7682 -W -t disableLeaveAlert\\=true -t disableResizeOverlay\\=true -c host-user\\:",
   );
-  expect(provider.sandbox.services[0]!.args).not.toContain("-i");
+  expect(provider.sandbox.services[0]!.args.join(" ")).toContain(
+    "exec node /tmp/sandhop-terminal-proxy.cjs",
+  );
   expect(provider.sandbox.services[0]!.args.join(" ")).toContain(
     "tmux -u new -A -s sandhop bash -lc",
   );
@@ -231,7 +234,7 @@ test("TeleportService collects, transfers one zstd bundle, and starts HTTPS ttyd
     appendOutput: true,
   });
   expect(provider.sandbox.execs.join("\n")).not.toContain("pgrep");
-  expect(provider.sandbox.execs).toHaveLength(5);
+  expect(provider.sandbox.execs).toHaveLength(7);
   expect(restoreExec).not.toContain("profile");
   expect(restoreExec).not.toContain("mcp");
   expect(provider.sandbox.exposedPorts).toEqual([TTYD_PORT]);
@@ -448,7 +451,13 @@ test("TeleportService injects transport bootstrap steps and loopback ttyd bind",
     "install cloudflared",
   );
   expect(provider.sandbox.services[0]!.args.join(" ")).toContain(
-    `-i 127.0.0.1 -p ${TTYD_PORT} -W -t disableLeaveAlert=true -t disableResizeOverlay=true -c host-user:`,
+    "ttyd -i 127.0.0.1 -p 7682 -W -t disableLeaveAlert\\=true -t disableResizeOverlay\\=true -c host-user\\:",
+  );
+  const cloudflaredProxy = provider.sandbox.uploads.find(
+    (upload) => upload.path === "/tmp/sandhop-terminal-proxy.cjs",
+  );
+  expect(cloudflaredProxy?.data).toContain(
+    `server.listen(${TTYD_PORT}, "127.0.0.1")`,
   );
   expect(provider.sandbox.services[0]!.args.join(" ")).toContain(
     "tmux -u new -A -s sandhop bash -lc",

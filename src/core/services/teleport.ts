@@ -22,6 +22,11 @@ import { renderRestoreScript } from "./bootstrap.js";
 import type { SshBundle, SshCollector } from "./git-ssh.js";
 import { mapHomePath } from "./mcp-paths.js";
 import { renderPathPrep, uploadOwnedFiles } from "./sandbox-files.js";
+import {
+  buildTerminalProxyScript,
+  TERMINAL_PROXY_PATH,
+} from "./terminal-proxy.js";
+import { quote } from "shell-quote";
 import type { SecretsBundle, SecretsCollector } from "./secrets.js";
 import { TransferService } from "./transfer.js";
 
@@ -75,26 +80,33 @@ const TTYD_SESSION = "sandhop";
 const TERMINAL_LOG = remotePath("/tmp/sandhop-terminal.log");
 const TERMINAL_READY_TIMEOUT_MS = 10000;
 const TERMINAL_READY_INTERVAL_MS = 100;
+const TTYD_UPSTREAM_PORT = 7682;
 
-const buildTerminalArgs = (
-  bind: string,
+const buildTerminalCommand = (
   user: string,
   pass: string,
   command: CommandInvocation,
-): string[] => [
-  ...(bind === "0.0.0.0" ? [] : ["-i", bind]),
-  "-p",
-  String(TTYD_PORT),
-  "-W",
-  "-t",
-  "disableLeaveAlert=true",
-  "-t",
-  "disableResizeOverlay=true",
-  "-c",
-  `${user}:${pass}`,
-  command.file,
-  ...command.args,
-];
+): string =>
+  [
+    quote([
+      "ttyd",
+      "-i",
+      "127.0.0.1",
+      "-p",
+      String(TTYD_UPSTREAM_PORT),
+      "-W",
+      "-t",
+      "disableLeaveAlert=true",
+      "-t",
+      "disableResizeOverlay=true",
+      "-c",
+      `${user}:${pass}`,
+      command.file,
+      ...command.args,
+    ]),
+    "&",
+    `exec node ${TERMINAL_PROXY_PATH}`,
+  ].join(" ");
 
 const readGitConfig = (
   host: Pick<HostDeps, "exec">,
@@ -321,14 +333,25 @@ export class TeleportService {
       file: "bash",
       args: ["-lc", resume],
     });
+    await uploadOwnedFiles(
+      sandbox,
+      [
+        {
+          path: remotePath(TERMINAL_PROXY_PATH),
+          content: buildTerminalProxyScript(
+            user,
+            pass,
+            opts.transport.bindAddress(),
+            TTYD_PORT,
+            TTYD_UPSTREAM_PORT,
+          ),
+        },
+      ],
+      [],
+    );
     const service = await sandbox.startService({
-      file: "ttyd",
-      args: buildTerminalArgs(
-        opts.transport.bindAddress(),
-        user,
-        pass,
-        command,
-      ),
+      file: "bash",
+      args: ["-lc", buildTerminalCommand(user, pass, command)],
       port: TTYD_PORT,
       readiness: {
         kind: "http",
