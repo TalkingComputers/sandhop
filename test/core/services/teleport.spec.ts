@@ -19,7 +19,7 @@ const tmuxMultiplexer = {
   id: "tmux",
   install: (): string[] => [
     "bash -lc 'DEBIAN_FRONTEND=noninteractive apt-get install -y tmux'",
-    `printf '%s\\n' 'set -g status off' 'set -g window-size latest' 'set -g focus-events on' > "$HOME/.tmux.conf"`,
+    `printf '%s\\n' 'set -g status off' 'set -g window-size latest' 'set -g default-size 200x50' 'set -g focus-events on' > "$HOME/.tmux.conf"`,
   ],
   attach: (session: string, command: CommandInvocation): CommandInvocation => ({
     file: "tmux",
@@ -174,6 +174,7 @@ test("TeleportService collects, transfers one zstd bundle, and starts HTTPS ttyd
     "/tmp/transcript.jsonl",
     expect.stringMatching(/^\/tmp\/sandhop-claude-preseed-[0-9a-f]{16}\.js$/),
     "/tmp/sandhop-terminal-proxy.cjs",
+    "/tmp/sandhop-terminal.html",
   ]);
   expect(provider.sandbox.uploads).toContainEqual({
     path: "/tmp/transcript.jsonl",

@@ -1,13 +1,13 @@
-import type { Multiplexer } from "../core/ports/multiplexer.js";
+import type { Multiplexer, TerminalGrid } from "../core/ports/multiplexer.js";
 import type { CommandInvocation } from "../core/ports/provider.js";
 
 export class TmuxMultiplexer implements Multiplexer {
   readonly id = "tmux";
 
-  install(): string[] {
+  install(grid: TerminalGrid): string[] {
     return [
       "command -v tmux",
-      `printf '%s\\n' 'set -g status off' 'set -g window-size latest' 'set -g focus-events on' > "$HOME/.tmux.conf"`,
+      `printf '%s\\n' 'set -g status off' 'set -g window-size latest' 'set -g default-size ${grid.cols}x${grid.rows}' 'set -g focus-events on' > "$HOME/.tmux.conf"`,
     ];
   }
 

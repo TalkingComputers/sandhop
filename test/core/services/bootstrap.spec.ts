@@ -29,7 +29,7 @@ const tmuxMultiplexer = {
   id: "tmux",
   install: (): string[] => [
     "command -v tmux",
-    `printf '%s\\n' 'set -g status off' 'set -g window-size latest' 'set -g focus-events on' > "$HOME/.tmux.conf"`,
+    `printf '%s\\n' 'set -g status off' 'set -g window-size latest' 'set -g default-size 200x50' 'set -g focus-events on' > "$HOME/.tmux.conf"`,
   ],
   attach: (session: string, command: CommandInvocation): CommandInvocation => ({
     file: "tmux",
@@ -120,6 +120,7 @@ test("uploadOwnedFiles preps dirs once, uploads in parallel, then owns and chmod
 test("renderRestoreScript installs exact CLI version, places transcript, and installs tmux after ttyd before project prep and zstd", () => {
   const script = renderRestoreScript(CLAUDE_CODE, tmuxMultiplexer, manifest, {
     home: "/home/user",
+    grid: { cols: 200, rows: 50 },
     preSeedScripts: [],
   });
 
@@ -135,7 +136,7 @@ test("renderRestoreScript installs exact CLI version, places transcript, and ins
   expect(script.split("\n").slice(1, 4)).toEqual([
     "command -v ttyd",
     "command -v tmux",
-    `printf '%s\\n' 'set -g status off' 'set -g window-size latest' 'set -g focus-events on' > "$HOME/.tmux.conf"`,
+    `printf '%s\\n' 'set -g status off' 'set -g window-size latest' 'set -g default-size 200x50' 'set -g focus-events on' > "$HOME/.tmux.conf"`,
   ]);
   expect(script).toContain(
     "git config --global --add safe.directory /private/tmp/sandhop-codex2",
@@ -172,6 +173,7 @@ test("renderRestoreScript quotes remote project shell paths with metacharacters"
     spacedManifest,
     {
       home: "/home/user",
+      grid: { cols: 200, rows: 50 },
       preSeedScripts: [],
     },
   );
@@ -191,6 +193,7 @@ test("renderRestoreScript quotes remote project shell paths with metacharacters"
 test("renderRestoreScript emits quoted git identity after safe directory when supplied", () => {
   const script = renderRestoreScript(CLAUDE_CODE, tmuxMultiplexer, manifest, {
     home: "/home/user",
+    grid: { cols: 200, rows: 50 },
     preSeedScripts: [],
     gitUserName: "Alice O'Connor",
     gitUserEmail: "alice+test@example.com",
@@ -214,6 +217,7 @@ test("renderRestoreScript emits quoted git identity after safe directory when su
 test("renderRestoreScript injects transport steps before agent install", () => {
   const script = renderRestoreScript(CLAUDE_CODE, tmuxMultiplexer, manifest, {
     home: "/home/user",
+    grid: { cols: 200, rows: 50 },
     preSeedScripts: [],
     transportSteps: ["install cloudflared"],
   });
@@ -249,6 +253,7 @@ test("enrichment scripts install runtimes and deps, write rewritten MCP config, 
 
   const sandbox = new FakeSandbox("stage", {
     home: "/home/user",
+    grid: { cols: 200, rows: 50 },
     username: "user",
     workdir: "/home/user/project",
   });
@@ -439,6 +444,7 @@ test("replace-mcp-section replaces stale Codex MCP tables from uploaded script",
 
   const sandbox = new FakeSandbox("stage", {
     home: "/home/user",
+    grid: { cols: 200, rows: 50 },
     username: "user",
     workdir: "/home/user/project",
   });

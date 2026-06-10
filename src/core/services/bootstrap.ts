@@ -1,11 +1,12 @@
 import type { Manifest } from "../manifest.js";
 import type { Agent } from "../ports/agent.js";
-import type { Multiplexer } from "../ports/multiplexer.js";
+import type { Multiplexer, TerminalGrid } from "../ports/multiplexer.js";
 import { quote } from "shell-quote";
 import { renderNodeScript, type NodeScript } from "../sandbox-scripts.js";
 
 export interface BootstrapOptions {
   home: string;
+  grid: TerminalGrid;
   preSeedScripts: readonly NodeScript[];
   transportSteps?: string[];
   gitUserName?: string;
@@ -29,7 +30,7 @@ export const renderRestoreScript = (
   return [
     "set -e",
     TTYD_INSTALL,
-    ...multiplexer.install(),
+    ...multiplexer.install(opts.grid),
     ...(opts.transportSteps ?? []),
     installCmd,
     ...opts.preSeedScripts.flatMap(renderNodeScript),

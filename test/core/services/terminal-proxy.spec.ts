@@ -59,6 +59,8 @@ beforeAll(async () => {
   );
   const dir = mkdtempSync(join(tmpdir(), "sandhop-proxy-"));
   const scriptPath = join(dir, "proxy.cjs");
+  const htmlPath = join(dir, "terminal.html");
+  writeFileSync(htmlPath, "<html>sandhop-test-frontend</html>");
   writeFileSync(
     scriptPath,
     buildTerminalProxyScript(
@@ -67,6 +69,7 @@ beforeAll(async () => {
       "127.0.0.1",
       LISTEN_PORT,
       UPSTREAM_PORT,
+      htmlPath,
     ),
   );
   proxy = spawn("node", [scriptPath], { stdio: "ignore" });
@@ -88,6 +91,15 @@ test("proxy forwards authenticated HTTP to ttyd", async () => {
   const res = await httpGet("/token", { authorization: auth });
   expect(res.status).toBe(200);
   expect(res.body).toBe(`upstream saw auth=${auth}`);
+});
+
+test("proxy serves the custom frontend at the root path", async () => {
+  const auth = `Basic ${Buffer.from("user:pw").toString("base64")}`;
+  const res = await httpGet("/", { authorization: auth });
+  expect(res.status).toBe(200);
+  expect(res.body).toBe("<html>sandhop-test-frontend</html>");
+  const unauth = await httpGet("/", {});
+  expect(unauth.status).toBe(401);
 });
 
 test("proxy injects basic auth on websocket upgrades missing it (Safari)", async () => {
