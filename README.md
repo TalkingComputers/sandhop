@@ -15,12 +15,13 @@ npm install -g sandhop
 sandhop setup
 ```
 
-`sandhop setup` is a short wizard: pick your sandbox provider, paste its API key, choose a transport, and it installs the `/sandhop` command into whichever agents you have (Claude Code and/or Codex). Credentials are stored in `~/.config/sandhop/config.json` (mode 600). You are never asked for your Claude/Codex API key — that auth is captured from your existing local session at teleport time.
+`sandhop setup` is a short wizard: pick your sandbox provider, paste its API key, choose a transport, and it installs the sandhop trigger into whichever agents you have — a `/sandhop` slash command for Claude Code, and a `$sandhop` skill for Codex (Codex removed custom slash commands in 0.117; restart Codex after setup so it scans the new skill). Credentials are stored in `~/.config/sandhop/config.json` (mode 600). You are never asked for your Claude/Codex API key — that auth is captured from your existing local session at teleport time.
 
-Then, from inside any Claude Code or Codex session in a project:
+Then, from inside a project session:
 
 ```text
-/sandhop
+/sandhop     # Claude Code
+$sandhop     # Codex
 ```
 
 It runs `sandhop push` for the current session and prints the web-terminal URL:
@@ -110,7 +111,7 @@ TypeScript modular monolith with a hexagonal core.
 - `src/agents`: Claude Code and Codex adapters behind one `Agent` port.
 - `src/transports`: `public` (provider URL) and `cloudflared` URL adapters.
 - `src/cli`: composition root, `sandhop setup` wizard, and CLI entrypoints.
-- `plugin/`: the `/sandhop` command (`commands/`) and prompt (`prompts/`) wrappers installed by `sandhop setup`.
+- `plugin/`: the Claude Code `/sandhop` command (`commands/`) and Codex `$sandhop` skill (`skills/`) installed by `sandhop setup`.
 
 ## Limitations
 

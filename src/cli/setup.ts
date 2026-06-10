@@ -231,13 +231,23 @@ export const runSetup = async (host: SetupHost): Promise<void> => {
       `Configured providers: ${providers.map((id) => PROVIDER_INFO[id].label).join(", ")}`,
       `Default provider: ${PROVIDER_INFO[defaultProvider].label}`,
       `Transport: ${transport}`,
-      installed.length === 0
-        ? "No Claude Code or Codex home detected; install /sandhop after opening an agent."
-        : `Installed /sandhop to: ${installed.join(", ")}`,
+      ...(installed.length === 0
+        ? [
+            "No Claude Code or Codex home detected; rerun setup after opening an agent.",
+          ]
+        : []),
+      ...(installed.includes("Claude Code")
+        ? ["Claude Code: type /sandhop"]
+        : []),
+      ...(installed.includes("Codex")
+        ? [
+            "Codex: type $sandhop (skill — Codex removed custom slash commands; restart Codex to pick it up)",
+          ]
+        : []),
     ].join("\n"),
     "Summary",
   );
   outro(
-    "Open Claude Code or Codex in a project and type /sandhop to teleport.",
+    "Open Claude Code (/sandhop) or a fresh Codex ($sandhop) in a project to teleport.",
   );
 };
