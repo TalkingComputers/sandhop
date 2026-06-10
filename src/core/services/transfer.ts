@@ -53,6 +53,7 @@ type TransferHost = Pick<
 export interface TransferOptions {
   excludes?: string[];
   onProgress?: (p: TransferProgress) => void;
+  onSkipped?: (paths: string[]) => void;
 }
 
 const safeLabel = (label: string): string =>
@@ -155,12 +156,14 @@ export class TransferService {
     let chunks: string[] = [];
     try {
       const source = tarSource(localPath, isDirectory);
-      await this.host.tarZstd(
+      const tarResult = await this.host.tarZstd(
         source.cwd,
         [source.entry],
         archive,
         opts.excludes === undefined ? undefined : { excludes: opts.excludes },
       );
+      if (tarResult.skippedPaths.length > 0)
+        opts.onSkipped?.(tarResult.skippedPaths);
       chunks = await this.host.splitFile(archive, CHUNK_BYTES, prefix);
       const chunkSizes = chunks.map((chunk) => this.host.fileSize(chunk));
       const totalBytes = chunkSizes.reduce((sum, size) => sum + size, 0);

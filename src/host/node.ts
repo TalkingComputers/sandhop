@@ -1,6 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  accessSync,
+  constants as fsConstants,
   existsSync,
   lstatSync,
   openAsBlob,
@@ -15,7 +17,58 @@ import { cp, mkdir, open, rm, writeFile } from "node:fs/promises";
 import { cpus, userInfo } from "node:os";
 import { execa } from "execa";
 import { dirname } from "../core/paths.js";
-import type { HostDeps } from "../core/ports/host.js";
+import type { HostDeps, TarResult } from "../core/ports/host.js";
+
+const escapeTarPattern = (path: string): string =>
+  path.replace(/([\\*?[\]])/g, "\\$1");
+
+const findUnreadablePaths = (
+  cwd: string,
+  entries: string[],
+  excludes: string[],
+): string[] => {
+  const unreadable: string[] = [];
+  const stack: string[] = [];
+  for (const entry of entries) {
+    const full = entry === "." ? cwd : `${cwd}/${entry}`;
+    let stat;
+    try {
+      stat = lstatSync(full);
+    } catch {
+      continue;
+    }
+    if (stat.isDirectory()) stack.push(entry === "." ? "" : entry);
+    else if (stat.isFile() && !isReadable(full)) unreadable.push(`./${entry}`);
+  }
+  while (stack.length > 0) {
+    const rel = stack.pop()!;
+    const dir = rel === "" ? cwd : `${cwd}/${rel}`;
+    let dirents: Dirent[];
+    try {
+      dirents = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      if (rel !== "") unreadable.push(`./${rel}`);
+      continue;
+    }
+    for (const dirent of dirents) {
+      const childRel = rel === "" ? dirent.name : `${rel}/${dirent.name}`;
+      if (hasExcludedSegment(childRel, excludes)) continue;
+      if (dirent.isDirectory()) stack.push(childRel);
+      else if (dirent.isFile() && !isReadable(`${cwd}/${childRel}`))
+        unreadable.push(`./${childRel}`);
+    }
+  }
+  return unreadable;
+};
+
+const isReadable = (path: string): boolean => {
+  try {
+    accessSync(path, fsConstants.R_OK);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 const listFiles = (dir: string): string[] => {
   let entries: Dirent[];
@@ -199,11 +252,13 @@ export class NodeHost implements HostDeps {
     entries: string[],
     outPath: string,
     opts?: { excludes: string[] },
-  ): Promise<void> {
-    const excludeArgs = (opts?.excludes ?? []).flatMap((exclude) => [
-      "--exclude",
-      exclude,
-    ]);
+  ): Promise<TarResult> {
+    const excludes = opts?.excludes ?? [];
+    const skippedPaths = findUnreadablePaths(cwd, entries, excludes);
+    const excludeArgs = [
+      ...excludes,
+      ...skippedPaths.map(escapeTarPattern),
+    ].flatMap((exclude) => ["--exclude", exclude]);
     await execa("tar", ["-cf", "-", ...excludeArgs, "-C", cwd, ...entries], {
       env: { COPYFILE_DISABLE: "1" },
       buffer: false,
@@ -214,5 +269,6 @@ export class NodeHost implements HostDeps {
         env: { COPYFILE_DISABLE: "1" },
       },
     );
+    return { skippedPaths };
   }
 }

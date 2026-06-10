@@ -236,6 +236,11 @@ const runPush = async (args: RuntimeArgs, host: NodeHost): Promise<void> => {
       timeoutMs: SANDBOX_TIMEOUT_MS,
       onProgress: reporter.onPushProgress,
       onTransfer: reporter.onTransfer,
+      onSkipped: (label, paths): void => {
+        console.error(
+          `SANDHOP_SKIPPED ${label}: ${paths.length} unreadable path(s) left out (likely macOS-protected): ${paths.join(", ")}`,
+        );
+      },
       beforeTerminalStart: async (sandbox): Promise<void> => {
         reporter.startEnrichment();
         const report = await runEnrichment(

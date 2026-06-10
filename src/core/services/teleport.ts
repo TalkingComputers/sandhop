@@ -41,6 +41,7 @@ export interface TeleportOptions {
   timeoutMs: number;
   onProgress?: PushProgressListener;
   onTransfer?: (transfer: TransferProgress) => void;
+  onSkipped?: (label: string, paths: string[]) => void;
   beforeTerminalStart?: (sandbox: Sandbox) => Promise<void>;
 }
 
@@ -217,6 +218,7 @@ export class TeleportService {
     await transfer.send(bundle, manifest.remoteProj, "bundle", {
       excludes: opts.excludes,
       onProgress: opts.onTransfer,
+      onSkipped: (paths) => opts.onSkipped?.("workspace", paths),
     });
     const memRel = this.agent.projectMemoryPath(manifest.remoteEnc);
     if (memRel !== null && host.exists(`${host.home}/${memRel}`))
@@ -224,7 +226,10 @@ export class TeleportService {
         `${host.home}/${memRel}`,
         `${sandbox.home}/${memRel}`,
         "memory",
-        { excludes: opts.excludes },
+        {
+          excludes: opts.excludes,
+          onSkipped: (paths) => opts.onSkipped?.("memory", paths),
+        },
       );
     await Promise.all(
       opts.includes.map(async (include, index): Promise<void> => {
@@ -240,6 +245,7 @@ export class TeleportService {
         await execShell(sandbox, renderPathPrep(destDir));
         await transfer.send(realInclude, dest, `include-${index}`, {
           excludes: opts.excludes,
+          onSkipped: (paths) => opts.onSkipped?.(realInclude, paths),
         });
       }),
     );

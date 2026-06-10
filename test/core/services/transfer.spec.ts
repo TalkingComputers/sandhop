@@ -128,6 +128,26 @@ test("TransferService creates zstd tar archives through host API", async () => {
   );
 });
 
+test("TransferService surfaces tar-skipped paths through onSkipped", async () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: { "/workspace/project/README.md": "" },
+  });
+  host.tarSkippedPaths = ["./blocked"];
+  const provider = new FakeProvider();
+  const skipped: string[][] = [];
+
+  await new TransferService(host, provider.sandbox).send(
+    "/workspace/project",
+    "/home/user/project",
+    "bundle",
+    { onSkipped: (paths) => skipped.push(paths) },
+  );
+
+  expect(skipped).toEqual([["./blocked"]]);
+});
+
 test("TransferService runs zstd extraction with pipefail", async () => {
   const host = new FakeHost({
     home: "/home/local",

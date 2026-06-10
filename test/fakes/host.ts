@@ -233,17 +233,20 @@ export class FakeHost implements HostDeps {
     }
   }
 
+  tarSkippedPaths: string[] = [];
+
   async tarZstd(
     cwd: string,
     entries: string[],
     outPath: string,
     opts?: { excludes: string[] },
-  ): Promise<void> {
+  ): Promise<{ skippedPaths: string[] }> {
     const call =
       opts === undefined
         ? { cwd, entries, outPath }
         : { cwd, entries, outPath, excludes: opts.excludes };
     this.tarCalls.push(call);
     this.bytes[outPath] = encoder.encode("archive");
+    return { skippedPaths: this.tarSkippedPaths };
   }
 }

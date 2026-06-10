@@ -34,5 +34,9 @@ export interface HostDeps {
     entries: string[],
     outPath: string,
     opts?: { excludes: string[] },
-  ): Promise<void>;
+  ): Promise<TarResult>;
+}
+
+export interface TarResult {
+  skippedPaths: string[];
 }
