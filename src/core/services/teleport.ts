@@ -69,8 +69,10 @@ export interface TeleportServices {
     | "realpath"
     | "remove"
     | "splitFile"
+    | "statMtimeMs"
     | "tarZstd"
     | "username"
+    | "walk"
   >;
   session: SessionRef;
   secrets: SecretsCollector;
@@ -278,6 +280,7 @@ export class TeleportService {
     await sandbox.uploadFile(
       remotePath("/tmp/transcript.jsonl"),
       this.agent.prepareTranscript(
+        this.services.host,
         this.services.host.readBytes(session.transcriptPath),
       ),
     );

@@ -10,6 +10,7 @@ import type {
   Agent,
   AgentHostDeps,
   AgentMcpDeps,
+  AgentSessionDeps,
   AgentPreSeedDeps,
   AuthBundle,
   McpConfigWrite,
@@ -48,7 +49,11 @@ const isSandhopUserLine = (line: string): boolean => {
   return parsed !== null && parsed.type === "user";
 };
 
-const prepareTranscript = (bytes: Uint8Array): Uint8Array => {
+const prepareTranscript = (
+  deps: AgentSessionDeps,
+  bytes: Uint8Array,
+): Uint8Array => {
+  void deps;
   const text = new TextDecoder().decode(bytes);
   const lines = text.split("\n");
   for (let i = lines.length - 1; i >= 0; i -= 1) {

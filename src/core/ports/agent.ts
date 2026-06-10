@@ -96,7 +96,7 @@ export interface Agent {
   profileEntries(deps: AgentProfileDeps): string[];
   externalSkills(deps: AgentProfileDeps): ExternalSkill[];
   extraEnvRefs(deps: AgentProfileDeps): string[];
-  prepareTranscript(bytes: Uint8Array): Uint8Array;
+  prepareTranscript(deps: AgentSessionDeps, bytes: Uint8Array): Uint8Array;
   mcpConfigPaths(home: string, cwd: string): string[];
   mcpEnvRefs(configText: string): string[];
   parseMcpServers(deps: AgentMcpDeps, cwd: string): McpServer[];

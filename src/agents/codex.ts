@@ -25,6 +25,7 @@ import {
 } from "./codex-mcp.js";
 import {
   codexId,
+  mergeForkAncestry,
   parseCodexTranscriptName,
   readRecordedCwd,
 } from "./codex-session.js";
@@ -151,7 +152,11 @@ export const CODEX: Agent = {
     }
     return uniqueSorted(refs);
   },
-  prepareTranscript: (bytes) => bytes,
+  prepareTranscript: (deps, bytes) => {
+    const text = new TextDecoder().decode(bytes);
+    const merged = mergeForkAncestry(deps, text);
+    return merged === text ? bytes : new TextEncoder().encode(merged);
+  },
   mcpConfigPaths: (home, cwd) => [
     `${home}/.codex/config.toml`,
     `${cwd}/.codex/config.toml`,

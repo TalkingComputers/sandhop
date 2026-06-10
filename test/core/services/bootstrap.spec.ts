@@ -29,7 +29,7 @@ const tmuxMultiplexer = {
   id: "tmux",
   install: (): string[] => [
     "command -v tmux",
-    `printf '%s\\n' 'set -g status off' 'set -g window-size latest' 'set -g default-size 200x50' 'set -g focus-events on' > "$HOME/.tmux.conf"`,
+    `printf '%s\\n' 'set -g status off' 'set -g window-size latest' 'set -g default-size 200x50' 'set -g focus-events on' 'set -g mouse on' 'set -g history-limit 10000' > "$HOME/.tmux.conf"`,
   ],
   attach: (session: string, command: CommandInvocation): CommandInvocation => ({
     file: "tmux",
@@ -136,7 +136,7 @@ test("renderRestoreScript installs exact CLI version, places transcript, and ins
   expect(script.split("\n").slice(1, 4)).toEqual([
     "command -v ttyd",
     "command -v tmux",
-    `printf '%s\\n' 'set -g status off' 'set -g window-size latest' 'set -g default-size 200x50' 'set -g focus-events on' > "$HOME/.tmux.conf"`,
+    `printf '%s\\n' 'set -g status off' 'set -g window-size latest' 'set -g default-size 200x50' 'set -g focus-events on' 'set -g mouse on' 'set -g history-limit 10000' > "$HOME/.tmux.conf"`,
   ]);
   expect(script).toContain(
     "git config --global --add safe.directory /private/tmp/sandhop-codex2",

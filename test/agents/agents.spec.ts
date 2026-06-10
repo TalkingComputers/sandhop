@@ -567,7 +567,15 @@ test("Claude transcript trimming ignores non-user lines quoting the sandhop comm
   const transcript = `${lines.join("\n")}\n`;
 
   const trimmed = decoder.decode(
-    CLAUDE_CODE.prepareTranscript(encoder.encode(transcript)),
+    CLAUDE_CODE.prepareTranscript(
+      {
+        home: "/home/u",
+        readFile: () => null,
+        walk: () => [],
+        statMtimeMs: () => 0,
+      },
+      encoder.encode(transcript),
+    ),
   );
 
   expect(trimmed).toBe(`${lines.slice(0, 2).join("\n")}\n`);

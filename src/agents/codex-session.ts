@@ -42,3 +42,83 @@ export const readRecordedCwd = (
     return null;
   }
 };
+
+interface RolloutMeta {
+  forkedFromId: string | null;
+}
+
+const readMeta = (line: string): RolloutMeta | null => {
+  try {
+    const parsed = JSON.parse(line) as {
+      type?: unknown;
+      payload?: { forked_from_id?: unknown };
+    };
+    if (parsed.type !== "session_meta") return null;
+    return {
+      forkedFromId:
+        typeof parsed.payload?.forked_from_id === "string"
+          ? parsed.payload.forked_from_id
+          : null,
+    };
+  } catch {
+    return null;
+  }
+};
+
+const isMetaLine = (line: string): boolean => readMeta(line) !== null;
+
+const contentLines = (text: string): string[] =>
+  text
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .filter((line) => !isMetaLine(line));
+
+const findRollout = (
+  deps: AgentSessionDeps,
+  sessionId: string,
+): string | null =>
+  deps
+    .walk(`${deps.home}/.codex/sessions`)
+    .find((path) => path.endsWith(`-${sessionId}.jsonl`)) ?? null;
+
+const entrySignature = (line: string): string => {
+  try {
+    const parsed = JSON.parse(line) as { payload?: unknown };
+    return parsed.payload === undefined ? line : JSON.stringify(parsed.payload);
+  } catch {
+    return line;
+  }
+};
+
+export const mergeForkAncestry = (
+  deps: AgentSessionDeps,
+  transcript: string,
+): string => {
+  const lines = transcript.split("\n").filter((line) => line.length > 0);
+  if (lines.length === 0) return transcript;
+  const meta = readMeta(lines[0]!);
+  if (meta === null) return transcript;
+  const forkSignatures = new Set(lines.map(entrySignature));
+  const inherited: string[] = [];
+  let forkedFromId = meta.forkedFromId;
+  const seen = new Set<string>();
+  while (forkedFromId !== null && !seen.has(forkedFromId)) {
+    seen.add(forkedFromId);
+    const parentPath = findRollout(deps, forkedFromId);
+    if (parentPath === null) break;
+    const parentText = deps.readFile(parentPath);
+    if (parentText === null) break;
+    const parentLines = contentLines(parentText);
+    const lastParentLine = parentLines[parentLines.length - 1];
+    if (
+      lastParentLine !== undefined &&
+      forkSignatures.has(entrySignature(lastParentLine))
+    )
+      return transcript;
+    inherited.unshift(...parentLines);
+    const parentFirst = parentText.split("\n", 1)[0]!;
+    forkedFromId = readMeta(parentFirst)?.forkedFromId ?? null;
+  }
+  if (inherited.length === 0) return transcript;
+  return [lines[0]!, ...inherited, ...lines.slice(1)].join("\n") + "\n";
+};

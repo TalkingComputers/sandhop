@@ -7,7 +7,7 @@ export class TmuxMultiplexer implements Multiplexer {
   install(grid: TerminalGrid): string[] {
     return [
       "command -v tmux",
-      `printf '%s\\n' 'set -g status off' 'set -g window-size latest' 'set -g default-size ${grid.cols}x${grid.rows}' 'set -g focus-events on' > "$HOME/.tmux.conf"`,
+      `printf '%s\\n' 'set -g status off' 'set -g window-size latest' 'set -g default-size ${grid.cols}x${grid.rows}' 'set -g focus-events on' 'set -g mouse on' 'set -g history-limit 10000' > "$HOME/.tmux.conf"`,
     ];
   }
 
