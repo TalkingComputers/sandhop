@@ -3,7 +3,6 @@ import type {
   TransportContext,
   TransportResult,
 } from "../core/ports/transport.js";
-import { execShell, type RunResult } from "../core/ports/provider.js";
 import { remotePath } from "../core/paths.js";
 
 export interface CloudflaredOptions {
@@ -12,12 +11,10 @@ export interface CloudflaredOptions {
 }
 
 const LOG_PATH = remotePath("/tmp/sandhop-cloudflared.log");
-
-const tunnelWaitScript = (probe: string): string =>
-  `for i in $(seq 1 120); do ${probe}; sleep 0.5; done; cat ${LOG_PATH} >&2; exit 1`;
-
-const tunnelError = (result: RunResult): string =>
-  `cloudflared exited with ${result.exitCode}: stderr=${JSON.stringify(result.stderr)} stdout=${JSON.stringify(result.stdout)}`;
+const TUNNEL_READY_TIMEOUT_MS = 60000;
+const TUNNEL_READY_INTERVAL_MS = 500;
+const TUNNEL_READY = /Registered tunnel connection/;
+const QUICK_TUNNEL_URL = /(https:\/\/[a-z0-9-]+\.trycloudflare\.com)/;
 
 export class CloudflaredTransport implements Transport {
   readonly id = "cloudflared" as const;
@@ -27,7 +24,7 @@ export class CloudflaredTransport implements Transport {
     this.opts = opts;
   }
 
-  ttydBindAddress(): string {
+  bindAddress(): string {
     return "127.0.0.1";
   }
 
@@ -49,9 +46,9 @@ export class CloudflaredTransport implements Transport {
       throw new Error(
         "CLOUDFLARE_TUNNEL_HOSTNAME is required for a named cloudflared tunnel",
       );
-    await ctx.sandbox.spawn(
-      "cloudflared",
-      [
+    await ctx.sandbox.startService({
+      file: "cloudflared",
+      args: [
         "tunnel",
         "--no-autoupdate",
         "--protocol",
@@ -60,46 +57,45 @@ export class CloudflaredTransport implements Transport {
         "--token",
         token,
       ],
-      {
-        stdoutPath: LOG_PATH,
-        stderrPath: LOG_PATH,
+      port: ctx.service.port,
+      readiness: {
+        kind: "log",
+        path: LOG_PATH,
+        matches: [TUNNEL_READY],
+        timeoutMs: TUNNEL_READY_TIMEOUT_MS,
+        intervalMs: TUNNEL_READY_INTERVAL_MS,
       },
-    );
-    const result = await execShell(
-      ctx.sandbox,
-      tunnelWaitScript(
-        `grep -q "Registered tunnel connection" ${LOG_PATH} && exit 0`,
-      ),
-    );
-    if (result.exitCode !== 0) throw new Error(tunnelError(result));
+      stdoutPath: LOG_PATH,
+      stderrPath: LOG_PATH,
+      appendOutput: true,
+    });
     return { url: `https://${this.opts.hostname}` };
   }
 
   private async exposeQuick(ctx: TransportContext): Promise<TransportResult> {
-    await ctx.sandbox.spawn(
-      "cloudflared",
-      [
+    const service = await ctx.sandbox.startService({
+      file: "cloudflared",
+      args: [
         "tunnel",
         "--no-autoupdate",
         "--protocol",
         "http2",
         "--url",
-        `http://localhost:${ctx.localPort}`,
+        `http://localhost:${ctx.service.port}`,
       ],
-      {
-        stdoutPath: LOG_PATH,
-        stderrPath: LOG_PATH,
+      port: ctx.service.port,
+      readiness: {
+        kind: "log",
+        path: LOG_PATH,
+        matches: [TUNNEL_READY, QUICK_TUNNEL_URL],
+        capture: QUICK_TUNNEL_URL,
+        timeoutMs: TUNNEL_READY_TIMEOUT_MS,
+        intervalMs: TUNNEL_READY_INTERVAL_MS,
       },
-    );
-    const result = await execShell(
-      ctx.sandbox,
-      tunnelWaitScript(
-        `u=$(grep -oE "https://[a-z0-9-]+\\.trycloudflare\\.com" ${LOG_PATH} | head -1); [ -n "$u" ] && grep -q "Registered tunnel connection" ${LOG_PATH} && { echo "$u"; exit 0; }`,
-      ),
-    );
-    if (result.exitCode !== 0) throw new Error(tunnelError(result));
-    const url = result.stdout.trim();
-    if (url.length === 0) throw new Error("cloudflared did not return a URL");
-    return { url };
+      stdoutPath: LOG_PATH,
+      stderrPath: LOG_PATH,
+      appendOutput: true,
+    });
+    return { url: service.output };
   }
 }

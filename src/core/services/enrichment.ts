@@ -1,32 +1,43 @@
 import { formatErrorStack } from "../errors.js";
-import { expandHome, makeTempPath, remotePath } from "../paths.js";
+import { makeTempPath } from "../paths.js";
 import type { Agent } from "../ports/agent.js";
-import { randomToken } from "../rand.js";
 import {
   EnrichmentStepId,
   type EnrichmentProgressListener,
 } from "../ports/progress.js";
-import { execShell, type RunResult, type Sandbox } from "../ports/provider.js";
-import type { BootstrapService, EnrichmentStepResult } from "./bootstrap.js";
+import type { RunResult, Sandbox } from "../ports/provider.js";
+import { execShellAsUser } from "../sandbox-runtime.js";
+import {
+  renderEnrichmentCompletion,
+  renderEnrichmentConfig,
+  renderEnrichmentInstalls,
+  renderEnrichmentSetup,
+  renderReinstall,
+  renderSettingsScriptInstalls,
+  uploadEnrichmentScripts,
+  type EnrichmentStepResult,
+} from "./enrichment-scripts.js";
 import type { CodePlan, McpCodeService } from "./mcp-code.js";
+import { uploadOwnedFiles } from "./sandbox-files.js";
+import type { ExcludedServer } from "./mcp-classify.js";
 import type { ProfileService } from "./profile.js";
 import type { ReinstallService } from "./reinstall.js";
-import type { SecretsService } from "./secrets.js";
 import type { ScriptCapturePlan, ScriptCaptureService } from "./scripts.js";
 import type { TransferService } from "./transfer.js";
 import { quote } from "shell-quote";
 
 const ENRICHMENT_EXEC_TIMEOUT_MS = 1_800_000;
+const ENRICHMENT_LOG = "/tmp/sandhop-enrich.log";
+
+export interface EnrichmentReport {
+  steps: EnrichmentStepResult[];
+  mcpExcluded: ExcludedServer[];
+}
 
 const appendLog = async (sandbox: Sandbox, text: string): Promise<void> => {
-  const path = remotePath(`/tmp/sandhop-enrich-log-${randomToken(12)}`);
-  await sandbox.uploadFile(path, `${text}\n`);
-  await execShell(
+  await execShellAsUser(
     sandbox,
-    [
-      `cat ${quote([path])} >> /tmp/sandhop-enrich.log`,
-      `rm -f ${quote([path])}`,
-    ].join("\n"),
+    `printf '%s\\n' ${quote([text])} >> ${quote([ENRICHMENT_LOG])}`,
   );
 };
 
@@ -35,38 +46,54 @@ const runLogged = async (
   script: string,
   opts?: { timeoutMs?: number },
 ): Promise<RunResult> =>
-  execShell(
+  execShellAsUser(
     sandbox,
-    ["{", script, "} >> /tmp/sandhop-enrich.log 2>&1"].join("\n"),
+    [
+      "set -o pipefail",
+      "{",
+      script,
+      `} 2>&1 | tee -a ${quote([ENRICHMENT_LOG])}`,
+    ].join("\n"),
     opts,
   );
 
-const recordStep = async <T>(
+const formatRunOutput = (result: RunResult): string =>
+  [result.stderr, result.stdout]
+    .filter((text) => text.length > 0)
+    .join("\n")
+    .trimEnd();
+
+const runLoggedOrThrow = async (
   sandbox: Sandbox,
+  label: string,
+  script: string,
+  opts?: { timeoutMs?: number },
+): Promise<void> => {
+  const result = await runLogged(sandbox, script, opts);
+  if (result.exitCode === 0) return;
+  const output = formatRunOutput(result);
+  throw new Error(
+    output.length === 0
+      ? `${label} failed with exit code ${result.exitCode}`
+      : `${label} failed with exit code ${result.exitCode}:\n${output}`,
+  );
+};
+
+const recordStep = async <T>(
   steps: EnrichmentStepResult[],
   step: EnrichmentStepId,
   run: () => Promise<T>,
   onEvent?: EnrichmentProgressListener,
 ): Promise<T | null> => {
   onEvent?.({ kind: "enrichStep", step, status: "start" });
-  await appendLog(sandbox, `[sandhop] step started: ${step}`).catch(
-    () => undefined,
-  );
   try {
     const value = await run();
     steps.push({ step, ok: true });
     onEvent?.({ kind: "enrichStep", step, status: "ok" });
-    await appendLog(sandbox, `[sandhop] step ok: ${step}`).catch(
-      () => undefined,
-    );
     return value;
   } catch (error: unknown) {
-    const text = formatErrorStack(error);
-    steps.push({ step, ok: false, error: text });
+    steps.push({ step, ok: false, error: formatErrorStack(error) });
     onEvent?.({ kind: "enrichStep", step, status: "fail" });
-    await appendLog(sandbox, `[sandhop] step failed: ${step}\n${text}`).catch(
-      () => undefined,
-    );
     return null;
   }
 };
@@ -80,152 +107,154 @@ const recordScriptStep = async (
   onEvent?: EnrichmentProgressListener,
 ): Promise<void> => {
   await recordStep(
-    sandbox,
     steps,
     step,
-    async (): Promise<void> => {
-      const result = await runLogged(sandbox, script, opts);
-      if (result.exitCode !== 0)
-        throw new Error(`${step} failed: ${result.stderr || result.stdout}`);
-    },
+    () => runLoggedOrThrow(sandbox, step, script, opts),
     onEvent,
   );
 };
 
+const skipStep = (
+  steps: EnrichmentStepResult[],
+  step: EnrichmentStepId,
+  error: string,
+  onEvent?: EnrichmentProgressListener,
+): void => {
+  onEvent?.({ kind: "enrichStep", step, status: "start" });
+  steps.push({ step, ok: false, error });
+  onEvent?.({ kind: "enrichStep", step, status: "fail" });
+};
+
+const EMPTY_SCRIPT_PLAN: ScriptCapturePlan = {
+  mappings: [],
+  rewrites: [],
+  installCmds: [],
+};
+
 export class EnrichmentService {
   readonly agent: Agent;
-  readonly sandbox: Sandbox;
-  readonly transfer: TransferService;
-  readonly profile: ProfileService;
-  readonly mcpCode: McpCodeService;
-  readonly reinstall: ReinstallService;
-  readonly secrets: SecretsService;
-  readonly scripts: ScriptCaptureService;
-  readonly bootstrap: BootstrapService;
+  readonly services: EnrichmentServices;
   readonly excludes: string[];
 
   constructor(agent: Agent, services: EnrichmentServices, excludes: string[]) {
     this.agent = agent;
-    this.sandbox = services.sandbox;
-    this.transfer = services.transfer;
-    this.profile = services.profile;
-    this.mcpCode = services.mcpCode;
-    this.reinstall = services.reinstall;
-    this.secrets = services.secrets;
-    this.scripts = services.scripts;
-    this.bootstrap = services.bootstrap;
+    this.services = services;
     this.excludes = excludes;
+  }
+
+  private get sandbox(): Sandbox {
+    return this.services.sandbox;
   }
 
   async run(
     cwd: string,
     profile: boolean,
     onEvent?: EnrichmentProgressListener,
-  ): Promise<EnrichmentStepResult[]> {
+  ): Promise<EnrichmentReport> {
     const steps: EnrichmentStepResult[] = [];
-    try {
-      await appendLog(
-        this.sandbox,
-        `sandhop enrichment started ${new Date().toISOString()}`,
-      );
-      await recordScriptStep(
-        this.sandbox,
-        steps,
-        EnrichmentStepId.Setup,
-        this.bootstrap.renderEnrichmentSetup(),
-        undefined,
-        onEvent,
-      );
-      await recordStep(
-        this.sandbox,
-        steps,
-        EnrichmentStepId.ProfileTransfer,
-        async (): Promise<void> => {
-          if (!profile) return;
-          await this.sendProfile(onEvent);
-        },
-        onEvent,
-      );
-      const scriptPlan = await recordStep(
-        this.sandbox,
+    await appendLog(
+      this.sandbox,
+      `sandhop enrichment started ${new Date().toISOString()}`,
+    ).catch(() => undefined);
+    await recordScriptStep(
+      this.sandbox,
+      steps,
+      EnrichmentStepId.Setup,
+      renderEnrichmentSetup(),
+      undefined,
+      onEvent,
+    );
+    await recordStep(
+      steps,
+      EnrichmentStepId.ProfileTransfer,
+      async (): Promise<void> => {
+        if (!profile) return;
+        await this.sendProfile(onEvent);
+      },
+      onEvent,
+    );
+    const scriptPlan =
+      (await recordStep(
         steps,
         EnrichmentStepId.SettingsScriptsTransfer,
         () => this.sendScripts(cwd, onEvent),
         onEvent,
-      );
-      await recordScriptStep(
-        this.sandbox,
+      )) ?? EMPTY_SCRIPT_PLAN;
+    await recordScriptStep(
+      this.sandbox,
+      steps,
+      EnrichmentStepId.SettingsScriptDependencyInstalls,
+      renderSettingsScriptInstalls(scriptPlan),
+      { timeoutMs: ENRICHMENT_EXEC_TIMEOUT_MS },
+      onEvent,
+    );
+    const codePlan = await recordStep(
+      steps,
+      EnrichmentStepId.McpCodeTransfer,
+      () => this.sendMcpCode(cwd, onEvent),
+      onEvent,
+    );
+    if (codePlan === null)
+      skipStep(
         steps,
-        EnrichmentStepId.SettingsScriptDependencyInstalls,
-        this.bootstrap.renderSettingsScriptInstalls(scriptPlan),
-        { timeoutMs: ENRICHMENT_EXEC_TIMEOUT_MS },
+        EnrichmentStepId.McpDependencyInstalls,
+        "MCP code transfer failed; dependency installs skipped",
         onEvent,
       );
-      const codePlan = await recordStep(
-        this.sandbox,
-        steps,
-        EnrichmentStepId.McpCodeTransfer,
-        () => this.sendMcpCode(cwd, onEvent),
-        onEvent,
-      );
+    else
       await recordScriptStep(
         this.sandbox,
         steps,
         EnrichmentStepId.McpDependencyInstalls,
-        this.bootstrap.renderEnrichmentInstalls({ codePlan }),
+        renderEnrichmentInstalls(codePlan),
         { timeoutMs: ENRICHMENT_EXEC_TIMEOUT_MS },
         onEvent,
       );
-      await recordScriptStep(
-        this.sandbox,
-        steps,
-        EnrichmentStepId.PluginGitSkillReinstall,
-        this.bootstrap.renderReinstall(this.reinstall.plan().commands),
-        { timeoutMs: ENRICHMENT_EXEC_TIMEOUT_MS },
-        onEvent,
-      );
-      await runLogged(
-        this.sandbox,
-        this.bootstrap.renderEnrichmentCompletion(steps),
-      ).catch(async (error: unknown): Promise<void> => {
+    await recordStep(
+      steps,
+      EnrichmentStepId.PluginGitSkillReinstall,
+      () => this.reinstallPlugins(onEvent),
+      onEvent,
+    );
+    await runLogged(this.sandbox, renderEnrichmentCompletion(steps)).catch(
+      async (error: unknown): Promise<void> => {
         await appendLog(this.sandbox, formatErrorStack(error)).catch(
           () => undefined,
         );
-      });
-      return steps;
-    } catch (error: unknown) {
-      await appendLog(this.sandbox, formatErrorStack(error)).catch(
-        () => undefined,
-      );
-      throw error;
-    }
+      },
+    );
+    return { steps, mcpExcluded: codePlan?.excluded ?? [] };
   }
 
   private async sendProfile(
     onEvent?: EnrichmentProgressListener,
   ): Promise<void> {
-    const profileTree = await this.profile.build(
+    const profileTree = await this.services.profile.build(
       makeTempPath("profile"),
       this.excludes,
     );
     if (profileTree !== null)
-      await this.transfer.send(profileTree, this.sandbox.home, "profile", {
-        onProgress: (transfer) => onEvent?.({ kind: "transfer", transfer }),
-      });
+      await this.services.transfer.send(
+        profileTree,
+        this.sandbox.home,
+        "profile",
+        {
+          onProgress: (transfer) => onEvent?.({ kind: "transfer", transfer }),
+        },
+      );
   }
 
   private async sendScripts(
     cwd: string,
     onEvent?: EnrichmentProgressListener,
   ): Promise<ScriptCapturePlan> {
-    if (!this.agent.supportsSettingsScripts())
-      return { mappings: [], rewrites: [], installCmds: [] };
-    const scriptPlan = this.scripts.plan(cwd, this.sandbox.home);
+    if (!this.agent.supportsSettingsScripts()) return EMPTY_SCRIPT_PLAN;
+    const scriptPlan = this.services.scripts.plan(cwd, this.sandbox.home);
     if (scriptPlan.mappings.length === 0 && scriptPlan.rewrites.length === 0)
       return scriptPlan;
     await Promise.all(
       scriptPlan.mappings.map((mapping, index) =>
-        this.transfer.send(
+        this.services.transfer.send(
           mapping.localPath,
           mapping.sandboxPath,
           `settings-scripts-${index}`,
@@ -236,30 +265,59 @@ export class EnrichmentService {
         ),
       ),
     );
-    for (const rewrite of scriptPlan.rewrites)
-      await this.sandbox.uploadFile(
-        remotePath(rewrite.sandboxPath),
-        rewrite.content,
-      );
+    await uploadOwnedFiles(
+      this.sandbox,
+      scriptPlan.rewrites.map((rewrite) => ({
+        path: rewrite.sandboxPath,
+        content: rewrite.content,
+      })),
+      [],
+    );
     return scriptPlan;
   }
 
   private async sendMcpCode(
     cwd: string,
     onEvent?: EnrichmentProgressListener,
-  ): Promise<CodePlan | null> {
-    const codePlan = await this.mcpCode.build(
-      cwd,
-      this.sandbox.home,
-      this.excludes,
-    );
-    if (codePlan === null) return null;
+  ): Promise<CodePlan> {
+    const codePlan = this.services.mcpCode.plan(cwd, this.sandbox.home);
     await Promise.all(
       codePlan.mappings.map((mapping, index) =>
-        this.transfer.send(
+        this.services.transfer.send(
           mapping.localPath,
           mapping.sandboxPath,
           `mcp-${index}`,
+          {
+            onProgress: (transfer) => onEvent?.({ kind: "transfer", transfer }),
+          },
+        ),
+      ),
+    );
+    await uploadEnrichmentScripts(
+      this.sandbox,
+      this.agent,
+      codePlan,
+      this.sandbox.home,
+    );
+    const result = await runLogged(
+      this.sandbox,
+      renderEnrichmentConfig(this.agent, codePlan, this.sandbox.home),
+    );
+    if (result.exitCode !== 0)
+      throw new Error(`MCP config rewrite failed: ${result.stderr}`);
+    return codePlan;
+  }
+
+  private async reinstallPlugins(
+    onEvent?: EnrichmentProgressListener,
+  ): Promise<void> {
+    const plan = this.services.reinstall.plan(this.sandbox.home);
+    await Promise.all(
+      plan.mappings.map((mapping, index) =>
+        this.services.transfer.send(
+          mapping.localPath,
+          mapping.sandboxPath,
+          `marketplace-${index}`,
           {
             excludes: this.excludes,
             onProgress: (transfer) => onEvent?.({ kind: "transfer", transfer }),
@@ -267,23 +325,12 @@ export class EnrichmentService {
         ),
       ),
     );
-    const bundle = this.secrets.collect(cwd, {
-      envRefs: codePlan.envRefs,
-      referencedFiles: codePlan.referencedFiles,
-    });
-    for (const file of bundle.files)
-      await this.sandbox.uploadFile(
-        remotePath(expandHome(file.path, this.sandbox.home)),
-        file.content,
-      );
-    await this.bootstrap.uploadEnrichmentScripts(this.sandbox, { codePlan });
-    const result = await runLogged(
+    await runLoggedOrThrow(
       this.sandbox,
-      this.bootstrap.renderEnrichmentConfig({ codePlan }),
+      "Reinstall",
+      renderReinstall(plan.commands),
+      { timeoutMs: ENRICHMENT_EXEC_TIMEOUT_MS },
     );
-    if (result.exitCode !== 0)
-      throw new Error(`MCP config rewrite failed: ${result.stderr}`);
-    return codePlan;
   }
 }
 
@@ -293,7 +340,5 @@ export interface EnrichmentServices {
   profile: ProfileService;
   mcpCode: McpCodeService;
   reinstall: ReinstallService;
-  secrets: SecretsService;
   scripts: ScriptCaptureService;
-  bootstrap: BootstrapService;
 }

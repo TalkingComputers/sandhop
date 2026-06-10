@@ -75,25 +75,3 @@ export const saveConfig = (home: string, cfg: SandhopConfig): void => {
   writeFileSync(path, `${JSON.stringify(cfg, null, 2)}\n`, { mode: FILE_MODE });
   chmodSync(path, FILE_MODE);
 };
-
-const setMissing = (
-  env: Record<string, string | undefined>,
-  key: string,
-  value: string,
-): void => {
-  if (env[key] === undefined) env[key] = value;
-};
-
-export const applyConfigToEnv = (
-  cfg: SandhopConfig,
-  env: Record<string, string | undefined>,
-): void => {
-  for (const [key, value] of Object.entries(cfg.credentials))
-    setMissing(env, key, value);
-  setMissing(env, "SANDHOP_PROVIDER", cfg.defaultProvider);
-  setMissing(env, "SANDHOP_TRANSPORT", cfg.transport);
-  if (cfg.cloudflare?.token !== undefined)
-    setMissing(env, "CLOUDFLARE_TUNNEL_TOKEN", cfg.cloudflare.token);
-  if (cfg.cloudflare?.hostname !== undefined)
-    setMissing(env, "CLOUDFLARE_TUNNEL_HOSTNAME", cfg.cloudflare.hostname);
-};

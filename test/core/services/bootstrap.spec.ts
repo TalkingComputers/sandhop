@@ -3,11 +3,24 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { BootstrapService } from "../../../src/core/services/bootstrap.js";
+import { renderRestoreScript } from "../../../src/core/services/bootstrap.js";
+import {
+  renderEnrichmentCompletion,
+  renderEnrichmentConfig,
+  renderEnrichmentInstalls,
+  renderEnrichmentSetup,
+  renderReinstall,
+  uploadEnrichmentScripts,
+} from "../../../src/core/services/enrichment-scripts.js";
+import {
+  renderPathPrep,
+  uploadOwnedFiles,
+} from "../../../src/core/services/sandbox-files.js";
 import { CLAUDE_CODE } from "../../../src/agents/claude-code.js";
 import { CODEX } from "../../../src/agents/codex.js";
 import { buildManifest } from "../../../src/core/manifest.js";
 import type { Agent } from "../../../src/core/ports/agent.js";
+import type { CommandInvocation } from "../../../src/core/ports/provider.js";
 import { EnrichmentStepId } from "../../../src/core/ports/progress.js";
 import type { CodePlan } from "../../../src/core/services/mcp-code.js";
 import { FakeSandbox } from "../../fakes/provider.js";
@@ -16,25 +29,25 @@ const tmuxMultiplexer = {
   id: "tmux",
   install: (): string[] => [
     "command -v tmux",
-    `printf '%s\\n' 'set -g status off' 'set -g window-size latest' > "$HOME/.tmux.conf"`,
+    `printf '%s\\n' 'set -g status off' 'set -g window-size latest' 'set -g focus-events on' > "$HOME/.tmux.conf"`,
   ],
-  attach: (session: string, command: string): string =>
-    `tmux new -A -s ${session} ${command}`,
+  attach: (session: string, command: CommandInvocation): CommandInvocation => ({
+    file: "tmux",
+    args: ["new", "-A", "-s", session, command.file, ...command.args],
+  }),
 };
 
-const createBootstrap = (agent: Agent): BootstrapService =>
-  new BootstrapService(agent, tmuxMultiplexer);
-
 const stageEnrichmentScripts = async (
-  bootstrap: BootstrapService,
+  agent: Agent,
   codePlan: CodePlan,
+  home: string,
 ): Promise<void> => {
   const sandbox = new FakeSandbox("stage", {
-    home: "/home/user",
+    home,
     username: "user",
-    workdir: "/home/user/project",
+    workdir: `${home}/project`,
   });
-  await bootstrap.uploadEnrichmentScripts(sandbox, { codePlan });
+  await uploadEnrichmentScripts(sandbox, agent, codePlan, home);
   for (const upload of sandbox.uploads) writeFileSync(upload.path, upload.data);
 };
 
@@ -49,70 +62,92 @@ const manifest = buildManifest({
 const ZSTD_INSTALL = "command -v zstd";
 const OWNER_SETUP =
   'SANDHOP_OWNER="$(id -u "$SANDHOP_RUNTIME_USER"):$(id -g "$SANDHOP_RUNTIME_USER")"';
-test("BootstrapService project prep sudo-creates and owns remote project before transfer", () => {
-  const bootstrap = createBootstrap(CLAUDE_CODE);
-  const script = bootstrap.renderPathPrep(manifest.remoteProj);
+test("renderPathPrep sudo-creates and owns the remote project before transfer", () => {
+  const script = renderPathPrep(manifest.remoteProj);
 
   expect(script.split("\n")).toEqual([
     "set -e",
-    'SUDO=""',
     OWNER_SETUP,
-    "$SUDO mkdir -p /private/tmp/sandhop-codex2",
-    '$SUDO chown -R "$SANDHOP_OWNER" /private/tmp/sandhop-codex2',
+    "mkdir -p /private/tmp/sandhop-codex2",
+    `d=/private/tmp/sandhop-codex2; while [ "$d" != "/" ]; do case "$d" in "$SANDHOP_RUNTIME_HOME"/*) chown "$SANDHOP_OWNER" "$d";; esac; d="$(dirname "$d")"; done`,
+    OWNER_SETUP,
+    'chown -R "$SANDHOP_OWNER" /private/tmp/sandhop-codex2',
   ]);
-  expect(bootstrap.renderProjectPrep(manifest)).toBe(script);
 });
 
-test("BootstrapService prepAndUpload owns uploaded files after provider writes", async () => {
-  const bootstrap = createBootstrap(CLAUDE_CODE);
+test("uploadOwnedFiles preps dirs once, uploads in parallel, then owns and chmods in one pass", async () => {
   const sandbox = new FakeSandbox("sbx", {
     home: "/Users/local",
     username: "local",
     workdir: "/Users/local",
   });
 
-  await bootstrap.prepAndUpload(
+  await uploadOwnedFiles(
     sandbox,
-    "/Users/local/.claude/.credentials.json",
-    "{}",
+    [
+      {
+        path: "/Users/local/.claude/.credentials.json",
+        content: "{}",
+        mode: "600",
+      },
+      { path: "/Users/local/.ssh/id_git", content: "PRIVATE", mode: "600" },
+      { path: "/Users/local/.ssh/id_git.pub", content: "PUBLIC", mode: "644" },
+    ],
+    [{ path: "/Users/local/.ssh", mode: "700" }],
   );
 
   expect(sandbox.uploads).toEqual([
     { path: "/Users/local/.claude/.credentials.json", data: "{}" },
+    { path: "/Users/local/.ssh/id_git", data: "PRIVATE" },
+    { path: "/Users/local/.ssh/id_git.pub", data: "PUBLIC" },
   ]);
-  expect(sandbox.execs).toEqual([
-    expect.stringContaining("$SUDO mkdir -p /Users/local/.claude"),
-    expect.stringContaining(
-      `$SUDO chown "$SANDHOP_OWNER" /Users/local/.claude/.credentials.json`,
-    ),
-  ]);
+  expect(sandbox.execs).toHaveLength(2);
+  expect(sandbox.execs[0]).toContain("mkdir -p /Users/local/.claude");
+  expect(sandbox.execs[0]).toContain("mkdir -p /Users/local/.ssh");
+  expect(sandbox.execs[1]).toContain(
+    `chown "$SANDHOP_OWNER" /Users/local/.claude/.credentials.json`,
+  );
+  expect(sandbox.execs[1]).toContain(
+    `chown "$SANDHOP_OWNER" /Users/local/.ssh/id_git`,
+  );
+  expect(sandbox.execs[1]).toContain("chmod 700 /Users/local/.ssh");
+  expect(sandbox.execs[1]).toContain(
+    "chmod 600 /Users/local/.claude/.credentials.json",
+  );
+  expect(sandbox.execs[1]).toContain("chmod 644 /Users/local/.ssh/id_git.pub");
 });
 
-test("BootstrapService core installs exact CLI version, places transcript, and installs tmux after ttyd before project prep and zstd", () => {
-  const script = createBootstrap(CLAUDE_CODE).render(manifest, {
+test("renderRestoreScript installs exact CLI version, places transcript, and installs tmux after ttyd before project prep and zstd", () => {
+  const script = renderRestoreScript(CLAUDE_CODE, tmuxMultiplexer, manifest, {
     home: "/home/user",
+    preSeedScripts: [],
   });
 
-  expect(script).toContain("npm i -g @anthropic-ai/claude-code@2.1.160");
+  expect(script).toContain(
+    "curl -fsSL https://claude.ai/install.sh | bash -s 2.1.160",
+  );
+  expect(script).toContain('export PATH="$HOME/.local/bin:$PATH"');
+  expect(script).toContain("Claude Code version mismatch");
+  expect(script).not.toContain("npm i -g @anthropic-ai/claude-code");
   expect(script).not.toContain("zstd");
-  expect(script).toContain('SUDO=""');
+  expect(script).not.toContain('SUDO=""');
   expect(script).not.toContain("latest/download");
-  expect(script.split("\n").slice(2, 5)).toEqual([
+  expect(script.split("\n").slice(1, 4)).toEqual([
     "command -v ttyd",
     "command -v tmux",
-    `printf '%s\\n' 'set -g status off' 'set -g window-size latest' > "$HOME/.tmux.conf"`,
+    `printf '%s\\n' 'set -g status off' 'set -g window-size latest' 'set -g focus-events on' > "$HOME/.tmux.conf"`,
   ]);
   expect(script).toContain(
     "git config --global --add safe.directory /private/tmp/sandhop-codex2",
   );
-  expect(script).not.toContain("$SUDO mkdir -p /private/tmp/sandhop-codex2");
+  expect(script).not.toContain("mkdir -p /private/tmp/sandhop-codex2");
   expect(
     script.indexOf(
       "git config --global --add safe.directory /private/tmp/sandhop-codex2",
     ),
   ).toBeLessThan(script.indexOf('cp /tmp/transcript.jsonl "$dest"'));
   expect(script).not.toContain(
-    '$SUDO chown -R "$SANDHOP_OWNER" /private/tmp/sandhop-codex2',
+    'chown -R "$SANDHOP_OWNER" /private/tmp/sandhop-codex2',
   );
   expect(script).not.toContain("tar -xzf /tmp/bundle.tgz");
   expect(script).toContain('cp /tmp/transcript.jsonl "$dest"');
@@ -121,7 +156,7 @@ test("BootstrapService core installs exact CLI version, places transcript, and i
   expect(script).not.toContain("for f in");
 });
 
-test("BootstrapService quotes remote project shell paths with metacharacters", () => {
+test("renderRestoreScript quotes remote project shell paths with metacharacters", () => {
   const spacedManifest = buildManifest({
     agent: "claude-code",
     cliVersion: "2.1.160",
@@ -130,15 +165,20 @@ test("BootstrapService quotes remote project shell paths with metacharacters", (
     transcriptName: "session-id.jsonl",
     ts: 1,
   });
-  const bootstrap = createBootstrap(CLAUDE_CODE);
-  const prep = bootstrap.renderProjectPrep(spacedManifest);
-  const script = bootstrap.render(spacedManifest, {
-    home: "/home/user",
-  });
+  const prep = renderPathPrep(spacedManifest.remoteProj);
+  const script = renderRestoreScript(
+    CLAUDE_CODE,
+    tmuxMultiplexer,
+    spacedManifest,
+    {
+      home: "/home/user",
+      preSeedScripts: [],
+    },
+  );
   const quotedRemoteProj = `"/Users/alice/My Project;\\$(touch pwn)'"`;
 
-  expect(prep).toContain(`$SUDO mkdir -p ${quotedRemoteProj}`);
-  expect(prep).toContain(`$SUDO chown -R "$SANDHOP_OWNER" ${quotedRemoteProj}`);
+  expect(prep).toContain(`mkdir -p ${quotedRemoteProj}`);
+  expect(prep).toContain(`chown -R "$SANDHOP_OWNER" ${quotedRemoteProj}`);
   expect(script).toContain(
     `git config --global --add safe.directory ${quotedRemoteProj}`,
   );
@@ -148,9 +188,10 @@ test("BootstrapService quotes remote project shell paths with metacharacters", (
   expect(script).not.toContain("tar -xzf /tmp/bundle.tgz");
 });
 
-test("BootstrapService emits quoted git identity after safe directory when supplied", () => {
-  const script = createBootstrap(CLAUDE_CODE).render(manifest, {
+test("renderRestoreScript emits quoted git identity after safe directory when supplied", () => {
+  const script = renderRestoreScript(CLAUDE_CODE, tmuxMultiplexer, manifest, {
     home: "/home/user",
+    preSeedScripts: [],
     gitUserName: "Alice O'Connor",
     gitUserEmail: "alice+test@example.com",
   });
@@ -170,19 +211,20 @@ test("BootstrapService emits quoted git identity after safe directory when suppl
   );
 });
 
-test("BootstrapService injects transport steps before agent install", () => {
-  const script = createBootstrap(CLAUDE_CODE).render(manifest, {
+test("renderRestoreScript injects transport steps before agent install", () => {
+  const script = renderRestoreScript(CLAUDE_CODE, tmuxMultiplexer, manifest, {
     home: "/home/user",
+    preSeedScripts: [],
     transportSteps: ["install cloudflared"],
   });
 
   expect(script).toContain("install cloudflared");
   expect(script.indexOf("install cloudflared")).toBeLessThan(
-    script.indexOf("npm i -g @anthropic-ai/claude-code@2.1.160"),
+    script.indexOf("curl -fsSL https://claude.ai/install.sh"),
   );
 });
 
-test("BootstrapService enrichment installs runtimes and deps, writes rewritten MCP config, and marks completion", async () => {
+test("enrichment scripts install runtimes and deps, write rewritten MCP config, and mark completion", async () => {
   const codePlan: CodePlan = {
     mappings: [{ localPath: "/home/local/mcp", sandboxPath: "/home/user/mcp" }],
     rewrites: [
@@ -196,8 +238,6 @@ test("BootstrapService enrichment installs runtimes and deps, writes rewritten M
     ],
     runtimes: new Set(["bun", "uv"]),
     installCmds: ["cd /home/user/mcp && npm ci"],
-    referencedFiles: [],
-    envRefs: [],
     excluded: [
       {
         name: "postgres",
@@ -207,25 +247,23 @@ test("BootstrapService enrichment installs runtimes and deps, writes rewritten M
     classifications: [{ name: "local", kind: "local-path" }],
   };
 
-  const bootstrap = createBootstrap(CLAUDE_CODE);
   const sandbox = new FakeSandbox("stage", {
     home: "/home/user",
     username: "user",
     workdir: "/home/user/project",
   });
-  await bootstrap.uploadEnrichmentScripts(sandbox, { codePlan });
+  await uploadEnrichmentScripts(sandbox, CLAUDE_CODE, codePlan, "/home/user");
   const script = [
-    bootstrap.renderEnrichmentSetup(),
-    bootstrap.renderEnrichmentInstalls({ codePlan }),
-    bootstrap.renderEnrichmentConfig({ codePlan }),
-    bootstrap.renderEnrichmentCompletion([
-      { step: EnrichmentStepId.Setup, ok: true },
-    ]),
+    renderEnrichmentSetup(),
+    renderEnrichmentInstalls(codePlan),
+    renderEnrichmentConfig(CLAUDE_CODE, codePlan, "/home/user"),
+    renderEnrichmentCompletion([{ step: EnrichmentStepId.Setup, ok: true }]),
   ].join("\n");
 
-  expect(script).toContain('SUDO=""');
+  expect(script).not.toContain('SUDO=""');
   expect(script).toContain(ZSTD_INSTALL);
   expect(script).toContain("command -v zstd");
+  expect(renderEnrichmentInstalls(codePlan).split("\n")[0]).toBe("set -e");
   expect(script).not.toContain(["SANDHOP", "LOW", "PRIORITY"].join("_"));
   expect(script).not.toContain(["nice", "-n"].join(" "));
   expect(script).not.toContain(["io", "nice"].join(""));
@@ -237,7 +275,7 @@ test("BootstrapService enrichment installs runtimes and deps, writes rewritten M
   expect(script).toContain("node /tmp/sandhop-mcp-merge-");
   expect(sandbox.uploads).toContainEqual({
     path: expect.stringMatching(/^\/tmp\/sandhop-mcp-merge-[0-9a-f]{16}\.js$/),
-    data: expect.stringContaining("$HOME/.claude.json"),
+    data: expect.stringContaining("/home/user/.claude.json"),
   });
   expect(sandbox.uploads).toContainEqual({
     path: expect.stringMatching(/^\/tmp\/sandhop-mcp-merge-[0-9a-f]{16}\.js$/),
@@ -257,11 +295,8 @@ test("BootstrapService enrichment installs runtimes and deps, writes rewritten M
   );
 });
 
-test("BootstrapService wraps each reinstall command with a bounded timeout", () => {
-  const script = createBootstrap(CLAUDE_CODE).renderReinstall([
-    "echo one",
-    "echo 'two'",
-  ]);
+test("renderReinstall wraps each reinstall command with a bounded timeout", () => {
+  const script = renderReinstall(["echo one", "echo 'two'"]);
 
   expect(script).toContain("timeout 180 sh -lc 'echo one'");
   expect(script).toContain("timeout 180 sh -lc \"echo 'two'\"");
@@ -269,7 +304,7 @@ test("BootstrapService wraps each reinstall command with a bounded timeout", () 
   expect(script).toContain("export CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1");
 });
 
-test("BootstrapService MCP node scripts avoid eval", async () => {
+test("MCP node scripts avoid eval", async () => {
   const home = mkdtempSync(join(tmpdir(), "sandhop-mcp-eval-"));
   const pwned = join(home, "PWNED");
   const codePlan: CodePlan = {
@@ -284,21 +319,13 @@ test("BootstrapService MCP node scripts avoid eval", async () => {
     ],
     runtimes: new Set(),
     installCmds: [],
-    referencedFiles: [],
-    envRefs: [],
     excluded: [],
     classifications: [{ name: "local", kind: "local-path" }],
   };
-  const claudeBootstrap = createBootstrap(CLAUDE_CODE);
-  const codexBootstrap = createBootstrap(CODEX);
-  await stageEnrichmentScripts(claudeBootstrap, codePlan);
-  await stageEnrichmentScripts(codexBootstrap, codePlan);
-  const claudeScript = claudeBootstrap.renderEnrichmentConfig({
-    codePlan,
-  });
-  const codexScript = codexBootstrap.renderEnrichmentConfig({
-    codePlan,
-  });
+  await stageEnrichmentScripts(CLAUDE_CODE, codePlan, home);
+  await stageEnrichmentScripts(CODEX, codePlan, home);
+  const claudeScript = renderEnrichmentConfig(CLAUDE_CODE, codePlan, home);
+  const codexScript = renderEnrichmentConfig(CODEX, codePlan, home);
   const evalCommands = [
     ...claudeScript.split("\n"),
     ...codexScript.split("\n"),
@@ -320,7 +347,7 @@ test("BootstrapService MCP node scripts avoid eval", async () => {
   expect(existsSync(pwned)).toBe(false);
 });
 
-test("BootstrapService merges Claude MCP servers into existing claude.json without clobbering preseed keys", async () => {
+test("merge-mcp-servers merges Claude MCP servers into existing claude.json without clobbering preseed keys", async () => {
   const home = mkdtempSync(join(tmpdir(), "sandhop-claude-"));
   const remoteProj = join(home, "project");
   const codePlan: CodePlan = {
@@ -336,8 +363,6 @@ test("BootstrapService merges Claude MCP servers into existing claude.json witho
     ],
     runtimes: new Set(),
     installCmds: [],
-    referencedFiles: [],
-    envRefs: [],
     excluded: [],
     classifications: [{ name: "local", kind: "local-path" }],
   };
@@ -356,11 +381,8 @@ test("BootstrapService merges Claude MCP servers into existing claude.json witho
     }),
   );
 
-  const bootstrap = createBootstrap(CLAUDE_CODE);
-  await stageEnrichmentScripts(bootstrap, codePlan);
-  const script = bootstrap.renderEnrichmentConfig({
-    codePlan,
-  });
+  await stageEnrichmentScripts(CLAUDE_CODE, codePlan, home);
+  const script = renderEnrichmentConfig(CLAUDE_CODE, codePlan, home);
 
   expect(script).not.toContain("node -e");
   execFileSync("bash", ["-lc", script], { env: { HOME: home } });
@@ -398,7 +420,7 @@ test("BootstrapService merges Claude MCP servers into existing claude.json witho
   });
 });
 
-test("BootstrapService replaces stale Codex MCP tables from uploaded script", async () => {
+test("replace-mcp-section replaces stale Codex MCP tables from uploaded script", async () => {
   const codePlan: CodePlan = {
     mappings: [],
     rewrites: [
@@ -411,20 +433,17 @@ test("BootstrapService replaces stale Codex MCP tables from uploaded script", as
     ],
     runtimes: new Set(),
     installCmds: [],
-    referencedFiles: [],
-    envRefs: [],
     excluded: [],
     classifications: [{ name: "local", kind: "local-path" }],
   };
 
-  const bootstrap = createBootstrap(CODEX);
   const sandbox = new FakeSandbox("stage", {
     home: "/home/user",
     username: "user",
     workdir: "/home/user/project",
   });
-  await bootstrap.uploadEnrichmentScripts(sandbox, { codePlan });
-  const script = bootstrap.renderEnrichmentConfig({ codePlan });
+  await uploadEnrichmentScripts(sandbox, CODEX, codePlan, "/home/user");
+  const script = renderEnrichmentConfig(CODEX, codePlan, "/home/user");
 
   expect(script).not.toContain("node -e");
   expect(script).not.toContain("[mcp_servers");

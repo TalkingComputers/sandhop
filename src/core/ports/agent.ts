@@ -19,6 +19,7 @@ export type McpTransport = "stdio" | "http" | "sse" | "ws";
 interface BaseMcpServer {
   name: string;
   startupTimeoutSec?: number;
+  extras?: Record<string, unknown>;
 }
 
 export interface StdioMcpServer extends BaseMcpServer {
@@ -50,18 +51,38 @@ export interface RemoteMcpServer extends BaseMcpServer {
 export type McpServer = StdioMcpServer | RemoteMcpServer;
 
 export type McpConfigWrite =
-  | { path: string; content: string; mode: "append" }
-  | { path: string; content: string; mode: "merge-claude-json" };
+  | { path: string; content: string; mode: "replace-mcp-section" }
+  | { path: string; content: string; mode: "merge-mcp-servers" };
 
 export type AgentHostDeps = Pick<
   HostDeps,
   "env" | "home" | "readFile" | "exists" | "keychain" | "realpath" | "sha256Hex"
 >;
 
+export type AgentProfileDeps = Pick<
+  HostDeps,
+  | "home"
+  | "exists"
+  | "isDirectory"
+  | "isSymlink"
+  | "readFile"
+  | "readlink"
+  | "realpath"
+  | "walk"
+  | "exec"
+>;
+
+export interface ExternalSkill {
+  realDir: string;
+  homeRelative: string;
+}
+
 export type AgentSessionDeps = Pick<
   HostDeps,
   "home" | "readFile" | "walk" | "statMtimeMs"
 >;
+
+export type AgentPreSeedDeps = Pick<HostDeps, "home" | "readFile">;
 
 export type AgentMcpDeps = Pick<HostDeps, "home" | "readFile">;
 
@@ -72,7 +93,10 @@ export interface Agent {
   detectVersionArgs: string[];
   parseVersion(output: string): string;
   matchSession(deps: AgentSessionDeps, cwd: string): SessionRef[];
-  profilePaths?(home: string): string[];
+  profileEntries(deps: AgentProfileDeps): string[];
+  externalSkills(deps: AgentProfileDeps): ExternalSkill[];
+  extraEnvRefs(deps: AgentProfileDeps): string[];
+  prepareTranscript(bytes: Uint8Array): Uint8Array;
   mcpConfigPaths(home: string, cwd: string): string[];
   mcpEnvRefs(configText: string): string[];
   parseMcpServers(deps: AgentMcpDeps, cwd: string): McpServer[];
@@ -81,13 +105,13 @@ export interface Agent {
   installCmd(version: string): string;
   supportsSettingsScripts(): boolean;
   supportsReinstall(): boolean;
-  preSeed(remoteProj: string): NodeScript[];
+  preSeed(deps: AgentPreSeedDeps, remoteProj: string): NodeScript[];
   remoteTranscriptPath(
     home: string,
     remoteEnc: string,
     transcriptName: string,
   ): string;
-  projectMemoryDir(home: string, remoteEnc: string): string | null;
+  projectMemoryPath(remoteEnc: string): string | null;
   resumeCmd(
     sessionId: string,
     remoteProj: string,

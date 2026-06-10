@@ -1,8 +1,8 @@
-import type { Sandbox } from "./provider.js";
+import type { ReadyService, Sandbox } from "./provider.js";
 
 export interface TransportContext {
   sandbox: Sandbox;
-  localPort: number;
+  service: ReadyService;
 }
 
 export interface TransportResult {
@@ -10,8 +10,8 @@ export interface TransportResult {
 }
 
 export interface Transport {
-  readonly id: "public" | "cloudflared";
-  ttydBindAddress(): string;
+  readonly id: string;
+  bindAddress(): string;
   bootstrapSteps(): string[];
   expose(ctx: TransportContext): Promise<TransportResult>;
 }

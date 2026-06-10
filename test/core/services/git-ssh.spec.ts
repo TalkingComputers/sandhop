@@ -39,7 +39,8 @@ test("GitSshService collects only SSH remote keys, known hosts, and config", () 
 
   const bundle = new GitSshService(host).collect("/workspace/project");
 
-  expect(bundle.dirs).toEqual(["$HOME/.ssh"]);
+  expect(bundle.dirs).toEqual([{ path: "$HOME/.ssh", mode: "700" }]);
+  expect(bundle.hosts).toEqual(["github.com", "gitlab.example.com"]);
   expect(bundle.files).toContainEqual({
     path: "$HOME/.ssh/github_key",
     content: "PRIVATE\n",
@@ -89,5 +90,5 @@ test("GitSshService returns an empty bundle when git or ssh data is absent", () 
     new GitSshService(new FakeHost({ home: "/home/local", env: {} })).collect(
       "/workspace/project",
     ),
-  ).toEqual({ files: [], dirs: [] });
+  ).toEqual({ files: [], dirs: [], hosts: [] });
 });

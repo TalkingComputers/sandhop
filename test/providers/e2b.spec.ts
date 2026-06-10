@@ -104,7 +104,7 @@ test("E2bSandboxProvider creates sandboxes, uploads octet-stream bytes and paths
     env,
     files: { [localPath]: "large" },
   });
-  const provider = new E2bSandboxProvider(host);
+  const provider = new E2bSandboxProvider(host, env);
 
   const sandbox = await provider.create({
     envs: { A: "1" },
@@ -121,7 +121,20 @@ test("E2bSandboxProvider creates sandboxes, uploads octet-stream bytes and paths
     stderr: "",
   });
   await sandbox.exec("echo", ["slow"], { timeoutMs: 123000 });
-  await sandbox.spawn("ttyd", []);
+  await sandbox.startService({
+    file: "ttyd",
+    args: [],
+    port: 7681,
+    readiness: {
+      kind: "log",
+      path: remotePath("/tmp/ttyd.log"),
+      matches: [/ok/],
+      timeoutMs: 100,
+      intervalMs: 1,
+    },
+    stdoutPath: remotePath("/tmp/ttyd.log"),
+    stderrPath: remotePath("/tmp/ttyd.log"),
+  });
   await expect(sandbox.exposePort(7681)).resolves.toEqual({
     url: "https://sbx-created-7681.e2b.app",
   });
@@ -139,6 +152,8 @@ test("E2bSandboxProvider creates sandboxes, uploads octet-stream bytes and paths
       envs: {
         A: "1",
         HOME: "/home/local",
+        LANG: "C.UTF-8",
+        LC_ALL: "C.UTF-8",
         SANDHOP_RUNTIME_HOME: "/home/local",
         SANDHOP_RUNTIME_USER: "local",
         SANDHOP_RUNTIME_WORKDIR: "/workspace/project",
@@ -169,22 +184,43 @@ test("E2bSandboxProvider creates sandboxes, uploads octet-stream bytes and paths
       useOctetStream: true,
     },
   );
-  expect(e2bMocks.commandsRun).toHaveBeenCalledWith("ttyd", {
-    background: true,
+  expect(e2bMocks.commandsRun).toHaveBeenCalledWith(
+    "ttyd > /tmp/ttyd.log 2>&1",
+    {
+      background: true,
+      cwd: "/workspace/project",
+      envs: {
+        HOME: "/home/local",
+        LANG: "C.UTF-8",
+        LC_ALL: "C.UTF-8",
+        SANDHOP_RUNTIME_HOME: "/home/local",
+        SANDHOP_RUNTIME_USER: "local",
+        SANDHOP_RUNTIME_WORKDIR: "/workspace/project",
+      },
+      timeoutMs: 0,
+      user: "local",
+    },
+  );
+  expect(e2bMocks.commandsRun).toHaveBeenCalledWith("cat /tmp/ttyd.log", {
     cwd: "/workspace/project",
     envs: {
       HOME: "/home/local",
+      LANG: "C.UTF-8",
+      LC_ALL: "C.UTF-8",
       SANDHOP_RUNTIME_HOME: "/home/local",
       SANDHOP_RUNTIME_USER: "local",
       SANDHOP_RUNTIME_WORKDIR: "/workspace/project",
     },
-    timeoutMs: 0,
-    user: "local",
+    user: "root",
+    timeoutMs: 10000,
+    requestTimeoutMs: 10000,
   });
   expect(e2bMocks.commandsRun).toHaveBeenCalledWith("echo slow", {
     cwd: "/workspace/project",
     envs: {
       HOME: "/home/local",
+      LANG: "C.UTF-8",
+      LC_ALL: "C.UTF-8",
       SANDHOP_RUNTIME_HOME: "/home/local",
       SANDHOP_RUNTIME_USER: "local",
       SANDHOP_RUNTIME_WORKDIR: "/workspace/project",
@@ -201,6 +237,7 @@ test("E2bSandboxProvider builds runtime templates with git installed", async () 
   e2bMocks.templateBuilder.aptInstall.mockClear();
   const provider = new E2bSandboxProvider(
     new FakeHost({ home: "/home/local", env }),
+    env,
   );
 
   await provider.create({
@@ -214,7 +251,9 @@ test("E2bSandboxProvider builds runtime templates with git installed", async () 
     "ca-certificates",
     "curl",
     "git",
+    "jq",
     "tmux",
+    "unzip",
     "zstd",
     "util-linux",
   ]);
@@ -236,6 +275,7 @@ test("E2bSandboxProvider returns non-zero command exits as RunResult data", asyn
   );
   const provider = new E2bSandboxProvider(
     new FakeHost({ home: "/home/local", env }),
+    env,
   );
   const sandbox = await provider.create({
     envs: {},
@@ -255,6 +295,7 @@ test("E2bSandboxProvider rejects invalid runtime before sandbox create", async (
   e2bMocks.Sandbox.create.mockClear();
   const provider = new E2bSandboxProvider(
     new FakeHost({ home: "/home/local", env }),
+    env,
   );
 
   await expect(
@@ -276,6 +317,7 @@ test("E2bSandboxProvider rejects invalid runtime paths before sandbox create", a
   e2bMocks.Sandbox.create.mockClear();
   const provider = new E2bSandboxProvider(
     new FakeHost({ home: "/home/local", env }),
+    env,
   );
 
   await expect(
@@ -300,6 +342,7 @@ test("E2bSandboxProvider lists valid startedAt values", async () => {
   );
   const provider = new E2bSandboxProvider(
     new FakeHost({ home: "/home/local", env }),
+    env,
   );
 
   await expect(provider.list()).resolves.toEqual([
@@ -317,6 +360,7 @@ test("E2bSandboxProvider rejects invalid list startedAt values", async () => {
   });
   const provider = new E2bSandboxProvider(
     new FakeHost({ home: "/home/local", env }),
+    env,
   );
 
   await expect(provider.list()).rejects.toThrow(
@@ -335,6 +379,7 @@ test("E2bSandboxProvider reconnects after adapter destroy", async () => {
   e2bMocks.Sandbox.connect.mockClear();
   const provider = new E2bSandboxProvider(
     new FakeHost({ home: "/home/local", env }),
+    env,
   );
   const sandbox = await provider.create({
     envs: {},

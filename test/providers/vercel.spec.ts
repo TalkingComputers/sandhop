@@ -30,6 +30,22 @@ const vercelMocks = vi.hoisted(() => {
           stdout: vi.fn(async () => ""),
           stderr: vi.fn(async () => ""),
         };
+      if (typeof cmd !== "string" && cmd.cmd === "cat")
+        return {
+          exitCode: 0,
+          stdout: vi.fn(async () => "ready"),
+          stderr: vi.fn(async () => ""),
+        };
+      if (
+        typeof cmd !== "string" &&
+        cmd.cmd === "env" &&
+        cmd.args?.includes("cat")
+      )
+        return {
+          exitCode: 0,
+          stdout: vi.fn(async () => "ready"),
+          stderr: vi.fn(async () => ""),
+        };
       return { exitCode: 5, stdout, stderr };
     },
   );
@@ -39,6 +55,7 @@ const vercelMocks = vi.hoisted(() => {
   const stop = vi.fn(async () => undefined);
   const sandbox: {
     name: string;
+    status: string;
     createdAt: Date | string;
     tags: Record<string, string>;
     runCommand: typeof runCommand;
@@ -48,6 +65,7 @@ const vercelMocks = vi.hoisted(() => {
     stop: typeof stop;
   } = {
     name: "sdk-name",
+    status: "running",
     createdAt: new Date("2026-06-01T00:00:00Z"),
     tags: {
       "sandhop.runtime.home": "/home/local",
@@ -65,6 +83,7 @@ const vercelMocks = vi.hoisted(() => {
   const list = vi.fn(async () => ({
     async *[Symbol.asyncIterator](): AsyncGenerator<typeof sandbox> {
       yield sandbox;
+      yield { ...sandbox, name: "stopped-name", status: "stopped" };
     },
   }));
   const Sandbox = { create, get, list };
@@ -120,6 +139,7 @@ test("VercelSandboxProvider creates a named sandbox with creds and maps exec res
   const { VercelSandboxProvider } = await loadProvider();
   const provider = new VercelSandboxProvider(
     new FakeHost({ home: "/home/local", env }),
+    env,
   );
 
   const sandbox = await provider.create({
@@ -143,6 +163,8 @@ test("VercelSandboxProvider creates a named sandbox with creds and maps exec res
     env: {
       A: "1",
       HOME: "/home/local",
+      LANG: "C.UTF-8",
+      LC_ALL: "C.UTF-8",
       SANDHOP_RUNTIME_HOME: "/home/local",
       SANDHOP_RUNTIME_USER: "local",
       SANDHOP_RUNTIME_WORKDIR: "/workspace/project",
@@ -166,7 +188,7 @@ test("VercelSandboxProvider creates a named sandbox with creds and maps exec res
     cmd: "bash",
     args: [
       "-lc",
-      `dnf install -y ca-certificates curl git zstd tmux util-linux shadow-utils && mkdir -p /home/local /workspace/project && useradd --user-group --create-home --home-dir /home/local --shell /bin/bash local && chown -R local\\:local /home/local /workspace/project && ${TOOL_INSTALL}`,
+      `dnf install -y ca-certificates curl-minimal git jq unzip zstd tmux util-linux shadow-utils && mkdir -p /home/local /workspace/project && useradd --user-group --create-home --home-dir /home/local --shell /bin/bash local && printf '%s\\n' 'export PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"' 'export LANG=C.UTF-8 LC_ALL=C.UTF-8' > /home/local/.profile && chown -R local\\:local /home/local /workspace/project && ${TOOL_INSTALL}`,
     ],
     sudo: true,
     timeoutMs: 3_600_000,
@@ -175,6 +197,8 @@ test("VercelSandboxProvider creates a named sandbox with creds and maps exec res
     cmd: "env",
     args: [
       "HOME=/home/local",
+      "LANG=C.UTF-8",
+      "LC_ALL=C.UTF-8",
       "SANDHOP_RUNTIME_HOME=/home/local",
       "SANDHOP_RUNTIME_USER=local",
       "SANDHOP_RUNTIME_WORKDIR=/workspace/project",
@@ -189,6 +213,8 @@ test("VercelSandboxProvider creates a named sandbox with creds and maps exec res
     cmd: "env",
     args: [
       "HOME=/home/local",
+      "LANG=C.UTF-8",
+      "LC_ALL=C.UTF-8",
       "SANDHOP_RUNTIME_HOME=/home/local",
       "SANDHOP_RUNTIME_USER=local",
       "SANDHOP_RUNTIME_WORKDIR=/workspace/project",
@@ -203,7 +229,7 @@ test("VercelSandboxProvider creates a named sandbox with creds and maps exec res
   expect(vercelMocks.stderr).toHaveBeenCalled();
 });
 
-test("VercelSandboxProvider spawn uses runtime runuser and upload stages files", async () => {
+test("VercelSandboxProvider startService uses runtime runuser and upload stages files", async () => {
   const { VercelSandboxProvider } = await loadProvider();
   const provider = new VercelSandboxProvider(
     new FakeHost({
@@ -211,6 +237,7 @@ test("VercelSandboxProvider spawn uses runtime runuser and upload stages files",
       env,
       bytes: { "/local/profile.tgz": new Uint8Array([9, 8]) },
     }),
+    env,
   );
   const sandbox = await provider.create({
     envs: {},
@@ -219,7 +246,20 @@ test("VercelSandboxProvider spawn uses runtime runuser and upload stages files",
     runtime: RUNTIME,
   });
 
-  await sandbox.spawn("ttyd", []);
+  await sandbox.startService({
+    file: "ttyd",
+    args: [],
+    port: 7681,
+    readiness: {
+      kind: "log",
+      path: remotePath("/tmp/ttyd.log"),
+      matches: [/ready/],
+      timeoutMs: 100,
+      intervalMs: 1,
+    },
+    stdoutPath: remotePath("/tmp/ttyd.log"),
+    stderrPath: remotePath("/tmp/ttyd.log"),
+  });
   await sandbox.uploadFile(remotePath("/tmp/nested/a.txt"), "hello");
   await sandbox.uploadFile(remotePath("/tmp/b.bin"), new Uint8Array([1, 2]));
   await sandbox.uploadPath(
@@ -233,10 +273,25 @@ test("VercelSandboxProvider spawn uses runtime runuser and upload stages files",
 
   expect(vercelMocks.runCommand).toHaveBeenCalledWith({
     cmd: "runuser",
-    args: expect.arrayContaining(["-u", "local"]),
+    args: expect.arrayContaining([
+      "-u",
+      "local",
+      "bash",
+      "-lc",
+      "ttyd > /tmp/ttyd.log 2>&1",
+    ]),
+    cwd: "/workspace/project",
     detached: true,
+    env: {
+      HOME: "/home/local",
+      LANG: "C.UTF-8",
+      LC_ALL: "C.UTF-8",
+      SANDHOP_RUNTIME_HOME: "/home/local",
+      SANDHOP_RUNTIME_USER: "local",
+      SANDHOP_RUNTIME_WORKDIR: "/workspace/project",
+    },
     sudo: true,
-    timeoutMs: 0,
+    timeoutMs: 18000000,
   });
   expect(vercelMocks.mkDir).not.toHaveBeenCalled();
   expect(vercelMocks.writeFiles).toHaveBeenCalledWith([
@@ -266,6 +321,7 @@ test("VercelSandboxProvider rejects invalid runtime before sandbox create", asyn
   vercelMocks.create.mockClear();
   const provider = new VercelSandboxProvider(
     new FakeHost({ home: "/home/local", env }),
+    env,
   );
 
   await expect(
@@ -286,6 +342,7 @@ test("VercelSandboxProvider connects and destroys by SDK lookup", async () => {
   const { VercelSandboxProvider } = await loadProvider();
   const provider = new VercelSandboxProvider(
     new FakeHost({ home: "/home/local", env }),
+    env,
   );
 
   const created = await provider.create({
@@ -330,6 +387,7 @@ test("VercelSandboxProvider lists and destroys sandboxes by name", async () => {
   const { VercelSandboxProvider } = await loadProvider();
   const provider = new VercelSandboxProvider(
     new FakeHost({ home: "/home/local", env }),
+    env,
   );
 
   await expect(provider.list()).resolves.toEqual([
@@ -356,6 +414,7 @@ test("VercelSandboxProvider rejects invalid createdAt", async () => {
   vercelMocks.sandbox.createdAt = "not-a-date";
   const provider = new VercelSandboxProvider(
     new FakeHost({ home: "/home/local", env }),
+    env,
   );
 
   await expect(provider.list()).rejects.toThrow(
@@ -367,9 +426,12 @@ test("VercelSandboxProvider destroy returns false when sandbox is missing", asyn
   const { VercelSandboxProvider } = await loadProvider();
   const provider = new VercelSandboxProvider(
     new FakeHost({ home: "/home/local", env }),
+    env,
   );
   vercelMocks.get.mockRejectedValueOnce(
-    Object.assign(new Error("not found"), { statusCode: 404 }),
+    Object.assign(new Error("Status code 404 is not ok"), {
+      response: { status: 404 },
+    }),
   );
 
   await expect(provider.destroy("missing")).resolves.toBe(false);
@@ -392,6 +454,7 @@ test("VercelSandboxProvider missing package throws install hint", async () => {
     await import("../../src/providers/vercel/index.js");
   const provider = new VercelSandboxProvider(
     new FakeHost({ home: "/home/local", env }),
+    env,
   );
 
   await expect(
@@ -406,24 +469,20 @@ test("VercelSandboxProvider missing package throws install hint", async () => {
   );
 });
 
-test("VercelSandboxProvider requires env credentials", async () => {
+test("VercelSandboxProvider requires credentials at construction", async () => {
   const { VercelSandboxProvider } = await loadProvider();
   const keys = ["VERCEL_TOKEN", "VERCEL_TEAM_ID", "VERCEL_PROJECT_ID"] as const;
 
   for (const key of keys) {
-    const brokenEnv: Record<string, string | undefined> = { ...env };
-    delete brokenEnv[key];
-    const provider = new VercelSandboxProvider(
-      new FakeHost({ home: "/home/local", env: brokenEnv }),
-    );
+    const broken: Record<string, string> = { ...env };
+    delete broken[key];
 
-    await expect(
-      provider.create({
-        envs: {},
-        timeoutMs: 600000,
-        ports: [7681],
-        runtime: RUNTIME,
-      }),
-    ).rejects.toThrow(`${key} is required — set it or run \`sandhop setup\``);
+    expect(
+      () =>
+        new VercelSandboxProvider(
+          new FakeHost({ home: "/home/local", env: {} }),
+          broken,
+        ),
+    ).toThrow(`${key} is required — set it or run \`sandhop setup\``);
   }
 });

@@ -7,19 +7,27 @@ export interface PluginInstall {
   scope: PluginScope;
 }
 
+export type MarketplaceSource =
+  | { kind: "remote"; value: string }
+  | { kind: "local"; path: string };
+
 export const readMarketplaceSource = (
   path: string,
   name: string,
   value: unknown,
-): string => {
+): MarketplaceSource => {
   if (!isRecord(value)) throw new Error(`Expected marketplace object ${name}`);
   const source = value.source;
   if (!isRecord(source)) throw new Error(`Expected marketplace source ${name}`);
   const repo = source.repo;
-  if (typeof repo === "string") return repo;
+  if (typeof repo === "string") return { kind: "remote", value: repo };
   const url = source.url;
-  if (typeof url === "string") return url;
-  throw new Error(`Expected marketplace repo or url in ${path} for ${name}`);
+  if (typeof url === "string") return { kind: "remote", value: url };
+  const localPath = source.path;
+  if (typeof localPath === "string") return { kind: "local", path: localPath };
+  throw new Error(
+    `Expected marketplace repo, url, or path in ${path} for ${name}`,
+  );
 };
 
 export const readPluginInstalls = (

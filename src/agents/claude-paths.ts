@@ -26,9 +26,6 @@ export const CLAUDE_PROFILE_MANIFEST_PATHS = [
   CLAUDE_INSTALLED_PLUGINS_PATH,
 ];
 
-export const joinClaudeHomePath = (relativePath: string): string =>
-  `$HOME/${relativePath}`;
-
 export const joinClaudeLocalPath = (
   localHome: string,
   relativePath: string,

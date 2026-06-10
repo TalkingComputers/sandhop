@@ -14,7 +14,6 @@ import {
 import { cp, mkdir, open, rm, writeFile } from "node:fs/promises";
 import { cpus, userInfo } from "node:os";
 import { execa } from "execa";
-import * as tar from "tar";
 import { dirname } from "../core/paths.js";
 import type { HostDeps } from "../core/ports/host.js";
 
@@ -195,57 +194,25 @@ export class NodeHost implements HostDeps {
     }
   }
 
-  async tarGz(
-    cwd: string,
-    entries: string[],
-    outPath: string,
-    opts?: { excludes: string[] },
-  ): Promise<void> {
-    await tar.create(
-      {
-        gzip: true,
-        file: outPath,
-        cwd,
-        portable: true,
-        filter:
-          opts === undefined
-            ? undefined
-            : (path) => !hasExcludedSegment(path, opts.excludes),
-      },
-      entries,
-    );
-  }
-
   async tarZstd(
     cwd: string,
     entries: string[],
     outPath: string,
     opts?: { excludes: string[] },
   ): Promise<void> {
-    const tarPath = `${outPath}.tar`;
-    try {
-      await tar.create(
-        {
-          file: tarPath,
-          cwd,
-          portable: true,
-          filter:
-            opts === undefined
-              ? undefined
-              : (path) => !hasExcludedSegment(path, opts.excludes),
-        },
-        entries,
-      );
-      await execa(
-        "zstd",
-        ["-T0", "-8", "--long=27", "--check", "-o", outPath, "-f", tarPath],
-        {
-          env: { COPYFILE_DISABLE: "1" },
-          stdio: "inherit",
-        },
-      );
-    } finally {
-      await rm(tarPath, { force: true });
-    }
+    const excludeArgs = (opts?.excludes ?? []).flatMap((exclude) => [
+      "--exclude",
+      exclude,
+    ]);
+    await execa("tar", ["-cf", "-", ...excludeArgs, "-C", cwd, ...entries], {
+      env: { COPYFILE_DISABLE: "1" },
+      buffer: false,
+    }).pipe(
+      "zstd",
+      ["-T0", "-8", "--long=27", "--check", "-f", "-o", outPath],
+      {
+        env: { COPYFILE_DISABLE: "1" },
+      },
+    );
   }
 }

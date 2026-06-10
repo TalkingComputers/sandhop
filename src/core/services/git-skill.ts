@@ -24,11 +24,13 @@ export const readLinkedPath = (path: string, target: string): string =>
     ? joinPath("/", target)
     : joinPath(dirname(path), target);
 
-export const readGitHead = (host: HostDeps, localDir: string): string =>
-  host.exec("git", ["-C", localDir, "rev-parse", "HEAD"]).trim();
+export const readGitHead = (
+  host: Pick<HostDeps, "exec">,
+  localDir: string,
+): string => host.exec("git", ["-C", localDir, "rev-parse", "HEAD"]).trim();
 
 export const readGitSkillState = (
-  host: HostDeps,
+  host: Pick<HostDeps, "exec">,
   localDir: string,
 ): GitSkillState => {
   if (host.exec("git", ["-C", localDir, "status", "--porcelain"]).trim())

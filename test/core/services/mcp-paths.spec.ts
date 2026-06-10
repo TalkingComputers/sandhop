@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { gitRoot, projectRoot } from "../../../src/core/services/mcp-paths.js";
+import { gitRoot } from "../../../src/core/services/mcp-paths.js";
 import { FakeHost } from "../../fakes/host.js";
 
 test("gitRoot returns the git top-level for files", () => {
@@ -18,14 +18,12 @@ test("gitRoot returns the git top-level for files", () => {
   );
 });
 
-test("projectRoot fails when git root is unavailable", () => {
+test("gitRoot returns null when git root is unavailable", () => {
   const host = new FakeHost({
     home: "/home/local",
     env: {},
     files: { "/home/local/work/src/index.ts": "" },
   });
 
-  expect(() => projectRoot(host, "/home/local/work/src/index.ts")).toThrow(
-    "Git root not found for MCP path: /home/local/work/src/index.ts",
-  );
+  expect(gitRoot(host, "/home/local/work/src/index.ts")).toBeNull();
 });

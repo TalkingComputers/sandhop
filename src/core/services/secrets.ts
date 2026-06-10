@@ -1,31 +1,15 @@
-import {
-  CLAUDE_INSTALLED_PLUGINS_PATH,
-  CLAUDE_SETTINGS_PATH,
-  CLAUDE_SKILLS_PATH,
-  joinClaudeLocalPath,
-} from "../../agents/claude-paths.js";
-import { collectEnvRefs } from "../env.js";
-import { isRecord, readJsonRecord } from "../json.js";
 import type { Agent } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
+import { collectReferencedInputs } from "./mcp-classify.js";
 import { mapHomePath } from "./mcp-paths.js";
-import { ProfileService } from "./profile.js";
-
-export interface SecretsInputs {
-  envRefs: string[];
-  referencedFiles: string[];
-}
 
 export interface SecretsBundle {
   envs: Record<string, string>;
-  files: { path: string; content: string }[];
+  files: { path: string; content: string; mode: string }[];
 }
 
 export interface SecretsCollector {
-  collect(
-    cwd: string,
-    inputs?: SecretsInputs,
-  ): SecretsBundle | Promise<SecretsBundle>;
+  collect(cwd: string): SecretsBundle;
 }
 
 const SYSTEM_ENV_NAMES = new Set([
@@ -46,80 +30,6 @@ const SYSTEM_ENV_NAMES = new Set([
   "_",
 ]);
 
-const readDisabledPlugins = (host: HostDeps): Set<string> => {
-  const settings = readJsonRecord(
-    host,
-    joinClaudeLocalPath(host.home, CLAUDE_SETTINGS_PATH),
-  );
-  const enabledPlugins = settings?.enabledPlugins;
-  if (!isRecord(enabledPlugins)) return new Set();
-  return new Set(
-    Object.entries(enabledPlugins)
-      .filter((entry): entry is [string, false] => entry[1] === false)
-      .map(([name]) => name),
-  );
-};
-
-const addEnvRefsFromText = (refs: Set<string>, text: string): void => {
-  for (const name of collectEnvRefs(text)) refs.add(name);
-};
-
-const addPluginEnvRefs = (
-  host: HostDeps,
-  agent: Agent,
-  refs: Set<string>,
-): void => {
-  if (agent.id !== "claude-code") return;
-  const installed = readJsonRecord(
-    host,
-    joinClaudeLocalPath(host.home, CLAUDE_INSTALLED_PLUGINS_PATH),
-  );
-  const plugins = installed?.plugins;
-  if (!isRecord(plugins)) return;
-  const disabled = readDisabledPlugins(host);
-  for (const [name, installs] of Object.entries(plugins)) {
-    if (disabled.has(name) || !Array.isArray(installs)) continue;
-    for (const install of installs) {
-      if (!isRecord(install)) continue;
-      const installPath = install.installPath;
-      if (typeof installPath !== "string") continue;
-      const text = host.readFile(`${installPath}/.mcp.json`);
-      if (text === null) continue;
-      for (const ref of agent.mcpEnvRefs(text)) refs.add(ref);
-    }
-  }
-};
-
-const addSkillDirEnvRefs = (
-  host: HostDeps,
-  refs: Set<string>,
-  dir: string,
-): void => {
-  const skill = host.readFile(`${dir}/SKILL.md`);
-  if (skill !== null) addEnvRefsFromText(refs, skill);
-  const scripts = `${dir}/scripts`;
-  if (!host.exists(scripts)) return;
-  for (const path of host.walk(scripts)) {
-    const text = host.readFile(path);
-    if (text !== null) addEnvRefsFromText(refs, text);
-  }
-};
-
-const addSkillEnvRefs = (
-  host: HostDeps,
-  agent: Agent,
-  refs: Set<string>,
-): void => {
-  if (agent.id !== "claude-code") return;
-  const profile = new ProfileService(host, agent);
-  for (const entry of profile.listClaudeProfileEntries()) {
-    if (!entry.startsWith(`${CLAUDE_SKILLS_PATH}/`)) continue;
-    addSkillDirEnvRefs(host, refs, `${host.home}/${entry}`);
-  }
-  for (const skill of profile.listExternalSymlinkSkills())
-    addSkillDirEnvRefs(host, refs, skill.realDir);
-};
-
 export class SecretsService implements SecretsCollector {
   readonly host: HostDeps;
   readonly agent: Agent;
@@ -129,17 +39,19 @@ export class SecretsService implements SecretsCollector {
     this.agent = agent;
   }
 
-  collect(cwd: string, inputs?: SecretsInputs): SecretsBundle {
+  collect(cwd: string): SecretsBundle {
     const names = new Set<string>();
+    const referencedFiles = new Set<string>();
     for (const path of this.agent.mcpConfigPaths(this.host.home, cwd)) {
       const text = this.host.readFile(path);
       if (text === null) continue;
       for (const name of this.agent.mcpEnvRefs(text)) names.add(name);
     }
-    addPluginEnvRefs(this.host, this.agent, names);
-    addSkillEnvRefs(this.host, this.agent, names);
-    if (inputs !== undefined) {
-      for (const name of inputs.envRefs) names.add(name);
+    for (const name of this.agent.extraEnvRefs(this.host)) names.add(name);
+    for (const server of this.agent.parseMcpServers(this.host, cwd)) {
+      const referenced = collectReferencedInputs(this.host, server);
+      for (const name of referenced.envRefs) names.add(name);
+      for (const file of referenced.referencedFiles) referencedFiles.add(file);
     }
     const envs: Record<string, string> = {};
     for (const name of [...names].sort()) {
@@ -147,18 +59,16 @@ export class SecretsService implements SecretsCollector {
       const value = this.host.env[name];
       if (value !== undefined) envs[name] = value;
     }
-    const files: { path: string; content: string }[] = [];
-    if (inputs !== undefined) {
-      for (const path of [...inputs.referencedFiles].sort()) {
-        const content = this.host.readFile(path);
-        if (content === null)
-          throw new Error(`Referenced MCP file not found: ${path}`);
-        files.push({
-          path: mapHomePath(this.host.home, "$HOME", path, "passthrough"),
-          content,
-        });
-      }
-    }
+    const files = [...referencedFiles].sort().map((path) => {
+      const content = this.host.readFile(path);
+      if (content === null)
+        throw new Error(`Referenced MCP file not found: ${path}`);
+      return {
+        path: mapHomePath(this.host.home, "$HOME", path, "passthrough"),
+        content,
+        mode: "600",
+      };
+    });
     return { envs, files };
   }
 }

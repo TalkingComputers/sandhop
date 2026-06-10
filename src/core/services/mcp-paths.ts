@@ -7,6 +7,12 @@ export interface PathMapping {
   sandboxPath: string;
 }
 
+const SHELL_PATH_TOKEN =
+  /(?:^|[\s"'(=;&|])((?:~\/|\$HOME\/|\$\{HOME\}\/|\/|\.\/|\.\.\/)[^"'`\s;&|)<>]+)/g;
+
+export const shellPathTokens = (command: string): string[] =>
+  [...command.matchAll(SHELL_PATH_TOKEN)].map((match) => match[1]!);
+
 export const mapHomePath = (
   home: string,
   target: string,
@@ -21,7 +27,10 @@ export const mapHomePath = (
     : `${target}/.sandhop/mcp-roots/${projectDirName(localPath)}`;
 };
 
-export const maybeRealpath = (host: HostDeps, path: string): string | null => {
+export const maybeRealpath = (
+  host: Pick<HostDeps, "exists" | "realpath">,
+  path: string,
+): string | null => {
   if (!host.exists(path)) return null;
   return host.realpath(path);
 };
@@ -41,16 +50,6 @@ export const gitRoot = (
   }
 };
 
-export const projectRoot = (
-  host: Pick<HostDeps, "exec" | "isDirectory">,
-  path: string,
-): string => {
-  const root = gitRoot(host, path);
-  if (root === null)
-    throw new Error(`Git root not found for MCP path: ${path}`);
-  return root;
-};
-
 export const sandboxPath = (
   host: HostDeps,
   sandboxHome: string,
@@ -59,8 +58,14 @@ export const sandboxPath = (
   return mapHomePath(host.home, sandboxHome, localPath, "mcp-root");
 };
 
-const replaceAll = (value: string, from: string, to: string): string =>
-  value.split(from).join(to);
+const escapeRegExp = (value: string): string =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const replacePathPrefix = (value: string, from: string, to: string): string =>
+  value.replace(
+    new RegExp(`${escapeRegExp(from)}(?=/|$|[^A-Za-z0-9._-])`, "g"),
+    () => to,
+  );
 
 export const remapValue = (
   value: string,
@@ -72,6 +77,6 @@ export const remapValue = (
   for (const mapping of [...mappings].sort(
     (a, b) => b.localPath.length - a.localPath.length,
   ))
-    next = replaceAll(next, mapping.localPath, mapping.sandboxPath);
-  return replaceAll(next, host.home, sandboxHome);
+    next = replacePathPrefix(next, mapping.localPath, mapping.sandboxPath);
+  return replacePathPrefix(next, host.home, sandboxHome);
 };

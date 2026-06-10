@@ -18,7 +18,20 @@ test("provider conformance: fake sandbox supports path uploads, command results,
     exitCode: 0,
     stdout: expect.stringContaining("SANDHOP_RESTORE_OK"),
   });
-  await sandbox.spawn("ttyd", []);
+  await sandbox.startService({
+    file: "ttyd",
+    args: [],
+    port: 7681,
+    readiness: {
+      kind: "http",
+      url: "http://127.0.0.1:7681",
+      status: 401,
+      timeoutMs: 1,
+      intervalMs: 1,
+    },
+    stdoutPath: remotePath("/tmp/ttyd.log"),
+    stderrPath: remotePath("/tmp/ttyd.log"),
+  });
   await expect(sandbox.exposePort(7681)).resolves.toMatchObject({
     url: expect.stringContaining("7681"),
   });

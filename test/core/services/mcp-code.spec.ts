@@ -77,12 +77,6 @@ command = "/Applications/Foo.app/Contents/MacOS/foo"
     },
   ]);
   expect(plan.installCmds).toEqual(["cd /home/user/mcp && npm ci"]);
-  expect(plan.envRefs).toEqual([
-    "API_TOKEN",
-    "AUTH_TOKEN",
-    "HEADER_TOKEN",
-    "REMOTE_TOKEN",
-  ]);
   expect(plan.excluded).toEqual([
     { name: "binary", reason: "path inside an app bundle" },
   ]);
@@ -96,7 +90,7 @@ test("McpCodeService extracts sourced files from bash MCP commands and detects b
       "/home/local/.codex/config.toml": `
 [mcp_servers.bash]
 command = "bash"
-args = ["-lc", "source /home/local/.env.d/mcp.env && /home/local/bun-app/server.ts"]
+args = ["-lc", "source /home/local/.config/sandhop/mcp.env && /home/local/bun-app/server.ts"]
 cwd = "/home/local/bun-app"
 
 [mcp_servers.python]
@@ -104,7 +98,7 @@ command = "uv"
 args = ["run", "/home/local/py/server.py"]
 cwd = "/home/local/py"
 `,
-      "/home/local/.env.d/mcp.env": "TOKEN=value\n",
+      "/home/local/.config/sandhop/mcp.env": "TOKEN=value\n",
       "/home/local/bun-app/package.json": "{}",
       "/home/local/bun-app/bun.lock": "",
       "/home/local/bun-app/server.ts": "#!/usr/bin/env bun\n",
@@ -129,14 +123,123 @@ cwd = "/home/local/py"
     "cd /home/user/bun-app && bun install --frozen-lockfile",
     "cd /home/user/py && uv sync",
   ]);
-  expect(plan.referencedFiles).toEqual(["/home/local/.env.d/mcp.env"]);
   expect(plan.rewrites[0]!.args).toEqual([
     "-lc",
-    "source /home/user/.env.d/mcp.env && /home/user/bun-app/server.ts",
+    "source /home/user/.config/sandhop/mcp.env && /home/user/bun-app/server.ts",
   ]);
 });
 
-test("McpCodeService builds an archive for local project roots with supplied excludes", async () => {
+test("McpCodeService resolves bare script commands via PATH and excludes untransferable ones", () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: { PATH: "/home/local/.bun/bin:/usr/local/bin:/usr/bin" },
+    files: {
+      "/home/local/.codex/config.toml": `
+[mcp_servers.gbrain]
+command = "gbrain"
+args = ["serve"]
+
+[mcp_servers.compiled]
+command = "machtool"
+
+[mcp_servers.ghost]
+command = "ghost"
+
+[mcp_servers.orphan]
+command = "node"
+args = ["/home/local/scripts/loose.js"]
+
+[mcp_servers.npx]
+command = "npx"
+args = ["-y", "some-server"]
+`,
+      "/home/local/gbrain/src/cli.ts": "#!/usr/bin/env bun\nconsole.log(1)\n",
+      "/home/local/gbrain/package.json": "{}",
+      "/home/local/gbrain/bun.lock": "",
+      "/home/local/scripts/loose.js": "#!/usr/bin/env node\n",
+    },
+    bytes: {
+      "/usr/local/bin/machtool": new Uint8Array([0x7f, 0x45, 0x4c, 0x46, 0]),
+    },
+    symlinks: {
+      "/home/local/.bun/bin/gbrain": "/home/local/gbrain/src/cli.ts",
+    },
+    execValues: {
+      "git -C /home/local/gbrain/src rev-parse --show-toplevel":
+        "/home/local/gbrain\n",
+    },
+  });
+
+  const plan = new McpCodeService(host, CODEX).plan(
+    "/workspace/project",
+    "/home/user",
+  );
+
+  expect(plan.classifications).toEqual([
+    { name: "gbrain", kind: "local-path" },
+    { name: "compiled", kind: "excluded" },
+    { name: "ghost", kind: "excluded" },
+    { name: "orphan", kind: "excluded" },
+    { name: "npx", kind: "remote-installable" },
+  ]);
+  expect(plan.excluded).toEqual([
+    {
+      name: "compiled",
+      reason: "host-local binary (not transferable): machtool",
+    },
+    { name: "ghost", reason: "command not found on local PATH: ghost" },
+    {
+      name: "orphan",
+      reason:
+        "no git project root for local path: /home/local/scripts/loose.js",
+    },
+  ]);
+  expect(plan.mappings).toEqual([
+    { localPath: "/home/local/gbrain", sandboxPath: "/home/user/gbrain" },
+  ]);
+  expect([...plan.runtimes]).toEqual(["bun"]);
+  expect(plan.installCmds).toEqual([
+    "cd /home/user/gbrain && bun install --frozen-lockfile",
+  ]);
+  expect(plan.rewrites[0]).toEqual({
+    name: "gbrain",
+    transport: "stdio",
+    command: "/home/user/gbrain/src/cli.ts",
+    args: ["serve"],
+  });
+});
+
+test("McpCodeService installs runtimes referenced inside remote-installable bash servers", () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: {
+      "/home/local/.codex/config.toml": `
+[mcp_servers.workspace]
+command = "bash"
+args = ["-c", "set -a && source /home/local/.env.d/x.env && set +a && exec uvx --with rich some-server"]
+
+[mcp_servers.bunbased]
+command = "bash"
+args = ["-lc", "exec bunx some-other-server"]
+`,
+      "/home/local/.env.d/x.env": "TOKEN=value\n",
+    },
+  });
+
+  const plan = new McpCodeService(host, CODEX).plan(
+    "/workspace/project",
+    "/home/user",
+  );
+
+  expect(plan.classifications).toEqual([
+    { name: "workspace", kind: "remote-installable" },
+    { name: "bunbased", kind: "remote-installable" },
+  ]);
+  expect([...plan.runtimes].sort()).toEqual(["bun", "uv"]);
+});
+
+test("McpCodeService plan maps local project roots", () => {
   const host = new FakeHost({
     home: "/home/local",
     env: {},
@@ -157,21 +260,7 @@ cwd = "/home/local/mcp"
     },
   });
 
-  await expect(
-    new McpCodeService(host, CODEX).build(
-      "/workspace/project",
-      "/home/user",
-      ["dist"],
-      "/tmp/mcp-code.tgz",
-    ),
-  ).resolves.toMatchObject({ mappings: [{ localPath: "/home/local/mcp" }] });
-
-  expect(host.tarCalls).toEqual([
-    {
-      cwd: "/home/local",
-      entries: ["mcp"],
-      outPath: "/tmp/mcp-code.tgz",
-      excludes: ["dist"],
-    },
-  ]);
+  expect(
+    new McpCodeService(host, CODEX).plan("/workspace/project", "/home/user"),
+  ).toMatchObject({ mappings: [{ localPath: "/home/local/mcp" }] });
 });

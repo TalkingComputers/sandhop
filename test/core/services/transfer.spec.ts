@@ -5,7 +5,14 @@ import { FakeHost } from "../../fakes/host.js";
 import { FakeProvider } from "../../fakes/provider.js";
 
 test("TransferService emits compression, upload, and extraction progress", async () => {
-  const host = new FakeHost({ home: "/home/local", env: {} });
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: {
+      "/workspace/project/README.md": "",
+      "/workspace/profile/.claude/settings.json": "{}",
+    },
+  });
   const provider = new FakeProvider();
   const events: {
     label: string;
@@ -39,7 +46,14 @@ test("TransferService emits compression, upload, and extraction progress", async
 });
 
 test("TransferService chunks zstd archives, verifies size and integrity, and extracts in one restore exec", async () => {
-  const host = new FakeHost({ home: "/home/local", env: {} });
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: {
+      "/workspace/project/README.md": "",
+      "/workspace/profile/.claude/settings.json": "{}",
+    },
+  });
   const provider = new FakeProvider();
 
   await new TransferService(host, provider.sandbox).send(
@@ -77,7 +91,7 @@ test("TransferService chunks zstd archives, verifies size and integrity, and ext
     'SANDHOP_OWNER="$(id -u "$SANDHOP_RUNTIME_USER"):$(id -g "$SANDHOP_RUNTIME_USER")"',
   );
   expect(provider.sandbox.execs[0]).toContain(
-    '$SUDO chown -R "$SANDHOP_OWNER" /home/user/project',
+    'chown -R "$SANDHOP_OWNER" /home/user/project',
   );
   expect(provider.sandbox.execs[0]).toContain("/home/user/project");
   expect(provider.sandbox.execs[0]).not.toContain("apt-get");
@@ -90,7 +104,14 @@ test("TransferService chunks zstd archives, verifies size and integrity, and ext
 });
 
 test("TransferService creates zstd tar archives through host API", async () => {
-  const host = new FakeHost({ home: "/home/local", env: {} });
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: {
+      "/workspace/project/README.md": "",
+      "/workspace/profile/.claude/settings.json": "{}",
+    },
+  });
   const provider = new FakeProvider();
 
   await new TransferService(host, provider.sandbox).send(
@@ -108,7 +129,14 @@ test("TransferService creates zstd tar archives through host API", async () => {
 });
 
 test("TransferService runs zstd extraction with pipefail", async () => {
-  const host = new FakeHost({ home: "/home/local", env: {} });
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: {
+      "/workspace/project/README.md": "",
+      "/workspace/profile/.claude/settings.json": "{}",
+    },
+  });
   const provider = new FakeProvider();
 
   await new TransferService(host, provider.sandbox).send(
@@ -124,7 +152,14 @@ test("TransferService runs zstd extraction with pipefail", async () => {
 });
 
 test("TransferService deletes host archives and chunks after sandbox extract failure", async () => {
-  const host = new FakeHost({ home: "/home/local", env: {} });
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: {
+      "/workspace/project/README.md": "",
+      "/workspace/profile/.claude/settings.json": "{}",
+    },
+  });
   const provider = new FakeProvider();
   provider.sandbox.execResults.push({
     exitCode: 1,

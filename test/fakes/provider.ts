@@ -7,7 +7,8 @@ import type {
   SandboxInfo,
   SandboxProvider,
   SandboxRuntime,
-  SpawnOptions,
+  ReadyService,
+  ServiceSpec,
 } from "../../src/core/ports/provider.js";
 import type { RemotePath } from "../../src/core/paths.js";
 
@@ -19,7 +20,7 @@ export class FakeSandbox implements Sandbox {
   execs: string[];
   execOptions: (ExecOptions | undefined)[];
   execResults: RunResult[];
-  spawns: string[];
+  services: ServiceSpec[];
   exposedPorts: number[];
   destroyed: boolean;
 
@@ -31,7 +32,7 @@ export class FakeSandbox implements Sandbox {
     this.execs = [];
     this.execOptions = [];
     this.execResults = [];
-    this.spawns = [];
+    this.services = [];
     this.exposedPorts = [];
     this.destroyed = false;
   }
@@ -64,19 +65,12 @@ export class FakeSandbox implements Sandbox {
     return { exitCode: 0, stdout: "SANDHOP_RESTORE_OK\n", stderr: "" };
   }
 
-  async spawn(
-    file: string,
-    args: readonly string[],
-    opts?: SpawnOptions,
-  ): Promise<void> {
-    this.spawns.push(
-      [
-        file === "bash" && args[0] === "-lc" && args[1] !== undefined
-          ? args[1]
-          : [file, ...args].join(" "),
-        JSON.stringify(opts),
-      ].join(" "),
-    );
+  async startService(service: ServiceSpec): Promise<ReadyService> {
+    this.services.push(service);
+    return {
+      port: service.port,
+      output: "https://quick.example",
+    };
   }
 
   async exposePort(port: number): Promise<ExposedPort> {

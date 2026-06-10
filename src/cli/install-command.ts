@@ -1,4 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { joinPath } from "../core/paths.js";
 
 export type InstalledAgent = "Claude Code" | "Codex";
@@ -8,8 +14,8 @@ export const CLAUDE_COMMAND = readFileSync(
   "utf8",
 );
 
-export const CODEX_PROMPT = readFileSync(
-  new URL("../../plugin/prompts/sandhop.md", import.meta.url),
+export const CODEX_SKILL = readFileSync(
+  new URL("../../plugin/skills/sandhop/SKILL.md", import.meta.url),
   "utf8",
 );
 
@@ -24,9 +30,10 @@ export const installCommands = (home: string): InstalledAgent[] => {
   }
   const codexDir = joinPath(home, ".codex");
   if (existsSync(codexDir)) {
-    const promptsDir = joinPath(codexDir, "prompts");
-    mkdirSync(promptsDir, { recursive: true });
-    writeFileSync(joinPath(promptsDir, "sandhop.md"), CODEX_PROMPT);
+    const skillDir = joinPath(codexDir, "skills", "sandhop");
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(joinPath(skillDir, "SKILL.md"), CODEX_SKILL);
+    rmSync(joinPath(codexDir, "prompts", "sandhop.md"), { force: true });
     installed.push("Codex");
   }
   return installed;

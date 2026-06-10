@@ -24,5 +24,7 @@ options:
   --tunnel <public|cloudflared>
   --exclude <a,b,c>
   --include <abs,paths>
+  --no-profile   skip inline profile/skill transfer
+  --no-ssh       skip git SSH key transfer
   -h, --help     show this help
   -v, --version  show the version`;

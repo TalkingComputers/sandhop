@@ -1,5 +1,10 @@
 import { quote } from "shell-quote";
-import type { SandboxRuntime } from "./ports/provider.js";
+import type {
+  ExecOptions,
+  RunResult,
+  Sandbox,
+  SandboxRuntime,
+} from "./ports/provider.js";
 
 export const RUNTIME_HOME_ENV = "SANDHOP_RUNTIME_HOME";
 export const RUNTIME_USER_ENV = "SANDHOP_RUNTIME_USER";
@@ -28,10 +33,15 @@ export const validateRuntime = (runtime: SandboxRuntime): SandboxRuntime => {
   return runtime;
 };
 
+export const envPairs = (env: Record<string, string>): string[] =>
+  Object.entries(env).map(([key, value]) => `${key}=${value}`);
+
 export const buildRuntimeEnv = (
   runtime: SandboxRuntime,
 ): Record<string, string> => ({
   HOME: runtime.home,
+  LANG: "C.UTF-8",
+  LC_ALL: "C.UTF-8",
   [RUNTIME_HOME_ENV]: runtime.home,
   [RUNTIME_USER_ENV]: runtime.username,
   [RUNTIME_WORKDIR_ENV]: runtime.workdir,
@@ -73,19 +83,28 @@ export const buildRunuserArgs = (
   runtime.username,
   "--",
   "env",
-  ...Object.entries(buildRuntimeEnv(runtime)).map(
-    ([key, value]) => `${key}=${value}`,
-  ),
+  ...envPairs(buildRuntimeEnv(runtime)),
   "bash",
   "-lc",
   script,
 ];
 
+export const execShellAsUser = (
+  sandbox: Sandbox,
+  script: string,
+  opts?: ExecOptions,
+): Promise<RunResult> => {
+  const args = buildRunuserArgs(sandbox.runtime, script);
+  return sandbox.exec(args[0]!, args.slice(1), opts);
+};
+
 export const buildRuntimeUserScript = (runtime: SandboxRuntime): string => {
   const owner = quote([`${runtime.username}:${runtime.username}`]);
+  const profile = quote([`${runtime.home}/.profile`]);
   return [
     `mkdir -p ${quote([runtime.home])} ${quote([runtime.workdir])}`,
     `useradd --user-group --create-home --home-dir ${quote([runtime.home])} --shell /bin/bash ${quote([runtime.username])}`,
+    `printf '%s\\n' 'export PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"' 'export LANG=C.UTF-8 LC_ALL=C.UTF-8' > ${profile}`,
     `chown -R ${owner} ${quote([runtime.home])} ${quote([runtime.workdir])}`,
   ].join(" && ");
 };

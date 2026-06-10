@@ -170,9 +170,7 @@ test("ProfileService skips broken symlink skills", async () => {
     brokenRealpaths: ["/home/local/.claude/skills/broken"],
   });
 
-  expect(
-    new ProfileService(host, CLAUDE_CODE).listExternalSymlinkSkills(),
-  ).toEqual([]);
+  expect(CLAUDE_CODE.externalSkills(host)).toEqual([]);
   await expect(
     new ProfileService(host, CLAUDE_CODE).build("/tmp/profile.tgz", []),
   ).resolves.toBe(null);

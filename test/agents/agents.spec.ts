@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { expect, test } from "vitest";
 import { CODEX } from "../../src/agents/codex.js";
 import { CLAUDE_CODE } from "../../src/agents/claude-code.js";
-import { selectDefaultAgent } from "../../src/agents/index.js";
+import { resolveSession } from "../../src/agents/index.js";
 import {
   renderNodeScript,
   type NodeScript,
@@ -25,25 +25,35 @@ const stageNodeScripts = (scripts: readonly NodeScript[]): string[] => {
 };
 
 test("declarative agents install exact versions and compose native resume commands", () => {
-  expect(CLAUDE_CODE.installCmd("2.1.160")).toBe(
-    "npm i -g @anthropic-ai/claude-code@2.1.160",
+  expect(CLAUDE_CODE.installCmd("2.1.160")).toContain(
+    "curl -fsSL https://claude.ai/install.sh | bash -s 2.1.160",
+  );
+  expect(CLAUDE_CODE.installCmd("2.1.160")).toContain(
+    'export PATH="$HOME/.local/bin:$PATH"',
+  );
+  expect(CLAUDE_CODE.installCmd("2.1.160")).toContain(
+    "Claude Code version mismatch",
   );
   expect(
     CLAUDE_CODE.resumeCmd("session-id", "/home/user/project", undefined),
-  ).toBe("cd /home/user/project && claude --resume session-id");
+  ).toBe(
+    'cd /home/user/project && export PATH="$HOME/.local/bin:$PATH" && DISABLE_AUTOUPDATER=1 DISABLE_UPDATES=1 claude --resume session-id',
+  );
   expect(
     CLAUDE_CODE.resumeCmd("session-id", "/home/user/project", "120000"),
   ).toBe(
-    "cd /home/user/project && MCP_TIMEOUT=120000 claude --resume session-id",
+    'cd /home/user/project && export PATH="$HOME/.local/bin:$PATH" && DISABLE_AUTOUPDATER=1 DISABLE_UPDATES=1 MCP_TIMEOUT=120000 claude --resume session-id',
   );
-  expect(CODEX.installCmd("0.136.0")).toBe("npm i -g @openai/codex@0.136.0");
+  expect(CODEX.installCmd("0.136.0")).toBe(
+    'NPM_CONFIG_PREFIX="$HOME/.local" npm i -g @openai/codex@0.136.0',
+  );
   expect(CODEX.resumeCmd("session-id", "/home/user/project", undefined)).toBe(
     "cd /home/user/project && codex resume session-id",
   );
   expect(
     CLAUDE_CODE.resumeCmd("session;$(id)'", "/tmp/proj;$(touch pwn)'", "1;id"),
   ).toBe(
-    `cd "/tmp/proj;\\$(touch pwn)'" && MCP_TIMEOUT=1\\;id claude --resume "session;\\$(id)'"`,
+    `cd "/tmp/proj;\\$(touch pwn)'" && export PATH="$HOME/.local/bin:$PATH" && DISABLE_AUTOUPDATER=1 DISABLE_UPDATES=1 MCP_TIMEOUT=1\\;id claude --resume "session;\\$(id)'"`,
   );
   expect(
     CLAUDE_CODE.remoteTranscriptPath(
@@ -52,8 +62,8 @@ test("declarative agents install exact versions and compose native resume comman
       "session-id.jsonl",
     ),
   ).toBe("/root/.claude/projects/-workspace-project/session-id.jsonl");
-  expect(CLAUDE_CODE.projectMemoryDir("/root", "-workspace-project")).toBe(
-    "/root/.claude/projects/-workspace-project/memory",
+  expect(CLAUDE_CODE.projectMemoryPath("-workspace-project")).toBe(
+    ".claude/projects/-workspace-project/memory",
   );
   expect(
     CODEX.remoteTranscriptPath(
@@ -64,18 +74,17 @@ test("declarative agents install exact versions and compose native resume comman
   ).toBe(
     "/home/vercel-sandbox/.codex/sessions/2026/06/04/rollout-2026-06-04T12-00-00-session-id.jsonl",
   );
-  expect(
-    CODEX.projectMemoryDir("/home/vercel-sandbox", "-workspace-project"),
-  ).toBeNull();
+  expect(CODEX.projectMemoryPath("-workspace-project")).toBeNull();
 });
 
 test("agent preseed runs uploaded node script bodies", () => {
   const home = mkdtempSync(join(tmpdir(), "sandhop-preseed-"));
   const pwned = join(home, "PWNED");
   const remoteProj = `x;$(touch ${pwned})'`;
+  const deps = new FakeHost({ home, env: {} });
   const commands = stageNodeScripts([
-    ...CLAUDE_CODE.preSeed(remoteProj),
-    ...CODEX.preSeed(remoteProj),
+    ...CLAUDE_CODE.preSeed(deps, remoteProj),
+    ...CODEX.preSeed(deps, remoteProj),
   ]);
   expect(
     commands.filter((command) => command.startsWith("node /tmp/sandhop-")),
@@ -128,18 +137,81 @@ test("Codex MCP config only writes startup timeouts captured from user config", 
       "",
       "",
     ].join("\n"),
-    mode: "append",
+    mode: "replace-mcp-section",
   });
+});
+
+test("Codex MCP rewrite preserves unmodeled server keys and collects env_vars refs", () => {
+  const toml = [
+    "[mcp_servers.full]",
+    'command = "npx"',
+    'args = ["-y", "server"]',
+    "enabled = false",
+    "required = true",
+    "tool_timeout_sec = 120",
+    'env_vars = ["PASS_ME", { name = "REMOTE_ONE", source = "remote" }]',
+    'enabled_tools = ["a"]',
+    "",
+  ].join("\n");
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: { "/home/local/.codex/config.toml": toml },
+  });
+
+  const servers = CODEX.parseMcpServers(host, "/workspace/project");
+  const config = CODEX.formatMcpConfig(servers);
+
+  expect(servers).toEqual([
+    {
+      name: "full",
+      transport: "stdio",
+      command: "npx",
+      args: ["-y", "server"],
+      extras: {
+        enabled: false,
+        required: true,
+        tool_timeout_sec: 120,
+        env_vars: ["PASS_ME", { name: "REMOTE_ONE", source: "remote" }],
+        enabled_tools: ["a"],
+      },
+    },
+  ]);
+  expect(config.content).toContain("enabled = false");
+  expect(config.content).toContain("required = true");
+  expect(config.content).toContain("tool_timeout_sec = 120");
+  expect(config.content).toContain('enabled_tools = [ "a" ]');
+  expect(config.content).toContain("PASS_ME");
+  expect(config.content).not.toContain("extras");
+  expect(CODEX.mcpEnvRefs(toml)).toContain("PASS_ME");
+  expect(CODEX.mcpEnvRefs(toml)).toContain("REMOTE_ONE");
 });
 
 test("Codex preSeed preserves existing config and trusts the sandbox cwd", () => {
   const home = join(tmpdir(), `sandhop-codex-${Date.now()}`);
   mkdirSync(join(home, ".codex"), { recursive: true });
-  writeFileSync(join(home, ".codex", "config.toml"), 'model = "gpt-5.4"\n');
+  const localConfig = [
+    'model = "gpt-5.4"',
+    'approval_policy = "on-request"',
+    'sandbox_mode = "workspace-write"',
+    "",
+    "[mcp_servers.local]",
+    'command = "node"',
+    "",
+  ].join("\n");
+  writeFileSync(join(home, ".codex", "config.toml"), localConfig);
+  const deps = new FakeHost({
+    home,
+    env: {},
+    files: { [`${home}/.codex/config.toml`]: localConfig },
+  });
 
   execFileSync(
     "bash",
-    ["-lc", stageNodeScripts(CODEX.preSeed("/home/user/project")).join("\n")],
+    [
+      "-lc",
+      stageNodeScripts(CODEX.preSeed(deps, "/home/user/project")).join("\n"),
+    ],
     {
       env: { HOME: home, PATH: process.env.PATH! },
     },
@@ -147,12 +219,15 @@ test("Codex preSeed preserves existing config and trusts the sandbox cwd", () =>
 
   const config = readFileSync(join(home, ".codex", "config.toml"), "utf8");
   expect(config).toContain('model = "gpt-5.4"');
+  expect(config).toContain('approval_policy = "on-request"');
+  expect(config).toContain('sandbox_mode = "workspace-write"');
   expect(config).toContain('cli_auth_credentials_store = "file"');
+  expect(config).toContain("[mcp_servers.local]");
   expect(config).toContain(
     '[projects."/home/user/project"]\ntrust_level = "trusted"',
   );
-  expect(config).not.toContain("approval_policy");
-  expect(config).not.toContain("sandbox_mode");
+  expect(config).not.toContain('approval_policy = "never"');
+  expect(config).not.toContain('sandbox_mode = "danger-full-access"');
 });
 
 test("Claude agent parses user, project, and cwd MCP server configs", () => {
@@ -221,6 +296,7 @@ test("Claude agent parses user, project, and cwd MCP server configs", () => {
       name: "ignoredTransport",
       transport: "http",
       url: "https://example.com/ignored-transport",
+      extras: { transport: "sse" },
     },
   ]);
   expect(CLAUDE_CODE.formatMcpConfig(servers)).toEqual({
@@ -247,6 +323,7 @@ test("Claude agent parses user, project, and cwd MCP server configs", () => {
           url: "https://example.com/streamable",
         },
         ignoredTransport: {
+          transport: "sse",
           type: "http",
           url: "https://example.com/ignored-transport",
         },
@@ -254,7 +331,7 @@ test("Claude agent parses user, project, and cwd MCP server configs", () => {
       null,
       2,
     )}\n`,
-    mode: "merge-claude-json",
+    mode: "merge-mcp-servers",
   });
 });
 
@@ -448,7 +525,52 @@ args = [
   });
 });
 
-test("selectDefaultAgent chooses the agent with the newest latest session", () => {
+test("Codex profile ships plain and symlinked skills under .codex/skills", () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    symlinks: {
+      "/home/local/.codex/skills/linked": "/work/external-skill",
+    },
+    files: {
+      "/home/local/.codex/AGENTS.md": "agents",
+      "/home/local/.codex/skills/plain/SKILL.md": "Use process.env.SKILL_TOKEN",
+      "/home/local/.codex/skills/git-skill/SKILL.md": "git skill",
+      "/home/local/.codex/skills/git-skill/.git/config": "git",
+      "/work/external-skill/SKILL.md": "Use process.env.EXTERNAL_TOKEN",
+    },
+  });
+
+  expect(CODEX.profileEntries(host)).toEqual([
+    ".codex/AGENTS.md",
+    ".codex/skills/git-skill",
+    ".codex/skills/plain",
+  ]);
+  expect(CODEX.externalSkills(host)).toEqual([
+    { realDir: "/work/external-skill", homeRelative: ".codex/skills/linked" },
+  ]);
+  expect(CODEX.extraEnvRefs(host)).toEqual(["EXTERNAL_TOKEN", "SKILL_TOKEN"]);
+});
+
+test("Claude transcript trimming ignores non-user lines quoting the sandhop command", () => {
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  const lines = [
+    '{"type":"user","message":{"role":"user","content":"fix this"}}',
+    '{"type":"assistant","message":{"role":"assistant","content":"see <command-name>/sandhop</command-name> in the plugin file"}}',
+    '{"type":"user","message":{"role":"user","content":"<command-name>/sandhop</command-name>"}}',
+    '{"type":"assistant","message":{"role":"assistant","content":"ok"}}',
+  ];
+  const transcript = `${lines.join("\n")}\n`;
+
+  const trimmed = decoder.decode(
+    CLAUDE_CODE.prepareTranscript(encoder.encode(transcript)),
+  );
+
+  expect(trimmed).toBe(`${lines.slice(0, 2).join("\n")}\n`);
+});
+
+test("resolveSession chooses the agent with the newest latest session", () => {
   const claudePath =
     "/home/local/.claude/projects/-workspace-project/claude-session.jsonl";
   const codexPath =
@@ -466,7 +588,14 @@ test("selectDefaultAgent chooses the agent with the newest latest session", () =
     },
   });
 
-  expect(
-    selectDefaultAgent(host, "/workspace/project", [CLAUDE_CODE, CODEX]).id,
-  ).toBe("codex");
+  const resolved = resolveSession(
+    host,
+    "/workspace/project",
+    undefined,
+    undefined,
+  );
+
+  expect(resolved.agent.id).toBe("codex");
+  expect(resolved.session.sessionId).toBe("codex-session");
+  expect(resolved.detectedAgents).toEqual(["claude-code", "codex"]);
 });

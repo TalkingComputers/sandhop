@@ -6,18 +6,45 @@ export interface RunResult {
   stderr: string;
 }
 
+export interface CommandInvocation {
+  readonly file: string;
+  readonly args: readonly string[];
+}
+
 export interface ExecOptions {
   cwd?: string;
   env?: Record<string, string>;
   timeoutMs?: number;
 }
 
-export interface SpawnOptions {
-  appendOutput?: boolean;
-  cwd?: string;
-  env?: Record<string, string>;
-  stderrPath?: RemotePath;
-  stdoutPath?: RemotePath;
+export type ServiceReadiness =
+  | {
+      readonly kind: "http";
+      readonly url: string;
+      readonly status: number;
+      readonly timeoutMs: number;
+      readonly intervalMs: number;
+    }
+  | {
+      readonly kind: "log";
+      readonly path: RemotePath;
+      readonly matches: readonly RegExp[];
+      readonly capture?: RegExp;
+      readonly timeoutMs: number;
+      readonly intervalMs: number;
+    };
+
+export interface ServiceSpec extends CommandInvocation {
+  readonly port: number;
+  readonly readiness: ServiceReadiness;
+  readonly stdoutPath: RemotePath;
+  readonly stderrPath: RemotePath;
+  readonly appendOutput?: boolean;
+}
+
+export interface ReadyService {
+  readonly port: number;
+  readonly output: string;
 }
 
 export interface SandboxRuntime {
@@ -48,11 +75,7 @@ export interface Sandbox {
     args: readonly string[],
     opts?: ExecOptions,
   ): Promise<RunResult>;
-  spawn(
-    file: string,
-    args: readonly string[],
-    opts?: SpawnOptions,
-  ): Promise<void>;
+  startService(service: ServiceSpec): Promise<ReadyService>;
   exposePort(port: number): Promise<ExposedPort>;
   destroy(): Promise<void>;
 }
@@ -62,12 +85,6 @@ export const execShell = (
   script: string,
   opts?: ExecOptions,
 ): Promise<RunResult> => sandbox.exec("bash", ["-lc", script], opts);
-
-export const spawnShell = (
-  sandbox: Pick<Sandbox, "spawn">,
-  script: string,
-  opts?: SpawnOptions,
-): Promise<void> => sandbox.spawn("bash", ["-lc", script], opts);
 
 export interface SandboxInfo {
   id: string;

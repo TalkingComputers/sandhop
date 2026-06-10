@@ -3,14 +3,11 @@ import { expect, test } from "vitest";
 import { CLAUDE_CODE } from "../../../src/agents/claude-code.js";
 import { CODEX } from "../../../src/agents/codex.js";
 import { TTYD_PORT } from "../../../src/core/constants.js";
-import type {
-  Agent,
-  AuthBundle,
-  SessionRef,
-} from "../../../src/core/ports/agent.js";
+import type { AuthBundle, SessionRef } from "../../../src/core/ports/agent.js";
+import type { CommandInvocation } from "../../../src/core/ports/provider.js";
 import type { Transport } from "../../../src/core/ports/transport.js";
-import { BootstrapService } from "../../../src/core/services/bootstrap.js";
 import type { SshCollector } from "../../../src/core/services/git-ssh.js";
+import { renderPathPrep } from "../../../src/core/services/sandbox-files.js";
 import { TeleportService } from "../../../src/core/services/teleport.js";
 import { PublicTransport } from "../../../src/transports/public.js";
 import { FakeHost } from "../../fakes/host.js";
@@ -21,15 +18,14 @@ const encoder = new TextEncoder();
 const tmuxMultiplexer = {
   id: "tmux",
   install: (): string[] => [
-    "$SUDO bash -lc 'DEBIAN_FRONTEND=noninteractive apt-get install -y tmux'",
-    `printf '%s\\n' 'set -g status off' 'set -g window-size latest' > "$HOME/.tmux.conf"`,
+    "bash -lc 'DEBIAN_FRONTEND=noninteractive apt-get install -y tmux'",
+    `printf '%s\\n' 'set -g status off' 'set -g window-size latest' 'set -g focus-events on' > "$HOME/.tmux.conf"`,
   ],
-  attach: (session: string, command: string): string =>
-    `tmux new -A -s ${session} ${command}`,
+  attach: (session: string, command: CommandInvocation): CommandInvocation => ({
+    file: "tmux",
+    args: ["-u", "new", "-A", "-s", session, command.file, ...command.args],
+  }),
 };
-
-const createBootstrap = (agent: Agent): BootstrapService =>
-  new BootstrapService(agent, tmuxMultiplexer);
 
 class RealpathHost extends FakeHost {
   realpaths: string[] = [];
@@ -41,22 +37,56 @@ class RealpathHost extends FakeHost {
 }
 
 const emptyGitSsh: SshCollector = {
-  collect: () => ({ files: [], dirs: [] }),
+  collect: () => ({ files: [], dirs: [], hosts: [] }),
 };
 
-test("TeleportService fans out collection, transfers one zstd bundle, and starts HTTPS ttyd with native resume", async () => {
-  let inFlight = 0;
-  let maxInFlight = 0;
-  const track = async <T>(value: T): Promise<T> => {
-    inFlight += 1;
-    maxInFlight = Math.max(maxInFlight, inFlight);
-    await Promise.resolve();
-    inFlight -= 1;
-    return value;
+const findExec = (execs: string[], needle: string): string => {
+  const exec = execs.find((candidate) => candidate.includes(needle));
+  if (exec === undefined) throw new Error(`exec containing ${needle} missing`);
+  return exec;
+};
+
+const createBasicTeleport = (): {
+  provider: FakeProvider;
+  service: TeleportService;
+} => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: { "/workspace/project/README.md": "" },
+    bytes: {
+      "/home/local/.claude/projects/-workspace-project/session-id.jsonl":
+        encoder.encode("transcript"),
+    },
+  });
+  const provider = new FakeProvider();
+  const session: SessionRef = {
+    sessionId: "session-id",
+    transcriptPath:
+      "/home/local/.claude/projects/-workspace-project/session-id.jsonl",
+    transcriptName: "session-id.jsonl",
   };
+  return {
+    provider,
+    service: new TeleportService(provider, CLAUDE_CODE, {
+      host,
+      session,
+      secrets: {
+        collect: () => ({ envs: {}, files: [] }),
+      },
+      auth: () => ({ envs: { ANTHROPIC_API_KEY: "sk-ant" }, files: [] }),
+      version: () => "2.1.160",
+      gitSsh: emptyGitSsh,
+      multiplexer: tmuxMultiplexer,
+    }),
+  };
+};
+
+test("TeleportService collects, transfers one zstd bundle, and starts HTTPS ttyd with native resume", async () => {
   const host = new RealpathHost({
     home: "/home/local",
     env: {},
+    files: { "/workspace/project/README.md": "" },
     bytes: {
       "/home/local/.claude/projects/-workspace-project/session-id.jsonl":
         encoder.encode("transcript"),
@@ -79,16 +109,12 @@ test("TeleportService fans out collection, transfers one zstd bundle, and starts
   };
   const service = new TeleportService(provider, CLAUDE_CODE, {
     host,
-    session: {
-      latest: (cwd) => track(session),
-      byId: (cwd, sessionId) => track(session),
-    },
+    session,
     secrets: {
-      collect: (cwd) => track({ envs: { MCP_TOKEN: "mcp-token" }, files: [] }),
+      collect: () => ({ envs: { MCP_TOKEN: "mcp-token" }, files: [] }),
     },
-    auth: { extract: () => track(auth) },
-    version: { detect: () => track("2.1.160") },
-    bootstrap: createBootstrap(CLAUDE_CODE),
+    auth: () => auth,
+    version: () => "2.1.160",
     gitSsh: emptyGitSsh,
     multiplexer: tmuxMultiplexer,
   });
@@ -100,7 +126,6 @@ test("TeleportService fans out collection, transfers one zstd bundle, and starts
     timeoutMs: 3_600_000,
   });
 
-  expect(maxInFlight).toBe(4);
   expect(host.realpaths).toEqual(["/workspace/project"]);
   expect(provider.creates).toEqual([
     {
@@ -133,17 +158,15 @@ test("TeleportService fans out collection, transfers one zstd bundle, and starts
       ),
     }),
   ]);
+  expect(provider.sandbox.execs[0]).toContain("mkdir -p /workspace/project");
   expect(provider.sandbox.execs[0]).toContain(
-    "$SUDO mkdir -p /workspace/project",
+    'chown -R "$SANDHOP_OWNER" /workspace/project',
   );
-  expect(provider.sandbox.execs[0]).toContain(
-    '$SUDO chown -R "$SANDHOP_OWNER" /workspace/project',
-  );
-  expect(provider.sandbox.execs[1]).toContain("zstd -t");
-  expect(provider.sandbox.execs[1]).toContain("wc -c");
-  expect(provider.sandbox.execs[1]).toContain("zstd -d --long=27 -c");
-  expect(provider.sandbox.execs[1]).toContain("tar -xf - -C");
-  expect(provider.sandbox.execs[1]).not.toContain("apt-get");
+  const extractExec = findExec(provider.sandbox.execs, "zstd -t");
+  expect(extractExec).toContain("wc -c");
+  expect(extractExec).toContain("zstd -d --long=27 -c");
+  expect(extractExec).toContain("tar -xf - -C");
+  expect(extractExec).not.toContain("apt-get");
   expect(provider.sandbox.uploads.map((upload) => upload.path)).toEqual([
     "/tmp/transcript.jsonl",
     expect.stringMatching(/^\/tmp\/sandhop-claude-preseed-[0-9a-f]{16}\.js$/),
@@ -158,41 +181,56 @@ test("TeleportService fans out collection, transfers one zstd bundle, and starts
     ),
     data: expect.stringContaining("hasCompletedOnboarding"),
   });
-  expect(provider.sandbox.execs[2]).toContain(
+  const restoreExec = findExec(provider.sandbox.execs, "SANDHOP_RESTORE_OK");
+  expect(restoreExec).toContain(
     "git config --global --add safe.directory /workspace/project",
   );
-  expect(provider.sandbox.execs[2]).toContain(
-    "git config --global user.name 'Host User'",
-  );
-  expect(provider.sandbox.execs[2]).toContain(
+  expect(restoreExec).toContain("git config --global user.name 'Host User'");
+  expect(restoreExec).toContain(
     "git config --global user.email host\\@example.com",
   );
-  expect(provider.sandbox.execs[2].indexOf("safe.directory")).toBeLessThan(
-    provider.sandbox.execs[2].indexOf("user.name"),
+  expect(restoreExec.indexOf("safe.directory")).toBeLessThan(
+    restoreExec.indexOf("user.name"),
   );
-  expect(provider.sandbox.execs[2]).not.toContain("tar -xzf /tmp/bundle.tgz");
-  expect(provider.sandbox.spawns[0]).toContain(
-    `ttyd -p ${TTYD_PORT} -W -c host-user\\:`,
+  expect(restoreExec).not.toContain("tar -xzf /tmp/bundle.tgz");
+  expect(provider.sandbox.services).toHaveLength(1);
+  expect(provider.sandbox.services[0]!.file).toBe("ttyd");
+  expect(provider.sandbox.services[0]!.args.join(" ")).toContain(
+    `-p ${TTYD_PORT} -W -t disableLeaveAlert=true -t disableResizeOverlay=true -c host-user:`,
   );
-  expect(provider.sandbox.spawns[0]).toContain("-c host-user\\:");
-  expect(provider.sandbox.spawns[0]).not.toContain("-i 127.0.0.1");
-  expect(provider.sandbox.spawns[0]).toContain(
-    "tmux new -A -s sandhop bash -lc",
+  expect(provider.sandbox.services[0]!.args).not.toContain("-i");
+  expect(provider.sandbox.services[0]!.args.join(" ")).toContain(
+    "tmux -u new -A -s sandhop bash -lc",
   );
-  expect(provider.sandbox.spawns[0]).toContain("claude --resume");
-  expect(provider.sandbox.spawns[0]).toContain(
-    "cd /workspace/project && claude --resume session-id",
+  expect(provider.sandbox.services[0]!.args.join(" ")).toContain(
+    "claude --resume",
   );
-  expect(provider.sandbox.spawns[0]).not.toContain("MCP_TIMEOUT=");
-  expect(provider.sandbox.spawns[0]).not.toContain("for f in");
-  expect(provider.sandbox.spawns[0]).toContain(
-    ">> /tmp/sandhop-terminal.log 2>&1",
+  expect(provider.sandbox.services[0]!.args.join(" ")).toContain(
+    'cd /workspace/project && export PATH="$HOME/.local/bin:$PATH" && DISABLE_AUTOUPDATER=1 DISABLE_UPDATES=1 claude --resume session-id',
   );
-  expect(provider.sandbox.execs[3]).toContain("pgrep -f");
-  expect(provider.sandbox.execs[3]).toContain("/tmp/sandhop-terminal.log");
-  expect(provider.sandbox.execs).toHaveLength(4);
-  expect(provider.sandbox.execs[2]).not.toContain("profile");
-  expect(provider.sandbox.execs[2]).not.toContain("mcp");
+  expect(provider.sandbox.services[0]!.args.join(" ")).not.toContain(
+    "MCP_TIMEOUT=",
+  );
+  expect(provider.sandbox.services[0]!.args.join(" ")).not.toContain(
+    "for f in",
+  );
+  expect(provider.sandbox.services[0]).toMatchObject({
+    port: TTYD_PORT,
+    readiness: {
+      kind: "http",
+      url: `http://127.0.0.1:${TTYD_PORT}`,
+      status: 401,
+      timeoutMs: 10000,
+      intervalMs: 100,
+    },
+    stdoutPath: "/tmp/sandhop-terminal.log",
+    stderrPath: "/tmp/sandhop-terminal.log",
+    appendOutput: true,
+  });
+  expect(provider.sandbox.execs.join("\n")).not.toContain("pgrep");
+  expect(provider.sandbox.execs).toHaveLength(5);
+  expect(restoreExec).not.toContain("profile");
+  expect(restoreExec).not.toContain("mcp");
   expect(provider.sandbox.exposedPorts).toEqual([TTYD_PORT]);
   expect(result.sandbox).toBe(provider.sandbox);
   expect(result.url).toBe(`https://sandbox-sbx-1-${TTYD_PORT}.example`);
@@ -200,11 +238,58 @@ test("TeleportService fans out collection, transfers one zstd bundle, and starts
   expect(result.pass).toMatch(/^[A-Za-z0-9_-]{24}$/);
 });
 
+test("TeleportService runs preparation before terminal startup and exposure", async () => {
+  const { provider, service } = createBasicTeleport();
+  const observed: { services: number; exposedPorts: number; execs: number }[] =
+    [];
+
+  await service.run("/workspace/project", {
+    excludes: [],
+    includes: [],
+    transport: new PublicTransport(),
+    timeoutMs: 3_600_000,
+    beforeTerminalStart: async (sandbox): Promise<void> => {
+      observed.push({
+        services: provider.sandbox.services.length,
+        exposedPorts: provider.sandbox.exposedPorts.length,
+        execs: provider.sandbox.execs.length,
+      });
+      await sandbox.exec("echo", ["enriched"]);
+    },
+  });
+
+  expect(observed).toEqual([{ services: 0, exposedPorts: 0, execs: 5 }]);
+  expect(provider.sandbox.execs[5]).toBe("echo enriched");
+  expect(provider.sandbox.services).toHaveLength(1);
+  expect(provider.sandbox.exposedPorts).toEqual([TTYD_PORT]);
+});
+
+test("TeleportService aborts before terminal startup when preparation fails", async () => {
+  const { provider, service } = createBasicTeleport();
+
+  await expect(
+    service.run("/workspace/project", {
+      excludes: [],
+      includes: [],
+      transport: new PublicTransport(),
+      timeoutMs: 3_600_000,
+      beforeTerminalStart: async (): Promise<void> => {
+        throw new Error("enrichment failed");
+      },
+    }),
+  ).rejects.toThrow("enrichment failed");
+
+  expect(provider.sandbox.services).toEqual([]);
+  expect(provider.sandbox.exposedPorts).toEqual([]);
+  expect(provider.sandbox.destroyed).toBe(true);
+});
+
 test("TeleportService transfers Claude project memory after the bundle when present", async () => {
   const host = new FakeHost({
     home: "/home/local",
     env: {},
     files: {
+      "/workspace/project/README.md": "",
       "/home/local/.claude/projects/-workspace-project/memory/MEMORY.md":
         "memory",
     },
@@ -222,16 +307,13 @@ test("TeleportService transfers Claude project memory after the bundle when pres
   };
   const service = new TeleportService(provider, CLAUDE_CODE, {
     host,
-    session: { latest: async () => session, byId: async () => session },
-    secrets: { collect: async () => ({ envs: {}, files: [] }) },
-    auth: {
-      extract: async () => ({
-        envs: { ANTHROPIC_API_KEY: "sk-ant-api03-test" },
-        files: [],
-      }),
-    },
-    version: { detect: async () => "2.1.160" },
-    bootstrap: createBootstrap(CLAUDE_CODE),
+    session,
+    secrets: { collect: () => ({ envs: {}, files: [] }) },
+    auth: () => ({
+      envs: { ANTHROPIC_API_KEY: "sk-ant-api03-test" },
+      files: [],
+    }),
+    version: () => "2.1.160",
     gitSsh: emptyGitSsh,
     multiplexer: tmuxMultiplexer,
   });
@@ -253,10 +335,10 @@ test("TeleportService transfers Claude project memory after the bundle when pres
       excludes: ["node_modules"],
     }),
   );
-  expect(provider.sandbox.execs[2]).toContain("sandhop-memory-");
-  expect(provider.sandbox.execs[2]).toContain("zstd -d --long=27 -c");
-  expect(provider.sandbox.execs[2]).toContain("tar -xf - -C");
-  expect(provider.sandbox.execs[2]).toContain(
+  const memoryExec = findExec(provider.sandbox.execs, "sandhop-memory-");
+  expect(memoryExec).toContain("zstd -d --long=27 -c");
+  expect(memoryExec).toContain("tar -xf - -C");
+  expect(memoryExec).toContain(
     "/home/local/.claude/projects/-workspace-project/memory",
   );
 });
@@ -274,6 +356,7 @@ test("TeleportService uploads Claude transcript before the triggering sandhop co
   const host = new FakeHost({
     home: "/home/local",
     env: {},
+    files: { "/workspace/project/README.md": "" },
     bytes: {
       "/home/local/.claude/projects/-workspace-project/session-id.jsonl":
         encoder.encode(transcript),
@@ -288,16 +371,13 @@ test("TeleportService uploads Claude transcript before the triggering sandhop co
   };
   const service = new TeleportService(provider, CLAUDE_CODE, {
     host,
-    session: { latest: async () => session, byId: async () => session },
-    secrets: { collect: async () => ({ envs: {}, files: [] }) },
-    auth: {
-      extract: async () => ({
-        envs: { ANTHROPIC_API_KEY: "sk-ant-api03-test" },
-        files: [],
-      }),
-    },
-    version: { detect: async () => "2.1.160" },
-    bootstrap: createBootstrap(CLAUDE_CODE),
+    session,
+    secrets: { collect: () => ({ envs: {}, files: [] }) },
+    auth: () => ({
+      envs: { ANTHROPIC_API_KEY: "sk-ant-api03-test" },
+      files: [],
+    }),
+    version: () => "2.1.160",
     gitSsh: emptyGitSsh,
     multiplexer: tmuxMultiplexer,
   });
@@ -319,6 +399,7 @@ test("TeleportService injects transport bootstrap steps and loopback ttyd bind",
   const host = new FakeHost({
     home: "/home/local",
     env: { MCP_TIMEOUT: "120000" },
+    files: { "/workspace/project/README.md": "" },
     bytes: {
       "/home/local/.claude/projects/-workspace-project/session-id.jsonl":
         encoder.encode("transcript"),
@@ -327,7 +408,7 @@ test("TeleportService injects transport bootstrap steps and loopback ttyd bind",
   const provider = new FakeProvider();
   const cloudflaredTransport: Transport = {
     id: "cloudflared",
-    ttydBindAddress: () => "127.0.0.1",
+    bindAddress: () => "127.0.0.1",
     bootstrapSteps: () => ["install cloudflared"],
     expose: async (ctx) => ({ url: `https://cloudflared-${ctx.sandbox.id}` }),
   };
@@ -339,16 +420,13 @@ test("TeleportService injects transport bootstrap steps and loopback ttyd bind",
   };
   const service = new TeleportService(provider, CLAUDE_CODE, {
     host,
-    session: { latest: async () => session, byId: async () => session },
-    secrets: { collect: async () => ({ envs: {}, files: [] }) },
-    auth: {
-      extract: async () => ({
-        envs: { ANTHROPIC_API_KEY: "sk-ant-api03-test" },
-        files: [],
-      }),
-    },
-    version: { detect: async () => "2.1.160" },
-    bootstrap: createBootstrap(CLAUDE_CODE),
+    session,
+    secrets: { collect: () => ({ envs: {}, files: [] }) },
+    auth: () => ({
+      envs: { ANTHROPIC_API_KEY: "sk-ant-api03-test" },
+      files: [],
+    }),
+    version: () => "2.1.160",
     gitSsh: emptyGitSsh,
     multiplexer: tmuxMultiplexer,
   });
@@ -363,14 +441,16 @@ test("TeleportService injects transport bootstrap steps and loopback ttyd bind",
   expect(provider.creates[0]!.envs).toEqual({
     ANTHROPIC_API_KEY: "sk-ant-api03-test",
   });
-  expect(provider.sandbox.execs[2]).toContain("install cloudflared");
-  expect(provider.sandbox.spawns[0]).toContain(
-    `ttyd -i 127.0.0.1 -p ${TTYD_PORT} -W -c host-user\\:`,
+  expect(findExec(provider.sandbox.execs, "SANDHOP_RESTORE_OK")).toContain(
+    "install cloudflared",
   );
-  expect(provider.sandbox.spawns[0]).toContain(
-    "tmux new -A -s sandhop bash -lc",
+  expect(provider.sandbox.services[0]!.args.join(" ")).toContain(
+    `-i 127.0.0.1 -p ${TTYD_PORT} -W -t disableLeaveAlert=true -t disableResizeOverlay=true -c host-user:`,
   );
-  expect(provider.sandbox.spawns[0]).toContain(
+  expect(provider.sandbox.services[0]!.args.join(" ")).toContain(
+    "tmux -u new -A -s sandhop bash -lc",
+  );
+  expect(provider.sandbox.services[0]!.args.join(" ")).toContain(
     "MCP_TIMEOUT=120000 claude --resume",
   );
   expect(provider.sandbox.exposedPorts).toEqual([]);
@@ -381,6 +461,7 @@ test("TeleportService uploads secret and auth files without MCP code bundles", a
   const host = new FakeHost({
     home: "/home/local",
     env: {},
+    files: { "/workspace/project/README.md": "" },
     bytes: {
       "/home/local/.claude/projects/-workspace-project/session-id.jsonl":
         encoder.encode("transcript"),
@@ -395,27 +476,29 @@ test("TeleportService uploads secret and auth files without MCP code bundles", a
   };
   const service = new TeleportService(provider, CLAUDE_CODE, {
     host,
-    session: { latest: async () => session, byId: async () => session },
+    session,
     secrets: {
-      collect: async () => ({
+      collect: () => ({
         envs: { MCP_TOKEN: "token" },
-        files: [{ path: "$HOME/.env.d/mcp.env", content: "MCP_TOKEN=token\n" }],
-      }),
-    },
-    auth: {
-      extract: async () => ({
-        envs: { ANTHROPIC_API_KEY: "sk-ant-api03-test" },
         files: [
           {
-            path: "$HOME/.claude/.credentials.json",
-            content: '{"mcpOAuth":{}}',
-            mode: "600",
+            path: "$HOME/.config/sandhop/mcp.env",
+            content: "MCP_TOKEN=token\n",
           },
         ],
       }),
     },
-    version: { detect: async () => "2.1.160" },
-    bootstrap: createBootstrap(CLAUDE_CODE),
+    auth: () => ({
+      envs: { ANTHROPIC_API_KEY: "sk-ant-api03-test" },
+      files: [
+        {
+          path: "$HOME/.claude/.credentials.json",
+          content: '{"mcpOAuth":{}}',
+          mode: "600",
+        },
+      ],
+    }),
+    version: () => "2.1.160",
     gitSsh: emptyGitSsh,
     multiplexer: tmuxMultiplexer,
   });
@@ -442,7 +525,7 @@ test("TeleportService uploads secret and auth files without MCP code bundles", a
     data: encoder.encode("archive"),
   });
   expect(provider.sandbox.uploads).toContainEqual({
-    path: "/home/local/.env.d/mcp.env",
+    path: "/home/local/.config/sandhop/mcp.env",
     data: "MCP_TOKEN=token\n",
   });
   expect(provider.sandbox.uploads).toContainEqual({
@@ -451,9 +534,11 @@ test("TeleportService uploads secret and auth files without MCP code bundles", a
   });
   expect(provider.sandbox.execs).toEqual(
     expect.arrayContaining([
-      expect.stringContaining("$SUDO mkdir -p /home/local/.env.d"),
-      expect.stringContaining("$SUDO mkdir -p /home/local/.claude"),
-      "chmod 600 /home/local/.claude/.credentials.json",
+      expect.stringContaining("mkdir -p /home/local/.config/sandhop"),
+      expect.stringContaining("mkdir -p /home/local/.claude"),
+      expect.stringContaining(
+        "chmod 600 /home/local/.claude/.credentials.json",
+      ),
     ]),
   );
   expect(provider.sandbox.execs.join("\n")).not.toContain("mcp-code");
@@ -463,17 +548,22 @@ test("TeleportService restore failure surfaces stdout when stderr is empty", asy
   const host = new FakeHost({
     home: "/home/local",
     env: {},
+    files: { "/workspace/project/README.md": "" },
     bytes: {
       "/home/local/.claude/projects/-workspace-project/session-id.jsonl":
         encoder.encode("transcript"),
     },
   });
   const provider = new FakeProvider();
-  provider.sandbox.execResults.push(
-    { exitCode: 0, stdout: "", stderr: "" },
-    { exitCode: 0, stdout: "", stderr: "" },
-    { exitCode: 1, stdout: "daytona npm EACCES output", stderr: "" },
-  );
+  const baseExec = provider.sandbox.exec.bind(provider.sandbox);
+  provider.sandbox.exec = async (file, args, opts) => {
+    const result = await baseExec(file, args, opts);
+    return args.some(
+      (arg) => typeof arg === "string" && arg.includes("SANDHOP_RESTORE_OK"),
+    )
+      ? { exitCode: 1, stdout: "daytona npm EACCES output", stderr: "" }
+      : result;
+  };
   const session: SessionRef = {
     sessionId: "session-id",
     transcriptPath:
@@ -482,16 +572,13 @@ test("TeleportService restore failure surfaces stdout when stderr is empty", asy
   };
   const service = new TeleportService(provider, CLAUDE_CODE, {
     host,
-    session: { latest: async () => session, byId: async () => session },
-    secrets: { collect: async () => ({ envs: {}, files: [] }) },
-    auth: {
-      extract: async () => ({
-        envs: { ANTHROPIC_API_KEY: "sk-ant-api03-test" },
-        files: [],
-      }),
-    },
-    version: { detect: async () => "2.1.160" },
-    bootstrap: createBootstrap(CLAUDE_CODE),
+    session,
+    secrets: { collect: () => ({ envs: {}, files: [] }) },
+    auth: () => ({
+      envs: { ANTHROPIC_API_KEY: "sk-ant-api03-test" },
+      files: [],
+    }),
+    version: () => "2.1.160",
     gitSsh: emptyGitSsh,
     multiplexer: tmuxMultiplexer,
   });
@@ -512,6 +599,7 @@ test("TeleportService ships SSH bundle, bundle excludes, and mirrored includes",
     home: "/home/local",
     env: {},
     files: {
+      "/workspace/project/README.md": "",
       "/home/local/external.txt": "external",
       "/opt/shared/file.txt": "shared",
     },
@@ -529,7 +617,8 @@ test("TeleportService ships SSH bundle, bundle excludes, and mirrored includes",
   };
   const gitSsh: SshCollector = {
     collect: () => ({
-      dirs: ["$HOME/.ssh"],
+      hosts: ["github.com"],
+      dirs: [{ path: "$HOME/.ssh", mode: "700" }],
       files: [
         { path: "$HOME/.ssh/id_git", content: "PRIVATE", mode: "600" },
         { path: "$HOME/.ssh/id_git.pub", content: "PUBLIC", mode: "644" },
@@ -542,19 +631,15 @@ test("TeleportService ships SSH bundle, bundle excludes, and mirrored includes",
       ],
     }),
   };
-  const bootstrap = createBootstrap(CLAUDE_CODE);
   const service = new TeleportService(provider, CLAUDE_CODE, {
     host,
-    session: { latest: async () => session, byId: async () => session },
-    secrets: { collect: async () => ({ envs: {}, files: [] }) },
-    auth: {
-      extract: async () => ({
-        envs: { ANTHROPIC_API_KEY: "sk-ant-api03-test" },
-        files: [],
-      }),
-    },
-    version: { detect: async () => "2.1.160" },
-    bootstrap,
+    session,
+    secrets: { collect: () => ({ envs: {}, files: [] }) },
+    auth: () => ({
+      envs: { ANTHROPIC_API_KEY: "sk-ant-api03-test" },
+      files: [],
+    }),
+    version: () => "2.1.160",
     gitSsh,
     multiplexer: tmuxMultiplexer,
   });
@@ -579,12 +664,26 @@ test("TeleportService ships SSH bundle, bundle excludes, and mirrored includes",
       excludes: ["node_modules", "dist"],
     }),
   );
-  expect(provider.sandbox.execs[2]).toBe(
-    bootstrap.renderPathPrep("/home/local"),
+  const execs = provider.sandbox.execs;
+  const homePrep = execs.indexOf(renderPathPrep("/home/local"));
+  const sharedPrep = execs.indexOf(renderPathPrep("/opt/shared"));
+  const homeExtract = execs.findIndex(
+    (cmd) =>
+      cmd.includes("zstd -d --long=27 -c") &&
+      cmd.includes("sandhop-include-0-"),
   );
-  expect(provider.sandbox.execs[3]).toContain("zstd -d --long=27 -c");
-  expect(provider.sandbox.execs[3]).toContain("tar -xf - -C");
-  expect(provider.sandbox.execs[3]).toContain("/home/local");
+  const sharedExtract = execs.findIndex(
+    (cmd) =>
+      cmd.includes("zstd -d --long=27 -c") &&
+      cmd.includes("sandhop-include-2-"),
+  );
+  expect(homePrep).toBeGreaterThan(-1);
+  expect(sharedPrep).toBeGreaterThan(-1);
+  expect(homeExtract).toBeGreaterThan(homePrep);
+  expect(sharedExtract).toBeGreaterThan(sharedPrep);
+  expect(execs[homeExtract]).toContain("tar -xf - -C");
+  expect(execs[homeExtract]).toContain("/home/local");
+  expect(execs[sharedExtract]).toContain("/opt/shared");
   expect(host.tarCalls[2]!.outPath).toContain(`${tmpdir()}/sandhop-include-2-`);
   expect(host.tarCalls[2]).toEqual(
     expect.objectContaining({
@@ -593,10 +692,6 @@ test("TeleportService ships SSH bundle, bundle excludes, and mirrored includes",
       excludes: ["node_modules", "dist"],
     }),
   );
-  expect(provider.sandbox.execs[4]).toBe(
-    bootstrap.renderPathPrep("/opt/shared"),
-  );
-  expect(provider.sandbox.execs[5]).toContain("/opt/shared");
   expect(provider.sandbox.uploads).toContainEqual({
     path: "/home/local/.ssh/id_git",
     data: "PRIVATE",
@@ -620,6 +715,7 @@ test("TeleportService wraps Codex resume in the shared tmux ttyd session", async
   const host = new FakeHost({
     home: "/home/local",
     env: {},
+    files: { "/workspace/project/README.md": "" },
     bytes: {
       "/home/local/.codex/sessions/2026/06/05/rollout-2026-06-05T00-00-00-session-id.jsonl":
         encoder.encode(transcript),
@@ -634,22 +730,19 @@ test("TeleportService wraps Codex resume in the shared tmux ttyd session", async
   };
   const service = new TeleportService(provider, CODEX, {
     host,
-    session: { latest: async () => session, byId: async () => session },
-    secrets: { collect: async () => ({ envs: {}, files: [] }) },
-    auth: {
-      extract: async () => ({
-        envs: { OPENAI_API_KEY: "sk-test" },
-        files: [
-          {
-            path: "$HOME/.codex/auth.json",
-            content: "{}",
-            mode: "600",
-          },
-        ],
-      }),
-    },
-    version: { detect: async () => "0.136.0" },
-    bootstrap: createBootstrap(CODEX),
+    session,
+    secrets: { collect: () => ({ envs: {}, files: [] }) },
+    auth: () => ({
+      envs: { OPENAI_API_KEY: "sk-test" },
+      files: [
+        {
+          path: "$HOME/.codex/auth.json",
+          content: "{}",
+          mode: "600",
+        },
+      ],
+    }),
+    version: () => "0.136.0",
     gitSsh: emptyGitSsh,
     multiplexer: tmuxMultiplexer,
   });
@@ -661,13 +754,15 @@ test("TeleportService wraps Codex resume in the shared tmux ttyd session", async
     timeoutMs: 3_600_000,
   });
 
-  expect(provider.sandbox.spawns[0]).toContain(
-    "tmux new -A -s sandhop bash -lc",
+  expect(provider.sandbox.services[0]!.args.join(" ")).toContain(
+    "tmux -u new -A -s sandhop bash -lc",
   );
-  expect(provider.sandbox.spawns[0]).toContain("codex resume");
+  expect(provider.sandbox.services[0]!.args.join(" ")).toContain(
+    "codex resume",
+  );
   expect(provider.sandbox.execs).toEqual(
     expect.arrayContaining([
-      expect.stringContaining("$SUDO mkdir -p /home/local/.codex"),
+      expect.stringContaining("mkdir -p /home/local/.codex"),
     ]),
   );
   expect(provider.sandbox.uploads).toContainEqual({

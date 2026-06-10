@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import type { HostDeps } from "../../core/ports/host.js";
 import type {
   CreateOptions,
-  ExecOptions,
   RunResult,
   Sandbox,
   SandboxInfo,
@@ -18,13 +17,14 @@ import {
   validateRuntime,
 } from "../../core/sandbox-runtime.js";
 import { toArrayBuffer } from "../encode.js";
-import { requireCred } from "../index.js";
+import { requireCred, type ResolvedCredentials } from "../index.js";
 import { lazyImport, lazyOnce } from "../lazy-import.js";
 import {
   createSandbox,
   renderCommandCall,
-  renderDetachedShell,
-  type SandboxOps,
+  renderServiceShell,
+  type ProviderOps,
+  type ResolvedExecOptions,
 } from "../sandbox-adapter.js";
 
 type E2bModule = typeof import("e2b");
@@ -61,7 +61,9 @@ const buildSandhopTemplate = (
       "ca-certificates",
       "curl",
       "git",
+      "jq",
       "tmux",
+      "unzip",
       "zstd",
       "util-linux",
     ])
@@ -76,17 +78,15 @@ const runCommand = async (
   e2b: E2bModule,
   sandbox: E2bSandboxInstance,
   cmd: string,
-  runtime: SandboxRuntime,
-  opts?: ExecOptions,
+  opts: ResolvedExecOptions,
 ): Promise<RunResult> => {
-  const timeoutMs = opts?.timeoutMs ?? UPLOAD_TIMEOUT_MS;
   try {
     const result = await sandbox.commands.run(cmd, {
-      cwd: opts?.cwd ?? runtime.workdir,
-      envs: { ...opts?.env, ...buildRuntimeEnv(runtime) },
+      cwd: opts.cwd,
+      envs: opts.env,
       user: "root",
-      timeoutMs,
-      requestTimeoutMs: timeoutMs,
+      timeoutMs: opts.timeoutMs,
+      requestTimeoutMs: opts.timeoutMs,
     });
     return {
       exitCode: result.exitCode,
@@ -109,8 +109,8 @@ const makeOps = (
   sandbox: E2bSandboxInstance,
   runtime: SandboxRuntime,
   host: Pick<HostDeps, "openBlob">,
-  credentials?: E2bCredentials,
-): SandboxOps => ({
+  credentials: E2bCredentials,
+): ProviderOps => ({
   uploadFile: async (path, data) => {
     await sandbox.files.write(path, toArrayBuffer(data), {
       requestTimeoutMs: UPLOAD_TIMEOUT_MS,
@@ -128,17 +128,13 @@ const makeOps = (
   },
 
   exec: (file, args, opts) =>
-    runCommand(e2b, sandbox, renderCommandCall(file, args), runtime, opts),
+    runCommand(e2b, sandbox, renderCommandCall(file, args), opts),
 
-  spawn: async (file, args, opts) => {
-    const command =
-      opts?.stdoutPath === undefined && opts?.stderrPath === undefined
-        ? renderCommandCall(file, args)
-        : renderDetachedShell(renderCommandCall(file, args), opts);
-    await sandbox.commands.run(command, {
+  spawnService: async (service) => {
+    await sandbox.commands.run(renderServiceShell(service), {
       background: true,
-      cwd: opts?.cwd ?? runtime.workdir,
-      envs: { ...opts?.env, ...buildRuntimeEnv(runtime) },
+      cwd: runtime.workdir,
+      envs: buildRuntimeEnv(runtime),
       timeoutMs: 0,
       user: runtime.username,
     });
@@ -154,15 +150,20 @@ const makeOps = (
 
 export class E2bSandboxProvider implements SandboxProvider {
   readonly name = "e2b";
-  readonly host: Pick<HostDeps, "env" | "openBlob">;
+  readonly host: Pick<HostDeps, "openBlob">;
+  readonly credentials: E2bCredentials;
 
-  constructor(host: Pick<HostDeps, "env" | "openBlob">) {
+  constructor(
+    host: Pick<HostDeps, "openBlob">,
+    credentials: ResolvedCredentials,
+  ) {
     this.host = host;
+    this.credentials = { apiKey: requireCred(credentials, "E2B_API_KEY") };
   }
 
   async create(opts: CreateOptions): Promise<Sandbox> {
     const e2b = await loadE2b();
-    const credentials = this.credentials();
+    const credentials = this.credentials;
     const runtime = validateRuntime(opts.runtime);
     const template = templateName(runtime);
     if (!(await e2b.Template.exists(template, credentials)))
@@ -190,8 +191,8 @@ export class E2bSandboxProvider implements SandboxProvider {
 
   async connect(id: string): Promise<Sandbox> {
     const e2b = await loadE2b();
-    const sandbox = await e2b.Sandbox.connect(id, this.credentials());
-    const credentials = this.credentials();
+    const credentials = this.credentials;
+    const sandbox = await e2b.Sandbox.connect(id, credentials);
     const runtime = readRuntimeMetadata((await sandbox.getInfo()).metadata);
     return createSandbox(
       id,
@@ -203,7 +204,7 @@ export class E2bSandboxProvider implements SandboxProvider {
   async list(): Promise<SandboxInfo[]> {
     const e2b = await loadE2b();
     const sandboxes: SandboxInfo[] = [];
-    const paginator = e2b.Sandbox.list(this.credentials());
+    const paginator = e2b.Sandbox.list(this.credentials);
     while (paginator.hasNext) {
       for (const sandbox of await paginator.nextItems()) {
         const startedAt =
@@ -222,10 +223,6 @@ export class E2bSandboxProvider implements SandboxProvider {
 
   async destroy(id: string): Promise<boolean> {
     const e2b = await loadE2b();
-    return e2b.Sandbox.kill(id, this.credentials());
-  }
-
-  private credentials(): E2bCredentials {
-    return { apiKey: requireCred(this.host, "e2b", "E2B_API_KEY") };
+    return e2b.Sandbox.kill(id, this.credentials);
   }
 }

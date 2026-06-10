@@ -68,7 +68,7 @@ sandhop kill <sandbox-id>                 # destroy a sandbox
 - `--exclude <patterns>` — comma-split archive excludes; repeatable.
 - `--include <absolute paths>` — comma-split extra files/directories to recreate at the same absolute path; repeatable.
 - `--no-profile` — skip inline profile/skill transfer; settings-script, MCP, and plugin enrichment still run.
-- `--strict` — fail the push if an inline enrichment step fails.
+- `--no-ssh` — skip transferring git SSH keys for the project's remotes (transferred hosts are listed in the push output).
 
 ## Transports / private access
 
@@ -88,10 +88,10 @@ sandhop kill <sandbox-id>                 # destroy a sandbox
 ## How it works
 
 1. Collect the working-tree root, transcript, auth, secrets, and local CLI version in parallel.
-2. Create a single-tenant ephemeral sandbox. Modal preserves the local home path, prepares files as provider root, and starts the restored terminal as the non-root local-username runtime.
+2. Create a single-tenant ephemeral sandbox that preserves the local home path, prepares files as provider root, and starts services as the non-root local-username runtime.
 3. Upload the bundle, transcript, credential files, SSH files, project memory, and explicit includes.
-4. Install the matching agent CLI, restore the transcript, start ttyd, and verify the terminal is alive.
-5. Run inline enrichment for agent profile, settings scripts, MCP code/deps, plugins, and skills before printing `SANDHOP_URL` / `SANDHOP_AUTH`.
+4. Install the matching agent CLI, restore the transcript, start the terminal service, and verify service readiness.
+5. Run inline enrichment for agent profile, settings scripts, MCP code/deps, plugins, marketplaces, and skills before printing `SANDHOP_URL` / `SANDHOP_AUTH`. Enrichment steps fail soft: a failed step is reported (`Environment ready · 6/7 steps ok`) but never destroys the sandbox, and skipped MCP servers (e.g. localhost-bound) are listed with reasons.
 
 ## Security model
 

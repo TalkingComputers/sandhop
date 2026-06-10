@@ -3,13 +3,12 @@ import {
   CLAUDE_KNOWN_MARKETPLACES_PATH,
   CLAUDE_SETTINGS_PATH,
   CLAUDE_SKILLS_PATH,
-  joinClaudeHomePath,
   joinClaudeLocalPath,
 } from "../../agents/claude-paths.js";
 import type { Agent } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
 import { readJsonRecord } from "../json.js";
-import { dirname, listSkillNames } from "../paths.js";
+import { basename, dirname, listSkillNames } from "../paths.js";
 import { quote } from "shell-quote";
 import {
   type GitSkill,
@@ -18,6 +17,7 @@ import {
   toRemoteSkillPath,
 } from "./git-skill.js";
 import { buildCommandFor, installCommandFor } from "./install-cmd.js";
+import { mapHomePath, type PathMapping } from "./mcp-paths.js";
 import {
   readDisabledPlugins,
   readMarketplaceSource,
@@ -26,13 +26,11 @@ import {
 
 export interface ReinstallPlan {
   commands: string[];
+  mappings: PathMapping[];
 }
 
-const shellPath = (path: string): string =>
-  path.startsWith("$HOME") ? `"${path}"` : quote([path]);
-
 const inRemoteDir = (remoteDir: string, cmd: string): string =>
-  `cd ${shellPath(remoteDir)} && ${cmd}`;
+  `cd ${quote([remoteDir])} && ${cmd}`;
 
 const listInstallAndBuildCommands = (
   host: HostDeps,
@@ -60,6 +58,12 @@ const listInstallCommands = (
     : [inRemoteDir(remoteDir, installCommand)];
 };
 
+const marketplaceRoot = (host: HostDeps, path: string): string => {
+  if (host.isDirectory(path)) return path;
+  const dir = dirname(path);
+  return basename(dir) === ".claude-plugin" ? dirname(dir) : dir;
+};
+
 export class ReinstallService {
   readonly host: HostDeps;
   readonly agent: Agent;
@@ -69,17 +73,38 @@ export class ReinstallService {
     this.agent = agent;
   }
 
-  listMarketplaceCommands(): string[] {
+  private remoteSkillDir(sandboxHome: string, name: string): string {
+    return `${sandboxHome}/${CLAUDE_SKILLS_PATH}/${name}`;
+  }
+
+  listMarketplaceCommands(sandboxHome: string): {
+    commands: string[];
+    mappings: PathMapping[];
+  } {
     const path = joinClaudeLocalPath(
       this.host.home,
       CLAUDE_KNOWN_MARKETPLACES_PATH,
     );
     const record = readJsonRecord(this.host, path);
-    if (record === null) return [];
-    return Object.keys(record).map(
-      (name) =>
-        `claude plugin marketplace add ${quote([readMarketplaceSource(path, name, record[name])])}`,
-    );
+    if (record === null) return { commands: [], mappings: [] };
+    const commands: string[] = [];
+    const mappings: PathMapping[] = [];
+    for (const name of Object.keys(record)) {
+      const source = readMarketplaceSource(path, name, record[name]);
+      if (source.kind === "remote") {
+        commands.push(`claude plugin marketplace add ${quote([source.value])}`);
+        continue;
+      }
+      if (!this.host.exists(source.path)) continue;
+      const root = marketplaceRoot(this.host, source.path);
+      const mapTo = (localPath: string): string =>
+        mapHomePath(this.host.home, sandboxHome, localPath, "passthrough");
+      mappings.push({ localPath: root, sandboxPath: mapTo(root) });
+      commands.push(
+        `claude plugin marketplace add ${quote([mapTo(source.path)])}`,
+      );
+    }
+    return { commands, mappings };
   }
 
   listPluginCommands(): string[] {
@@ -104,7 +129,10 @@ export class ReinstallService {
     );
   }
 
-  listGitSkillCommands(): { commands: string[]; gitSkills: GitSkill[] } {
+  listGitSkillCommands(sandboxHome: string): {
+    commands: string[];
+    gitSkills: GitSkill[];
+  } {
     const skillsRoot = joinClaudeLocalPath(this.host.home, CLAUDE_SKILLS_PATH);
     const commands: string[] = [];
     const gitSkills: GitSkill[] = [];
@@ -113,7 +141,7 @@ export class ReinstallService {
       if (this.host.isSymlink(localDir)) continue;
       const gitDir = `${localDir}/.git`;
       if (!this.host.exists(gitDir)) continue;
-      const remoteDir = joinClaudeHomePath(`${CLAUDE_SKILLS_PATH}/${name}`);
+      const remoteDir = this.remoteSkillDir(sandboxHome, name);
       gitSkills.push({ name, localDir, remoteDir });
       const state = readGitSkillState(this.host, localDir);
       if (state.copyRequired) {
@@ -125,8 +153,8 @@ export class ReinstallService {
       const url = this.host
         .exec("git", ["-C", localDir, "config", "--get", "remote.origin.url"])
         .trim();
-      const clone = `git clone ${quote([url])} ${shellPath(remoteDir)}`;
-      const checkout = `git -C ${shellPath(remoteDir)} checkout ${quote([state.ref])}`;
+      const clone = `git clone ${quote([url])} ${quote([remoteDir])}`;
+      const checkout = `git -C ${quote([remoteDir])} checkout ${quote([state.ref])}`;
       commands.push(`${clone} && ${checkout}`);
       commands.push(
         ...listInstallAndBuildCommands(this.host, localDir, remoteDir),
@@ -135,7 +163,7 @@ export class ReinstallService {
     return { commands, gitSkills };
   }
 
-  listLocalSkillCommands(): string[] {
+  listLocalSkillCommands(sandboxHome: string): string[] {
     const skillsRoot = joinClaudeLocalPath(this.host.home, CLAUDE_SKILLS_PATH);
     const commands: string[] = [];
     for (const name of listSkillNames(this.host, skillsRoot)) {
@@ -144,13 +172,21 @@ export class ReinstallService {
       if (!this.host.exists(`${localDir}/SKILL.md`)) continue;
       if (this.host.isSymlink(`${localDir}/SKILL.md`)) continue;
       if (this.host.exists(`${localDir}/.git`)) continue;
-      const remoteDir = joinClaudeHomePath(`${CLAUDE_SKILLS_PATH}/${name}`);
-      commands.push(...listInstallCommands(this.host, localDir, remoteDir));
+      commands.push(
+        ...listInstallCommands(
+          this.host,
+          localDir,
+          this.remoteSkillDir(sandboxHome, name),
+        ),
+      );
     }
     return commands;
   }
 
-  listSymlinkSkillCommands(gitSkills: GitSkill[]): string[] {
+  listSymlinkSkillCommands(
+    sandboxHome: string,
+    gitSkills: GitSkill[],
+  ): string[] {
     const skillsRoot = joinClaudeLocalPath(this.host.home, CLAUDE_SKILLS_PATH);
     const commands: string[] = [];
     for (const name of listSkillNames(this.host, skillsRoot)) {
@@ -158,9 +194,7 @@ export class ReinstallService {
       const localSource = readSymlinkSource(this.host, skillDir);
       if (localSource === null) continue;
       const remoteSource = toRemoteSkillPath(localSource.localPath, gitSkills);
-      const remoteSkillDir = joinClaudeHomePath(
-        `${CLAUDE_SKILLS_PATH}/${name}`,
-      );
+      const remoteSkillDir = this.remoteSkillDir(sandboxHome, name);
       if (remoteSource === null) {
         commands.push(
           ...listInstallCommands(
@@ -172,34 +206,32 @@ export class ReinstallService {
         continue;
       }
       if (localSource.isDirectory) {
-        const mkdir = `mkdir -p ${shellPath(dirname(remoteSkillDir))}`;
-        const link = `ln -sfn ${shellPath(remoteSource)} ${shellPath(
-          remoteSkillDir,
-        )}`;
+        const mkdir = `mkdir -p ${quote([dirname(remoteSkillDir)])}`;
+        const link = `ln -sfn ${quote([remoteSource])} ${quote([remoteSkillDir])}`;
         commands.push(`${mkdir} && ${link}`);
       } else {
-        const mkdir = `mkdir -p ${shellPath(remoteSkillDir)}`;
-        const link = `ln -sf ${shellPath(remoteSource)} ${shellPath(
-          `${remoteSkillDir}/SKILL.md`,
-        )}`;
+        const mkdir = `mkdir -p ${quote([remoteSkillDir])}`;
+        const link = `ln -sf ${quote([remoteSource])} ${quote([`${remoteSkillDir}/SKILL.md`])}`;
         commands.push(`${mkdir} && ${link}`);
       }
     }
     return commands;
   }
 
-  plan(): ReinstallPlan {
-    if (!this.agent.supportsReinstall()) return { commands: [] };
-    const gitSkillPlan = this.listGitSkillCommands();
+  plan(sandboxHome: string): ReinstallPlan {
+    if (!this.agent.supportsReinstall()) return { commands: [], mappings: [] };
+    const gitSkillPlan = this.listGitSkillCommands(sandboxHome);
+    const marketplacePlan = this.listMarketplaceCommands(sandboxHome);
     return {
       commands: [
         ...gitSkillPlan.commands,
-        ...this.listLocalSkillCommands(),
-        ...this.listSymlinkSkillCommands(gitSkillPlan.gitSkills),
-        ...this.listMarketplaceCommands(),
+        ...this.listLocalSkillCommands(sandboxHome),
+        ...this.listSymlinkSkillCommands(sandboxHome, gitSkillPlan.gitSkills),
+        ...marketplacePlan.commands,
         ...this.listPluginCommands(),
         ...this.listDisableCommands(),
       ],
+      mappings: marketplacePlan.mappings,
     };
   }
 }

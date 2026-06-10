@@ -64,7 +64,8 @@ test("main keeps progress reporting behind reporter methods", () => {
   expect(source).not.toContain("enrichmentBar!");
   expect(source).not.toContain("as EnrichmentProgressBar");
   expect(source).not.toContain("const ENRICHMENT_STEPS = 7");
-  expect(source.match(/hasFailedStep\(enrichment\)/g)).toHaveLength(1);
+  expect(source).not.toContain("hasFailedStep");
+  expect(source).not.toContain(["str", "ict"].join(""));
 });
 
 test("main streams non-TTY progress to stdout before printing push output", async () => {
@@ -89,9 +90,11 @@ test("main streams non-TTY progress to stdout before printing push output", asyn
   };
   vi.doMock("../../src/providers/index.js", () => ({
     PROVIDER_IDS: ["e2b", "modal", "daytona", "vercel"],
+    resolveCredentials: () => ({}),
     buildProvider: () => provider,
   }));
   const sandbox = { id: "sbx-1", home: "/home/user" };
+  const order: string[] = [];
   const runEnrichment = vi.fn(
     async (
       argsValue: unknown,
@@ -99,12 +102,16 @@ test("main streams non-TTY progress to stdout before printing push output", asyn
       sandboxValue: unknown,
       onEvent: EnrichmentProgressListener,
     ) => {
+      order.push("enrich");
       onEvent({
         kind: "enrichStep",
         step: EnrichmentStepId.Setup,
         status: "ok",
       });
-      return [{ step: EnrichmentStepId.Setup, ok: true }];
+      return {
+        steps: [{ step: EnrichmentStepId.Setup, ok: true }],
+        mcpExcluded: [],
+      };
     },
   );
   vi.doMock("../../src/cli/enrich.js", () => ({
@@ -114,21 +121,29 @@ test("main streams non-TTY progress to stdout before printing push output", asyn
     TeleportService: class {
       async run(
         cwd: string,
-        opts: { onProgress?: (event: { step: PushProgressId }) => void },
+        opts: {
+          onProgress?: (event: { step: PushProgressId }) => void;
+          beforeTerminalStart?: (sandbox: typeof sandbox) => Promise<void>;
+        },
       ): Promise<{
         url: string;
         sandboxId: string;
         user: string;
         pass: string;
         sandbox: typeof sandbox;
+        sshHosts: string[];
       }> {
         opts.onProgress?.({ step: PushProgressId.Snapshotting });
+        order.push("before-terminal");
+        await opts.beforeTerminalStart?.(sandbox);
+        order.push("terminal");
         return {
           url: "https://sandbox.example",
           sandboxId: "sbx-1",
           user: "user",
           pass: "pass",
           sandbox,
+          sshHosts: [],
         };
       }
     },
@@ -176,6 +191,7 @@ test("main streams non-TTY progress to stdout before printing push output", asyn
     "SANDHOP_AUTH user:pass",
   ]);
   expect(error).not.toHaveBeenCalled();
+  expect(order).toEqual(["before-terminal", "enrich", "terminal"]);
   expect(provider.connect).not.toHaveBeenCalled();
   expect(runEnrichment).toHaveBeenCalledWith(
     {
@@ -208,6 +224,7 @@ test("main shows inline enrichment progress in TTY push", async () => {
     advance: ReturnType<typeof vi.fn>;
     message: ReturnType<typeof vi.fn>;
     stop: ReturnType<typeof vi.fn>;
+    error: ReturnType<typeof vi.fn>;
   }[] = [];
 
   vi.doMock("@clack/prompts", () => ({
@@ -220,6 +237,7 @@ test("main shows inline enrichment progress in TTY push", async () => {
         advance: vi.fn(),
         message: vi.fn(),
         stop: vi.fn(),
+        error: vi.fn(),
       };
       bars.push(bar);
       return bar;
@@ -230,6 +248,7 @@ test("main shows inline enrichment progress in TTY push", async () => {
   }));
   vi.doMock("../../src/providers/index.js", () => ({
     PROVIDER_IDS: ["e2b", "modal", "daytona", "vercel"],
+    resolveCredentials: () => ({}),
     buildProvider: () => ({
       connect: vi.fn(async () => ({ id: "sbx-tail", home: "/home/user" })),
     }),
@@ -253,25 +272,36 @@ test("main shows inline enrichment progress in TTY push", async () => {
           step: EnrichmentStepId.Setup,
           status: "ok",
         });
-        return [{ step: EnrichmentStepId.Setup, ok: true }];
+        return {
+          steps: [{ step: EnrichmentStepId.Setup, ok: true }],
+          mcpExcluded: [],
+        };
       },
     ),
   }));
   vi.doMock("../../src/core/services/teleport.js", () => ({
     TeleportService: class {
-      async run(): Promise<{
+      async run(
+        cwd: string,
+        opts: {
+          beforeTerminalStart?: (sandbox: typeof sandbox) => Promise<void>;
+        },
+      ): Promise<{
         url: string;
         sandboxId: string;
         user: string;
         pass: string;
         sandbox: typeof sandbox;
+        sshHosts: string[];
       }> {
+        await opts.beforeTerminalStart?.(sandbox);
         return {
           url: "https://sandbox.example",
           sandboxId: "sbx-tail",
           user: "user",
           pass: "pass",
           sandbox,
+          sshHosts: [],
         };
       }
     },
@@ -306,5 +336,7 @@ test("main shows inline enrichment progress in TTY push", async () => {
     "Syncing profile, MCP servers & skills…",
   );
   expect(bars[1]!.advance).toHaveBeenCalledWith(1, "Preparing");
-  expect(bars[1]!.stop).toHaveBeenCalledWith("Environment ready · 1/1");
+  expect(bars[1]!.stop).toHaveBeenCalledWith(
+    "Environment ready · 1/1 steps ok",
+  );
 });

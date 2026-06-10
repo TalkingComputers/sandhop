@@ -1,10 +1,5 @@
 import type { HostDeps } from "../core/ports/host.js";
-import type {
-  CreateOptions,
-  Sandbox,
-  SandboxInfo,
-  SandboxProvider,
-} from "../core/ports/provider.js";
+import type { SandboxProvider } from "../core/ports/provider.js";
 import { CredentialError } from "../core/errors.js";
 
 export type ProviderId = "e2b" | "modal" | "daytona" | "vercel";
@@ -110,91 +105,67 @@ export const PROVIDER_INFO: Record<ProviderId, ProviderInfo> = {
   },
 };
 
-type ProviderLoader = (host: HostDeps) => Promise<SandboxProvider>;
+export type ResolvedCredentials = Record<string, string>;
 
-const PROVIDER_LOADERS: Record<ProviderId, ProviderLoader> = {
-  e2b: async (host) =>
-    new (await import("./e2b/index.js")).E2bSandboxProvider(host),
-  modal: async (host) =>
-    new (await import("./modal/index.js")).ModalSandboxProvider(host),
-  daytona: async (host) =>
-    new (await import("./daytona/index.js")).DaytonaSandboxProvider(host),
-  vercel: async (host) =>
-    new (await import("./vercel/index.js")).VercelSandboxProvider(host),
-};
+const readCredValue = (value: string | undefined): string | undefined =>
+  value === undefined || value === "" ? undefined : value;
 
-class LazySandboxProvider implements SandboxProvider {
-  readonly name: ProviderId;
-  readonly host: HostDeps;
-  readonly loadProvider: ProviderLoader;
-  provider: Promise<SandboxProvider> | undefined;
-
-  constructor(name: ProviderId, host: HostDeps, loadProvider: ProviderLoader) {
-    this.name = name;
-    this.host = host;
-    this.loadProvider = loadProvider;
-  }
-
-  getProvider(): Promise<SandboxProvider> {
-    this.provider ??= this.loadProvider(this.host);
-    return this.provider;
-  }
-
-  async create(opts: CreateOptions): Promise<Sandbox> {
-    return (await this.getProvider()).create(opts);
-  }
-
-  async connect(id: string): Promise<Sandbox> {
-    return (await this.getProvider()).connect(id);
-  }
-
-  async list(): Promise<SandboxInfo[]> {
-    return (await this.getProvider()).list();
-  }
-
-  async destroy(id: string): Promise<boolean> {
-    return (await this.getProvider()).destroy(id);
-  }
-}
-
-export const buildProvider = (
+export const resolveCredentials = (
   id: ProviderId,
-  host: HostDeps,
-): SandboxProvider => {
-  const loader = PROVIDER_LOADERS[id];
-  if (loader === undefined) throw new Error(`Unknown provider ${id}`);
-  return new LazySandboxProvider(id, host, loader);
-};
-
-const readCredField = (id: ProviderId, env: string): CredField => {
-  const field = PROVIDER_INFO[id].credentials.find(
-    (credential) => credential.env === env,
-  );
-  if (field === undefined)
-    throw new CredentialError(`${env} is not declared for ${id}`);
-  return field;
+  env: Record<string, string | undefined>,
+  stored: Record<string, string> | undefined,
+): ResolvedCredentials => {
+  const credentials: ResolvedCredentials = {};
+  for (const field of PROVIDER_INFO[id].credentials) {
+    const value =
+      readCredValue(env[field.env]) ?? readCredValue(stored?.[field.env]);
+    if (value !== undefined) {
+      credentials[field.env] = value;
+      continue;
+    }
+    if (field.required)
+      throw new CredentialError(
+        `${field.env} is required — set it or run \`sandhop setup\``,
+      );
+  }
+  return credentials;
 };
 
 export const requireCred = (
-  host: Pick<HostDeps, "env">,
-  id: ProviderId,
+  credentials: ResolvedCredentials,
   env: string,
 ): string => {
-  const field = readCredField(id, env);
-  const value = host.env[field.env];
-  if (value === undefined || value === "")
+  const value = credentials[env];
+  if (value === undefined)
     throw new CredentialError(
-      `${field.env} is required — set it or run \`sandhop setup\``,
+      `${env} is required — set it or run \`sandhop setup\``,
     );
   return value;
 };
 
-export const optionalCred = (
-  host: Pick<HostDeps, "env">,
-  id: ProviderId,
-  env: string,
-): string | undefined => {
-  const field = readCredField(id, env);
-  const value = host.env[field.env];
-  return value === "" ? undefined : value;
+type ProviderLoader = (
+  host: HostDeps,
+  credentials: ResolvedCredentials,
+) => Promise<SandboxProvider>;
+
+const PROVIDER_LOADERS: Record<ProviderId, ProviderLoader> = {
+  e2b: async (host, credentials) =>
+    new (await import("./e2b/index.js")).E2bSandboxProvider(host, credentials),
+  modal: async (host, credentials) =>
+    new (await import("./modal/index.js")).ModalSandboxProvider(credentials),
+  daytona: async (host, credentials) =>
+    new (await import("./daytona/index.js")).DaytonaSandboxProvider(
+      credentials,
+    ),
+  vercel: async (host, credentials) =>
+    new (await import("./vercel/index.js")).VercelSandboxProvider(
+      host,
+      credentials,
+    ),
 };
+
+export const buildProvider = (
+  id: ProviderId,
+  host: HostDeps,
+  credentials: ResolvedCredentials,
+): Promise<SandboxProvider> => PROVIDER_LOADERS[id](host, credentials);

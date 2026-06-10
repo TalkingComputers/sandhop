@@ -1,5 +1,6 @@
 import { basename } from "../paths.js";
 import type { HostDeps } from "../ports/host.js";
+import type { OwnedDir } from "./sandbox-files.js";
 
 export interface SshFile {
   path: string;
@@ -9,7 +10,8 @@ export interface SshFile {
 
 export interface SshBundle {
   files: SshFile[];
-  dirs: string[];
+  dirs: OwnedDir[];
+  hosts: string[];
 }
 
 export interface SshCollector {
@@ -30,7 +32,7 @@ interface KeyFile {
   publicFile?: SshFile;
 }
 
-const emptyBundle = (): SshBundle => ({ files: [], dirs: [] });
+const emptyBundle = (): SshBundle => ({ files: [], dirs: [], hosts: [] });
 
 const readRemoteUrl = (line: string): string | null => {
   const fields = line.trim().split(/\s+/);
@@ -122,6 +124,7 @@ export class GitSshService implements SshCollector {
     const publicFiles = new Map<string, SshFile>();
     const knownHosts: string[] = [];
     const configBlocks: string[] = [];
+    const hosts: string[] = [];
     for (const token of tokens) {
       const config = this.readConfig(token);
       if (config === null) continue;
@@ -137,6 +140,7 @@ export class GitSshService implements SshCollector {
       }
       const scan = this.readKnownHosts(config);
       if (scan !== null) knownHosts.push(scan);
+      hosts.push(token);
       configBlocks.push(
         configBlock(
           config,
@@ -157,7 +161,7 @@ export class GitSshService implements SshCollector {
       content: `${configBlocks.join("\n")}\n`,
       mode: "600",
     });
-    return { files, dirs: ["$HOME/.ssh"] };
+    return { files, dirs: [{ path: "$HOME/.ssh", mode: "700" }], hosts };
   }
 
   private readConfig(token: string): SshHostConfig | null {

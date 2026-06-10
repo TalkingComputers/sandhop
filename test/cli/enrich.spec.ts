@@ -29,6 +29,27 @@ class FailingMcpSandbox extends FakeSandbox {
   }
 }
 
+class FailingMcpInstallSandbox extends FakeSandbox {
+  async exec(
+    file: string,
+    args: readonly string[],
+    opts?: ExecOptions,
+  ): Promise<RunResult> {
+    const script =
+      file === "bash" && args[0] === "-lc" && args[1] !== undefined
+        ? args[1]
+        : [file, ...args].join(" ");
+    if (script.includes("cd /home/user/mcp && npm ci")) {
+      this.execs.push(script);
+      this.execOptions.push(opts);
+      return script.includes("tee -a /tmp/sandhop-enrich.log")
+        ? { exitCode: 1, stdout: "npm ERR! missing build output\n", stderr: "" }
+        : { exitCode: 1, stdout: "", stderr: "" };
+    }
+    return super.exec(file, args, opts);
+  }
+}
+
 test("runEnrichment sends profile and MCP roots inline, uploads sourced files, writes config, and marks completion", async () => {
   const host = new FakeHost({
     home: "/home/local",
@@ -42,11 +63,11 @@ cwd = "/home/local/mcp"
 
 [mcp_servers.bash]
 command = "bash"
-args = ["-lc", "source /home/local/.env.d/mcp.env && /home/local/mcp/server.js"]
+args = ["-lc", "source /home/local/.config/sandhop/mcp.env && /home/local/mcp/server.js"]
 cwd = "/home/local/mcp"
 `,
       "/home/local/.codex/AGENTS.md": "agents",
-      "/home/local/.env.d/mcp.env": "TOKEN=value\n",
+      "/home/local/.config/sandhop/mcp.env": "TOKEN=value\n",
       "/home/local/mcp/package.json": "{}",
       "/home/local/mcp/package-lock.json": "{}",
       "/home/local/mcp/server.js": "",
@@ -62,7 +83,7 @@ cwd = "/home/local/mcp"
   });
   const events: EnrichmentProgressEvent[] = [];
 
-  const steps = await runEnrichment(
+  const report = await runEnrichment(
     {
       agent: "codex",
       cwd: "/workspace/project",
@@ -76,8 +97,9 @@ cwd = "/home/local/mcp"
     },
   );
 
-  expect(steps).toHaveLength(7);
-  expect(steps.every((step) => step.ok)).toBe(true);
+  expect(report.steps).toHaveLength(7);
+  expect(report.steps.every((step) => step.ok)).toBe(true);
+  expect(report.mcpExcluded).toEqual([]);
   expect(events).toContainEqual({
     kind: "enrichStep",
     step: EnrichmentStepId.Setup,
@@ -127,18 +149,14 @@ cwd = "/home/local/mcp"
     ]),
   );
   expect(sandbox.uploads).toContainEqual({
-    path: "/home/user/.env.d/mcp.env",
-    data: "TOKEN=value\n",
-  });
-  expect(sandbox.uploads).toContainEqual({
     path: expect.stringMatching(/^\/tmp\/sandhop-mcp-write-[0-9a-f]{16}\.js$/),
     data: expect.stringContaining("/home/user/mcp/server.js"),
   });
-  expect(host.tarCalls).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({ excludes: ["node_modules"] }),
-    ]),
+  const mcpTarCall = host.tarCalls.find(
+    (call) => call.cwd === "/home/local/mcp",
   );
+  expect(mcpTarCall).toMatchObject({ cwd: "/home/local/mcp", entries: ["."] });
+  expect(mcpTarCall).not.toHaveProperty("excludes");
   expect(host.copyCalls[0]!.excludes).toEqual(["node_modules"]);
   const execLog = sandbox.execs.join("\n");
   expect(execLog).not.toContain(["SANDHOP", "LOW", "PRIORITY"].join("_"));
@@ -151,6 +169,62 @@ cwd = "/home/local/mcp"
   expect(execLog).toContain("touch /tmp/sandhop-enriched");
 });
 
+test("runEnrichment surfaces MCP dependency install output", async () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: {
+      "/home/local/.claude/settings.json": "{}",
+      "/home/local/.claude.json": JSON.stringify({
+        mcpServers: {
+          local: {
+            command: "node",
+            args: ["/home/local/mcp/server.js"],
+            cwd: "/home/local/mcp",
+          },
+        },
+      }),
+      "/home/local/mcp/package.json": "{}",
+      "/home/local/mcp/package-lock.json": "{}",
+      "/home/local/mcp/server.js": "",
+    },
+    execValues: {
+      "git -C /home/local/mcp rev-parse --show-toplevel": "/home/local/mcp\n",
+    },
+  });
+  const sandbox = new FailingMcpInstallSandbox("sbx-1", {
+    home: "/home/user",
+    username: "user",
+    workdir: "/home/user",
+  });
+
+  const report = await runEnrichment(
+    {
+      agent: "claude-code",
+      cwd: "/workspace/project",
+      excludes: [],
+      profile: false,
+    },
+    host,
+    sandbox,
+  );
+
+  const installStep = report.steps.find(
+    (step) => step.step === EnrichmentStepId.McpDependencyInstalls,
+  );
+  expect(installStep).toMatchObject({ ok: false });
+  expect(
+    installStep !== undefined && !installStep.ok && installStep.error,
+  ).toContain(
+    "mcp_dependency_installs failed with exit code 1:\nnpm ERR! missing build output",
+  );
+  expect(
+    report.steps.find(
+      (step) => step.step === EnrichmentStepId.PluginGitSkillReinstall,
+    ),
+  ).toEqual({ step: EnrichmentStepId.PluginGitSkillReinstall, ok: true });
+});
+
 test("progress contract has only inline enrichment events", () => {
   const source = readFileSync("src/core/ports/progress.ts", "utf8");
 
@@ -161,7 +235,7 @@ test("progress contract has only inline enrichment events", () => {
   expect(source).not.toContain(["Push", "Listener"].join(""));
 });
 
-test("runEnrichment keeps best-effort steps isolated and marks completion after MCP transfer failure", async () => {
+test("runEnrichment records MCP transfer failure, skips installs, and still completes", async () => {
   const host = new FakeHost({
     home: "/home/local",
     env: {},
@@ -170,7 +244,7 @@ test("runEnrichment keeps best-effort steps isolated and marks completion after 
       "/home/local/.claude/skills/ship/SKILL.md": "ship",
       "/home/local/.claude.json": JSON.stringify({
         mcpServers: {
-          mercury: {
+          local: {
             command: "node",
             args: ["/home/local/mcp/server.js"],
             cwd: "/home/local/mcp",
@@ -191,7 +265,7 @@ test("runEnrichment keeps best-effort steps isolated and marks completion after 
     workdir: "/home/user",
   });
 
-  const steps = await runEnrichment(
+  const report = await runEnrichment(
     {
       agent: "claude-code",
       cwd: "/workspace/project",
@@ -202,11 +276,6 @@ test("runEnrichment keeps best-effort steps isolated and marks completion after 
     sandbox,
   );
 
-  expect(steps).toContainEqual({
-    step: EnrichmentStepId.McpCodeTransfer,
-    ok: false,
-    error: expect.stringContaining("Transfer failed for mcp-0"),
-  });
   const profileIndex = sandbox.execs.findIndex(
     (cmd) => cmd.includes("/tmp/sandhop-profile-") && cmd.includes("zstd -d"),
   );
@@ -217,16 +286,21 @@ test("runEnrichment keeps best-effort steps isolated and marks completion after 
     cmd.includes("touch /tmp/sandhop-enriched"),
   );
   const log = sandbox.execs.join("\n");
-  const uploadedLog = sandbox.uploads
-    .map((upload) => (typeof upload.data === "string" ? upload.data : ""))
-    .join("\n");
 
   expect(profileIndex).toBeGreaterThan(-1);
   expect(mcpIndex).toBeGreaterThan(profileIndex);
   expect(markerIndex).toBeGreaterThan(mcpIndex);
-  expect(uploadedLog).toContain("[sandhop] step failed: mcp_code_transfer");
+  expect(
+    report.steps.find((step) => step.step === EnrichmentStepId.McpCodeTransfer),
+  ).toMatchObject({ ok: false });
+  expect(
+    report.steps.find(
+      (step) => step.step === EnrichmentStepId.McpDependencyInstalls,
+    ),
+  ).toMatchObject({ ok: false });
   expect(log).not.toContain("cd /home/user/mcp && npm ci");
   expect(log).toContain("[sandhop] enrichment summary");
+  expect(log).toContain("failed: mcp_code_transfer");
 });
 
 test("runEnrichment ships Claude settings scripts and uploads rewritten settings", async () => {
@@ -241,7 +315,7 @@ test("runEnrichment ships Claude settings scripts and uploads rewritten settings
               hooks: [
                 {
                   type: "command",
-                  command: "/home/local/hook-app/bin/hook.sh --strict",
+                  command: "/home/local/hook-app/bin/hook.sh --checked",
                 },
                 { type: "command", command: "echo inline" },
               ],
@@ -334,7 +408,7 @@ test("runEnrichment ships Claude settings scripts and uploads rewritten settings
     ]),
   );
   expect(userSettings.hooks.PreToolUse[0]!.hooks[0]!.command).toBe(
-    "/home/user/hook-app/bin/hook.sh --strict",
+    "/home/user/hook-app/bin/hook.sh --checked",
   );
   expect(userSettings.hooks.PreToolUse[0]!.hooks[1]!.command).toBe(
     "echo inline",

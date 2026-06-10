@@ -7,6 +7,7 @@ import type {
 import { parse, stringify, type TomlTable, type TomlValue } from "smol-toml";
 import {
   collectEnvRefsFromValue,
+  isTomlTable,
   toTomlNumber,
   toTomlString,
   toTomlStringArray,
@@ -30,6 +31,13 @@ export const readTomlEnvRefs = (text: string): string[] => {
       if (server === undefined) throw new Error(`Expected mcp_servers.${name}`);
       const env = toTomlTable(server.env, `mcp_servers.${name}.env`);
       if (env !== undefined) for (const key of Object.keys(env)) refs.add(key);
+      const envVars = server.env_vars;
+      if (Array.isArray(envVars))
+        for (const item of envVars) {
+          if (typeof item === "string") refs.add(item);
+          else if (isTomlTable(item) && typeof item.name === "string")
+            refs.add(item.name);
+        }
       const bearerTokenEnvVar = toTomlString(
         server.bearer_token_env_var,
         `mcp_servers.${name}.bearer_token_env_var`,
@@ -47,12 +55,34 @@ export const readTomlEnvRefs = (text: string): string[] => {
   return [...refs].sort();
 };
 
+const CONSUMED_SERVER_KEYS = new Set([
+  "args",
+  "bearer_token_env_var",
+  "command",
+  "cwd",
+  "env",
+  "env_http_headers",
+  "http_headers",
+  "startup_timeout_sec",
+  "url",
+]);
+
+const collectExtras = (
+  table: TomlTable,
+): Record<string, unknown> | undefined => {
+  const entries = Object.entries(table).filter(
+    ([key]) => !CONSUMED_SERVER_KEYS.has(key),
+  );
+  return entries.length === 0 ? undefined : Object.fromEntries(entries);
+};
+
 export const toMcpServer = (
   name: string,
   value: TomlValue,
 ): McpServer | null => {
   const table = toTomlTable(value, `mcp_servers.${name}`);
   if (table === undefined) throw new Error(`Expected mcp_servers.${name}`);
+  const extras = collectExtras(table);
   const command = toTomlString(table.command, `mcp_servers.${name}.command`);
   const args = toTomlStringArray(table.args, `mcp_servers.${name}.args`);
   const cwd = toTomlString(table.cwd, `mcp_servers.${name}.cwd`);
@@ -83,6 +113,7 @@ export const toMcpServer = (
       ...(httpHeaders === undefined ? {} : { httpHeaders }),
       ...(envHttpHeaders === undefined ? {} : { envHttpHeaders }),
       ...(startupTimeoutSec === undefined ? {} : { startupTimeoutSec }),
+      ...(extras === undefined ? {} : { extras }),
     };
   if (command === undefined) return null;
   return {
@@ -93,6 +124,7 @@ export const toMcpServer = (
     ...(cwd === undefined ? {} : { cwd }),
     ...(env === undefined ? {} : { env }),
     ...(startupTimeoutSec === undefined ? {} : { startupTimeoutSec }),
+    ...(extras === undefined ? {} : { extras }),
   };
 };
 
@@ -128,6 +160,8 @@ export const formatMcpConfig = (servers: McpServer[]): McpConfigWrite => {
   const mcpServers: Record<string, TomlTable> = {};
   for (const server of servers) {
     const table: TomlTable = {};
+    for (const [key, value] of Object.entries(server.extras ?? {}))
+      table[key] = value as TomlValue;
     if (server.startupTimeoutSec !== undefined)
       table.startup_timeout_sec = server.startupTimeoutSec;
     if (server.command !== undefined) table.command = server.command;
@@ -146,6 +180,6 @@ export const formatMcpConfig = (servers: McpServer[]): McpConfigWrite => {
   return {
     path: "$HOME/.codex/config.toml",
     content: `${stringify({ mcp_servers: mcpServers })}\n`,
-    mode: "append",
+    mode: "replace-mcp-section",
   };
 };

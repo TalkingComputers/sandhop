@@ -2,6 +2,11 @@ import { expect, test } from "vitest";
 import { PublicTransport } from "../../src/transports/public.js";
 import { FakeSandbox } from "../fakes/provider.js";
 
+const service = {
+  port: 7681,
+  output: "",
+};
+
 test("PublicTransport exposes the provider port", async () => {
   const sandbox = new FakeSandbox("sbx-1", {
     home: "/home/user",
@@ -12,11 +17,11 @@ test("PublicTransport exposes the provider port", async () => {
 
   const result = await transport.expose({
     sandbox,
-    localPort: 7681,
+    service,
   });
 
   expect(transport.id).toBe("public");
-  expect(transport.ttydBindAddress()).toBe("0.0.0.0");
+  expect(transport.bindAddress()).toBe("0.0.0.0");
   expect(transport.bootstrapSteps()).toEqual([]);
   expect(sandbox.exposedPorts).toEqual([7681]);
   expect(result).toEqual({ url: "https://sandbox-sbx-1-7681.example" });

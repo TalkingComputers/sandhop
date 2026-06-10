@@ -2,7 +2,6 @@ import type {
   ModalClient as ModalClientType,
   Sandbox as ModalSandboxInstance,
 } from "modal";
-import type { HostDeps } from "../../core/ports/host.js";
 import type {
   CreateOptions,
   RunResult,
@@ -21,22 +20,26 @@ import {
   validateRuntime,
 } from "../../core/sandbox-runtime.js";
 import { destroyOrFalse } from "../destroy.js";
-import { requireCred } from "../index.js";
+import { requireCred, type ResolvedCredentials } from "../index.js";
 import { lazyImport, lazyOnce } from "../lazy-import.js";
 import {
   createSandbox,
-  renderDetachedShell,
-  renderShellCall,
-  type SandboxOps,
+  renderServiceShell,
+  type ProviderOps,
+  type ResolvedExecOptions,
 } from "../sandbox-adapter.js";
 
 type ModalModule = typeof import("modal");
+
+interface ModalCredentials {
+  tokenId: string;
+  tokenSecret: string;
+}
 
 interface ModalSandboxListItem {
   sandboxId: string;
 }
 
-const COMMAND_TIMEOUT_MS = 600000;
 const TUNNEL_TIMEOUT_MS = 60000;
 const MODAL_SANDBOX_CPU_CORES = 4;
 const MODAL_SANDBOX_MEMORY_MIB = 4096;
@@ -61,7 +64,7 @@ const nodeImage = (): string => {
 const buildModalDockerfileCommands = (runtime: SandboxRuntime): string[] => {
   const valid = validateRuntime(runtime);
   return [
-    "RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git zstd tmux util-linux",
+    "RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git jq unzip zstd tmux util-linux",
     `RUN ${buildRuntimeUserScript(valid)}`,
     `RUN ${buildSandboxToolInstallScript()}`,
     `ENV HOME=${valid.home}`,
@@ -80,14 +83,12 @@ const readModalProcess = async (process: ModalProcess): Promise<RunResult> => {
 const execModal = async (
   sandbox: ModalSandboxInstance,
   command: string[],
-  runtime: SandboxRuntime,
-  timeoutMs: number,
-  opts?: { cwd?: string; env?: Record<string, string> },
+  opts: ResolvedExecOptions,
 ): Promise<RunResult> => {
   const process = await sandbox.exec(command, {
-    env: { ...opts?.env, ...buildRuntimeEnv(runtime) },
-    timeoutMs,
-    workdir: opts?.cwd ?? runtime.workdir,
+    env: opts.env,
+    timeoutMs: opts.timeoutMs,
+    workdir: opts.cwd,
   });
   return readModalProcess(process);
 };
@@ -95,7 +96,7 @@ const execModal = async (
 const makeOps = (
   sandbox: ModalSandboxInstance,
   runtime: SandboxRuntime,
-): SandboxOps => ({
+): ProviderOps => ({
   uploadFile: async (path, data) => {
     if (typeof data === "string")
       await sandbox.filesystem.writeText(data, path);
@@ -106,27 +107,13 @@ const makeOps = (
     await sandbox.filesystem.copyFromLocal(localPath, remotePath);
   },
 
-  exec: async (file, args, opts) => {
-    return execModal(
-      sandbox,
-      [file, ...args],
-      runtime,
-      opts?.timeoutMs ?? COMMAND_TIMEOUT_MS,
-      opts,
-    );
-  },
+  exec: (file, args, opts) => execModal(sandbox, [file, ...args], opts),
 
-  spawn: async (file, args, opts) => {
-    await sandbox.exec(
-      buildRunuserArgs(
-        runtime,
-        renderDetachedShell(renderShellCall(file, args, opts), opts),
-      ),
-      {
-        env: buildRuntimeEnv(runtime),
-        workdir: runtime.workdir,
-      },
-    );
+  spawnService: async (service) => {
+    await sandbox.exec(buildRunuserArgs(runtime, renderServiceShell(service)), {
+      env: buildRuntimeEnv(runtime),
+      workdir: runtime.workdir,
+    });
   },
 
   exposePort: async (port) => {
@@ -143,11 +130,14 @@ const makeOps = (
 
 export class ModalSandboxProvider implements SandboxProvider {
   readonly name = "modal";
-  readonly host: Pick<HostDeps, "env" | "openBlob">;
+  readonly credentials: ModalCredentials;
   private readonly client: () => Promise<ModalClientType>;
 
-  constructor(host: Pick<HostDeps, "env" | "openBlob">) {
-    this.host = host;
+  constructor(credentials: ResolvedCredentials) {
+    this.credentials = {
+      tokenId: requireCred(credentials, "MODAL_TOKEN_ID"),
+      tokenSecret: requireCred(credentials, "MODAL_TOKEN_SECRET"),
+    };
     this.client = lazyOnce(() => this.createClient());
   }
 
@@ -211,13 +201,9 @@ export class ModalSandboxProvider implements SandboxProvider {
       MODAL_PACKAGE,
       MODAL_INSTALL_HINT,
     );
-    const credentials = {
-      tokenId: requireCred(this.host, "modal", "MODAL_TOKEN_ID"),
-      tokenSecret: requireCred(this.host, "modal", "MODAL_TOKEN_SECRET"),
-    };
     return new ModalClient({
-      tokenId: credentials.tokenId,
-      tokenSecret: credentials.tokenSecret,
+      tokenId: this.credentials.tokenId,
+      tokenSecret: this.credentials.tokenSecret,
     });
   }
 }

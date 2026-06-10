@@ -2,29 +2,27 @@
 import { intro, note, outro, progress } from "@clack/prompts";
 import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-import {
-  detectAgents,
-  pickAgent,
-  selectDefaultAgent,
-} from "../agents/index.js";
+import { resolveSession } from "../agents/index.js";
 import { CredentialError } from "../core/errors.js";
-import type { Agent } from "../core/ports/agent.js";
 import {
   EnrichmentStepId,
   PushProgressId,
   type EnrichmentProgressListener,
   type PushProgressListener,
+  type TransferProgress,
 } from "../core/ports/progress.js";
-import { AuthService } from "../core/services/auth.js";
-import { BootstrapService } from "../core/services/bootstrap.js";
-import { GitSshService } from "../core/services/git-ssh.js";
+import type { EnrichmentReport } from "../core/services/enrichment.js";
+import { GitSshService, type SshCollector } from "../core/services/git-ssh.js";
 import { SecretsService } from "../core/services/secrets.js";
-import { SessionService } from "../core/services/session.js";
 import { TeleportService } from "../core/services/teleport.js";
-import { VersionService } from "../core/services/version.js";
+import { detectVersion } from "../core/services/version.js";
 import type { NodeHost } from "../host/node.js";
 import { TmuxMultiplexer } from "../multiplexers/tmux.js";
-import { buildProvider, type ProviderId } from "../providers/index.js";
+import {
+  buildProvider,
+  resolveCredentials,
+  type ProviderId,
+} from "../providers/index.js";
 import {
   buildTransport,
   parseArgs,
@@ -32,7 +30,7 @@ import {
   readTransport,
   type ParsedArgs,
 } from "./args.js";
-import { applyConfigToEnv, loadConfig } from "./config.js";
+import { loadConfig, type SandhopConfig } from "./config.js";
 import { runEnrichment } from "./enrich.js";
 import { buildHost } from "./host.js";
 import {
@@ -44,41 +42,48 @@ import { HELP_TEXT, VERSION } from "./usage.js";
 
 type RuntimeArgs = Omit<ParsedArgs, "provider"> & {
   provider: ProviderId;
+  config: SandhopConfig | null;
 };
 
 type PushReporter = {
   onPushProgress: PushProgressListener;
+  onTransfer: (transfer: TransferProgress) => void;
   onEnrichmentProgress: EnrichmentProgressListener;
   finishTeleport(): void;
   failTeleport(): void;
   startEnrichment(): void;
-  failEnrichment(): void;
-  finishEnrichment(
-    enrichment: Awaited<ReturnType<typeof runEnrichment>>,
-    strict: boolean,
-    failed: boolean,
-  ): void;
+  finishEnrichment(report: EnrichmentReport): void;
   printResult(result: Awaited<ReturnType<TeleportService["run"]>>): void;
 };
 
 const ENRICHMENT_STEP_COUNT = Object.keys(EnrichmentStepId).length;
+const PUSH_STEP_COUNT = Object.keys(PushProgressId).length;
 const BYTES_PER_MB = 1_048_576;
+const SANDBOX_TIMEOUT_MS = 86_400_000;
 
-const hasFailedStep = (
-  steps: Awaited<ReturnType<typeof runEnrichment>>,
-): boolean => steps.some((step) => !step.ok);
+const firstLine = (text: string): string => text.split("\n", 1)[0]!;
 
-const formatStrictFailure = (
-  steps: Awaited<ReturnType<typeof runEnrichment>>,
-): string => {
-  const failed = steps.filter((step) => !step.ok);
-  return `Enrichment failed in strict mode: ${failed.map((step) => step.step).join(", ")}`;
-};
+const formatEnrichmentNotes = (report: EnrichmentReport): string[] => [
+  ...report.steps.flatMap((step) =>
+    step.ok
+      ? []
+      : [
+          `failed   ${formatEnrichmentProgress({ kind: "enrichStep", step: step.step, status: "fail" })} — ${firstLine(step.error)}`,
+        ],
+  ),
+  ...report.mcpExcluded.map(
+    (server) => `skipped  MCP ${server.name} (${server.reason})`,
+  ),
+];
 
 const createPushReporter = (tty: boolean): PushReporter => {
   if (!tty)
     return {
       onPushProgress: (event): void => console.log(formatPushProgress(event)),
+      onTransfer: (transfer): void =>
+        console.log(
+          `${transfer.label} ${transfer.phase} ${transfer.bytesDone}/${transfer.bytesTotal}`,
+        ),
       onEnrichmentProgress: (event): void => {
         if (event.kind === "enrichStep") {
           console.log(formatEnrichmentProgress(event));
@@ -91,16 +96,20 @@ const createPushReporter = (tty: boolean): PushReporter => {
       finishTeleport: (): void => undefined,
       failTeleport: (): void => undefined,
       startEnrichment: (): void => undefined,
-      failEnrichment: (): void => undefined,
-      finishEnrichment: (): void => undefined,
+      finishEnrichment: (report): void => {
+        for (const line of formatEnrichmentNotes(report))
+          console.log(`SANDHOP_ENRICH ${line}`);
+      },
       printResult: (result): void => {
         console.log(`SANDHOP_URL ${result.url}`);
         console.log(`SANDHOP_AUTH ${result.user}:${result.pass}`);
+        if (result.sshHosts.length > 0)
+          console.log(`SANDHOP_SSH_HOSTS ${result.sshHosts.join(",")}`);
       },
     };
 
   intro("sandhop push");
-  const pushProgress = progress({ style: "heavy", max: 6 });
+  const pushProgress = progress({ style: "heavy", max: PUSH_STEP_COUNT });
   const enrichmentProgress = progress({
     style: "heavy",
     max: ENRICHMENT_STEP_COUNT,
@@ -112,6 +121,12 @@ const createPushReporter = (tty: boolean): PushReporter => {
     onPushProgress: (event): void => {
       if (event.step === PushProgressId.Ready) return;
       pushProgress.advance(1, formatPushProgress(event));
+    },
+    onTransfer: (transfer): void => {
+      if (transfer.phase !== "upload") return;
+      pushProgress.message(
+        `${formatPushProgress({ step: PushProgressId.UploadingBundle })} · ${Math.round(transfer.bytesDone / BYTES_PER_MB)}/${Math.round(transfer.bytesTotal / BYTES_PER_MB)}MB`,
+      );
     },
     onEnrichmentProgress: (event): void => {
       if (event.kind === "enrichStep") {
@@ -132,22 +147,21 @@ const createPushReporter = (tty: boolean): PushReporter => {
     failTeleport: (): void => pushProgress.error("Teleport failed"),
     startEnrichment: (): void =>
       enrichmentProgress.start("Syncing profile, MCP servers & skills…"),
-    failEnrichment: (): void => enrichmentProgress.error("Enrichment failed"),
-    finishEnrichment: (enrichment, strict, failed): void => {
-      const completedSteps = enrichment.filter((step) => step.ok).length;
-      if (failed && strict) {
-        enrichmentProgress.error(
-          `Enrichment failed · ${completedSteps}/${enrichment.length}`,
-        );
-        return;
-      }
+    finishEnrichment: (report): void => {
+      const completedSteps = report.steps.filter((step) => step.ok).length;
       enrichmentProgress.stop(
-        `Environment ready · ${completedSteps}/${enrichment.length}`,
+        `Environment ready · ${completedSteps}/${report.steps.length} steps ok`,
       );
+      const lines = formatEnrichmentNotes(report);
+      if (lines.length > 0) note(lines.join("\n"), "Enrichment notes");
     },
     printResult: (result): void => {
+      const sshLine =
+        result.sshHosts.length === 0
+          ? ""
+          : `\n  ssh    keys for ${result.sshHosts.join(", ")} sent (skip with --no-ssh)`;
       note(
-        `${result.url}\n\n  user   ${result.user}\n  pass   ${result.pass}\n  kill   sandhop kill ${result.sandboxId}`,
+        `${result.url}\n\n  user   ${result.user}\n  pass   ${result.pass}${sshLine}\n  kill   sandhop kill ${result.sandboxId}`,
         "Open in your browser",
       );
       outro("Environment ready.");
@@ -160,83 +174,89 @@ export const withRuntimeDefaults = (
   host: NodeHost,
 ): RuntimeArgs => {
   const config = loadConfig(host.home);
-  if (config !== null) applyConfigToEnv(config, host.env);
   return {
     ...args,
-    provider: args.provider ?? readProvider(host.env["SANDHOP_PROVIDER"]),
+    config,
+    provider:
+      args.provider ??
+      readProvider(host.env["SANDHOP_PROVIDER"] ?? config?.defaultProvider),
   };
 };
 
+const buildRuntimeProvider = (
+  args: RuntimeArgs,
+  host: NodeHost,
+): ReturnType<typeof buildProvider> =>
+  buildProvider(
+    args.provider,
+    host,
+    resolveCredentials(args.provider, host.env, args.config?.credentials),
+  );
+
 const runPush = async (args: RuntimeArgs, host: NodeHost): Promise<void> => {
-  const provider = buildProvider(args.provider, host);
+  const provider = await buildRuntimeProvider(args, host);
   const transport =
-    args.transport ?? readTransport(host.env["SANDHOP_TRANSPORT"]);
-  const detected =
-    args.agent === undefined ? detectAgents(host, args.cwd) : undefined;
-  let agent: Agent;
-  if (args.agent === undefined) {
-    if (detected === undefined) throw new Error("Agent detection failed");
-    agent = selectDefaultAgent(host, args.cwd, detected);
-  } else {
-    agent = pickAgent(args.agent);
-  }
-  const multiplexer = new TmuxMultiplexer();
-  const sessions = agent.matchSession(host, args.cwd);
-  if (sessions.length === 0)
-    throw new Error(
-      args.agent === undefined
-        ? `No Claude Code or Codex session found for ${args.cwd}`
-        : `No ${agent.id} session found for ${args.cwd}`,
-    );
-  if (detected !== undefined && detected.length > 1)
+    args.transport ??
+    readTransport(host.env["SANDHOP_TRANSPORT"] ?? args.config?.transport);
+  const cloudflare = {
+    token:
+      host.env["CLOUDFLARE_TUNNEL_TOKEN"] ?? args.config?.cloudflare?.token,
+    hostname:
+      host.env["CLOUDFLARE_TUNNEL_HOSTNAME"] ??
+      args.config?.cloudflare?.hostname,
+  };
+  const { agent, session, detectedAgents } = resolveSession(
+    host,
+    args.cwd,
+    args.agent,
+    args.session,
+  );
+  if (detectedAgents.length > 1)
     console.error(`Multiple agents found; using ${agent.id}`);
+  const multiplexer = new TmuxMultiplexer();
+  const gitSsh: SshCollector = args.ssh
+    ? new GitSshService(host)
+    : { collect: () => ({ files: [], dirs: [], hosts: [] }) };
   const service = new TeleportService(provider, agent, {
     host,
-    session: new SessionService(host, agent),
+    session,
     secrets: new SecretsService(host, agent),
-    auth: new AuthService(host, agent),
-    version: new VersionService(host, agent),
-    bootstrap: new BootstrapService(agent, multiplexer),
-    gitSsh: new GitSshService(host),
+    auth: () => agent.authEnv(host),
+    version: () => detectVersion(host, agent),
+    gitSsh,
     multiplexer,
   });
   const reporter = createPushReporter(process.stdout.isTTY === true);
   let result: Awaited<ReturnType<TeleportService["run"]>>;
   try {
     result = await service.run(args.cwd, {
-      sessionId: args.session,
-      transport: buildTransport({ transport }, host.env),
+      transport: buildTransport(transport, cloudflare),
       excludes: args.excludes,
       includes: args.includes,
-      timeoutMs: 3_600_000,
+      timeoutMs: SANDBOX_TIMEOUT_MS,
       onProgress: reporter.onPushProgress,
+      onTransfer: reporter.onTransfer,
+      beforeTerminalStart: async (sandbox): Promise<void> => {
+        reporter.startEnrichment();
+        const report = await runEnrichment(
+          {
+            agent: agent.id,
+            cwd: args.cwd,
+            excludes: args.excludes,
+            profile: args.profile,
+          },
+          host,
+          sandbox,
+          reporter.onEnrichmentProgress,
+        );
+        reporter.finishEnrichment(report);
+      },
     });
   } catch (error: unknown) {
     reporter.failTeleport();
     throw error;
   }
   reporter.finishTeleport();
-  reporter.startEnrichment();
-  let enrichment: Awaited<ReturnType<typeof runEnrichment>>;
-  try {
-    enrichment = await runEnrichment(
-      {
-        agent: agent.id,
-        cwd: args.cwd,
-        excludes: args.excludes,
-        profile: args.profile,
-      },
-      host,
-      result.sandbox,
-      reporter.onEnrichmentProgress,
-    );
-  } catch (error: unknown) {
-    reporter.failEnrichment();
-    throw error;
-  }
-  const failed = hasFailedStep(enrichment);
-  reporter.finishEnrichment(enrichment, args.strict, failed);
-  if (failed && args.strict) throw new Error(formatStrictFailure(enrichment));
   reporter.printResult(result);
 };
 
@@ -257,13 +277,13 @@ export const main = async (argv: string[]): Promise<void> => {
   const host = buildHost();
   const runtimeArgs = withRuntimeDefaults(args, host);
   if (args.cmd === "list") {
-    const provider = buildProvider(runtimeArgs.provider, host);
+    const provider = await buildRuntimeProvider(runtimeArgs, host);
     for (const sandbox of await provider.list())
       console.log(`${sandbox.id}\t${sandbox.startedAt.toISOString()}`);
     return;
   }
   if (args.cmd === "kill") {
-    const provider = buildProvider(runtimeArgs.provider, host);
+    const provider = await buildRuntimeProvider(runtimeArgs, host);
     if (args.killId === undefined)
       throw new Error("kill requires a sandbox id");
     console.log((await provider.destroy(args.killId)) ? "killed" : "not found");

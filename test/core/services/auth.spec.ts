@@ -1,15 +1,14 @@
 import { expect, test } from "vitest";
 import { CODEX } from "../../../src/agents/codex.js";
 import { CLAUDE_CODE } from "../../../src/agents/claude-code.js";
-import { AuthService } from "../../../src/core/services/auth.js";
 import { FakeHost } from "../../fakes/host.js";
 
-test("AuthService ships Claude credentials file from real keychain services", () => {
+test("authEnv ships Claude credentials file from real keychain services", () => {
   const credentials =
     '{"mcpOAuth":{"token":"mcp"},"claudeAiOauth":{"token":"ai"}}';
 
   expect(
-    new AuthService(
+    CLAUDE_CODE.authEnv(
       new FakeHost({
         home: "/home/local",
         env: {},
@@ -18,8 +17,7 @@ test("AuthService ships Claude credentials file from real keychain services", ()
           "Claude Code": "sk-ant-keychain",
         },
       }),
-      CLAUDE_CODE,
-    ).extract(),
+    ),
   ).toEqual({
     envs: { ANTHROPIC_API_KEY: "sk-ant-keychain" },
     files: [
@@ -32,9 +30,9 @@ test("AuthService ships Claude credentials file from real keychain services", ()
   });
 });
 
-test("AuthService prefers local Claude credentials file and env API key", () => {
+test("authEnv prefers local Claude credentials file and env API key", () => {
   expect(
-    new AuthService(
+    CLAUDE_CODE.authEnv(
       new FakeHost({
         home: "/home/local",
         env: { ANTHROPIC_API_KEY: "sk-ant-env" },
@@ -45,8 +43,7 @@ test("AuthService prefers local Claude credentials file and env API key", () => 
           "Claude Code-credentials": '{"keychain":"credentials"}',
         },
       }),
-      CLAUDE_CODE,
-    ).extract(),
+    ),
   ).toEqual({
     envs: { ANTHROPIC_API_KEY: "sk-ant-env" },
     files: [
@@ -59,9 +56,9 @@ test("AuthService prefers local Claude credentials file and env API key", () => 
   });
 });
 
-test("AuthService ships every Claude auth environment path and Vertex keyfile", () => {
+test("authEnv ships every Claude auth environment path and Vertex keyfile", () => {
   expect(
-    new AuthService(
+    CLAUDE_CODE.authEnv(
       new FakeHost({
         home: "/home/local",
         env: {
@@ -86,8 +83,7 @@ test("AuthService ships every Claude auth environment path and Vertex keyfile", 
           "/home/local/google.json": '{"type":"service_account"}',
         },
       }),
-      CLAUDE_CODE,
-    ).extract(),
+    ),
   ).toEqual({
     envs: {
       CLAUDE_CODE_OAUTH_TOKEN: "oauth-token",
@@ -117,20 +113,17 @@ test("AuthService ships every Claude auth environment path and Vertex keyfile", 
   });
 });
 
-test("AuthService throws when Claude has no supported credential path", () => {
+test("authEnv throws when Claude has no supported credential path", () => {
   expect(() =>
-    new AuthService(
-      new FakeHost({ home: "/home/local", env: {} }),
-      CLAUDE_CODE,
-    ).extract(),
+    CLAUDE_CODE.authEnv(new FakeHost({ home: "/home/local", env: {} })),
   ).toThrow(
     "No Claude Code credential found. Provide one of: ~/.claude/.credentials.json, keychain service Claude Code-credentials, ANTHROPIC_API_KEY, keychain service Claude Code, CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_AUTH_TOKEN, CLAUDE_CODE_USE_BEDROCK, CLAUDE_CODE_USE_VERTEX",
   );
 });
 
-test("AuthService ships non-empty Codex auth file or OpenAI env token", () => {
+test("authEnv ships non-empty Codex auth file or OpenAI env token", () => {
   expect(
-    new AuthService(
+    CODEX.authEnv(
       new FakeHost({
         home: "/home/local",
         env: {},
@@ -139,8 +132,7 @@ test("AuthService ships non-empty Codex auth file or OpenAI env token", () => {
           "/home/local/.codex/config.toml": 'approval_policy = "on-request"\n',
         },
       }),
-      CODEX,
-    ).extract(),
+    ),
   ).toEqual({
     envs: {},
     files: [
@@ -153,17 +145,16 @@ test("AuthService ships non-empty Codex auth file or OpenAI env token", () => {
   });
 
   expect(
-    new AuthService(
+    CODEX.authEnv(
       new FakeHost({
         home: "/home/local",
         env: { OPENAI_API_KEY: "sk-openai" },
       }),
-      CODEX,
-    ).extract(),
+    ),
   ).toEqual({ envs: { OPENAI_API_KEY: "sk-openai" }, files: [] });
 });
 
-test("AuthService recovers Codex auth from the OS keychain when auth.json is empty", () => {
+test("authEnv recovers Codex auth from the OS keychain when auth.json is empty", () => {
   const host = new FakeHost({
     home: "/home/local",
     env: {},
@@ -172,7 +163,7 @@ test("AuthService recovers Codex auth from the OS keychain when auth.json is emp
   const account = `cli|${host.sha256Hex("/home/local/.codex").slice(0, 16)}`;
   host.keychainValues[`Codex Auth:${account}`] = '{"tokens":"keychain"}';
 
-  expect(new AuthService(host, CODEX).extract()).toEqual({
+  expect(CODEX.authEnv(host)).toEqual({
     envs: {},
     files: [
       {
@@ -184,12 +175,9 @@ test("AuthService recovers Codex auth from the OS keychain when auth.json is emp
   });
 });
 
-test("AuthService throws when Codex has no file, keychain, or API key", () => {
+test("authEnv throws when Codex has no file, keychain, or API key", () => {
   expect(() =>
-    new AuthService(
-      new FakeHost({ home: "/home/local", env: {} }),
-      CODEX,
-    ).extract(),
+    CODEX.authEnv(new FakeHost({ home: "/home/local", env: {} })),
   ).toThrow(
     "No Codex credential at ~/.codex/auth.json, OS keychain, OPENAI_API_KEY, or CODEX_API_KEY",
   );

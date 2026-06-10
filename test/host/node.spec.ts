@@ -1,31 +1,37 @@
-import {
-  lstatSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { NodeHost } from "../../src/host/node.js";
 
-test("NodeHost copyTree dereferences symlink profile entries", async () => {
-  const root = mkdtempSync(join(tmpdir(), "sandhop-node-host-"));
-  const home = join(root, "home");
-  const out = join(root, "out");
-  const external = join(root, "external.md");
-  const link = join(home, ".claude", "CLAUDE.md");
-  mkdirSync(join(home, ".claude"), { recursive: true });
-  writeFileSync(external, "external instructions");
-  symlinkSync(external, link);
+test("NodeHost tarZstd excludes path segments at any depth via system tar", async () => {
+  const root = mkdtempSync(join(tmpdir(), "sandhop-tarzstd-"));
+  mkdirSync(join(root, "src/node_modules/pkg"), { recursive: true });
+  mkdirSync(join(root, "deep/a/node_modules/x"), { recursive: true });
+  mkdirSync(join(root, "node_modules"), { recursive: true });
+  mkdirSync(join(root, "keep"), { recursive: true });
+  writeFileSync(join(root, "src/main.ts"), "main");
+  writeFileSync(join(root, "src/node_modules/pkg/index.js"), "pkg");
+  writeFileSync(join(root, "deep/a/node_modules/x/y.js"), "nested");
+  writeFileSync(join(root, "node_modules/top.js"), "top");
+  writeFileSync(join(root, "keep/file.txt"), "keep");
+  writeFileSync(join(root, "node_modules_lookalike.txt"), "kept");
+  const out = join(root, "out.tar.zst");
+  const host = new NodeHost(process.env, process.env["HOME"]!);
 
-  await new NodeHost({}, home).copyTree(home, [".claude/CLAUDE.md"], out, {
-    excludes: [],
+  await host.tarZstd(root, ["."], out, {
+    excludes: ["node_modules", "out.tar.zst"],
   });
 
-  const copied = join(out, ".claude", "CLAUDE.md");
-  expect(lstatSync(copied).isSymbolicLink()).toBe(false);
-  expect(readFileSync(copied, "utf8")).toBe("external instructions");
+  const members = execFileSync("bash", ["-c", `zstd -dc ${out} | tar -tf -`], {
+    encoding: "utf8",
+  })
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .sort();
+  expect(members).toContain("./src/main.ts");
+  expect(members).toContain("./keep/file.txt");
+  expect(members).toContain("./node_modules_lookalike.txt");
+  expect(members.join("\n")).not.toContain("node_modules/");
 });

@@ -1,11 +1,23 @@
-import type { Agent, AgentHostDeps, AuthBundle } from "../core/ports/agent.js";
+import type {
+  Agent,
+  AgentHostDeps,
+  AgentPreSeedDeps,
+  AuthBundle,
+} from "../core/ports/agent.js";
 import {
+  buildHomeWriteScript,
   buildNodeScript,
-  buildCodexPreSeedScript,
 } from "../core/sandbox-scripts.js";
-import { basename } from "../core/paths.js";
+import { basename, uniqueSorted } from "../core/paths.js";
+import { parse, stringify, type TomlTable } from "smol-toml";
 import { quote } from "shell-quote";
+import { isTomlTable } from "./codex-toml.js";
 import { makeVersionParser, sortNewest } from "./shared.js";
+import {
+  collectSkillDirEnvRefs,
+  listPlainSkillDirs,
+  listSymlinkSkills,
+} from "./skills.js";
 import {
   formatMcpConfig,
   parseMcpServers,
@@ -18,6 +30,21 @@ import {
 } from "./codex-session.js";
 
 const parseVersion = makeVersionParser("codex");
+const CODEX_SKILLS_PATHS = [".agents/skills", ".codex/skills"];
+const CODEX_CONFIG_PATH = ".codex/config.toml";
+
+const buildPreSeededConfig = (
+  deps: AgentPreSeedDeps,
+  remoteProj: string,
+): string => {
+  const text = deps.readFile(`${deps.home}/${CODEX_CONFIG_PATH}`);
+  const parsed: TomlTable = text === null ? {} : parse(text);
+  parsed.cli_auth_credentials_store = "file";
+  const projects = isTomlTable(parsed.projects) ? parsed.projects : {};
+  projects[remoteProj] = { trust_level: "trusted" };
+  parsed.projects = projects;
+  return `${stringify(parsed)}\n`;
+};
 
 const authEnv = (deps: AgentHostDeps): AuthBundle => {
   const authJson = deps.readFile(`${deps.home}/.codex/auth.json`);
@@ -86,12 +113,45 @@ export const CODEX: Agent = {
         }),
     );
   },
-  profilePaths: () => [
-    ".codex/AGENTS.md",
-    ".codex/instructions.md",
-    ".codex/prompts",
-    ".codex/rules",
+  profileEntries: (deps) => [
+    ...[
+      ".codex/AGENTS.md",
+      ".codex/instructions.md",
+      ".codex/prompts",
+      ".codex/rules",
+    ].filter((path) => deps.exists(`${deps.home}/${path}`)),
+    ...CODEX_SKILLS_PATHS.flatMap((skillsPath) =>
+      listPlainSkillDirs(deps, `${deps.home}/${skillsPath}`).map(
+        (skill) => `${skillsPath}/${skill.name}`,
+      ),
+    ),
   ],
+  externalSkills: (deps) =>
+    CODEX_SKILLS_PATHS.flatMap((skillsPath) =>
+      listSymlinkSkills(
+        deps,
+        `${deps.home}/${skillsPath}`,
+        skillsPath,
+        () => false,
+      ),
+    ),
+  extraEnvRefs: (deps) => {
+    const refs = new Set<string>();
+    for (const skillsPath of CODEX_SKILLS_PATHS) {
+      const skillsRoot = `${deps.home}/${skillsPath}`;
+      for (const skill of listPlainSkillDirs(deps, skillsRoot))
+        collectSkillDirEnvRefs(deps, refs, skill.dir);
+      for (const skill of listSymlinkSkills(
+        deps,
+        skillsRoot,
+        skillsPath,
+        () => false,
+      ))
+        collectSkillDirEnvRefs(deps, refs, skill.realDir);
+    }
+    return uniqueSorted(refs);
+  },
+  prepareTranscript: (bytes) => bytes,
   mcpConfigPaths: (home, cwd) => [
     `${home}/.codex/config.toml`,
     `${cwd}/.codex/config.toml`,
@@ -100,17 +160,24 @@ export const CODEX: Agent = {
   parseMcpServers,
   formatMcpConfig,
   authEnv,
-  installCmd: (version) => `npm i -g @openai/codex@${version}`,
+  installCmd: (version) =>
+    `NPM_CONFIG_PREFIX="$HOME/.local" npm i -g @openai/codex@${version}`,
   supportsSettingsScripts: () => false,
   supportsReinstall: () => false,
-  preSeed: (remoteProj) => [
-    buildNodeScript(buildCodexPreSeedScript(remoteProj), "CODEX_PRESEED"),
+  preSeed: (deps, remoteProj) => [
+    buildNodeScript(
+      buildHomeWriteScript(
+        CODEX_CONFIG_PATH,
+        buildPreSeededConfig(deps, remoteProj),
+      ),
+      "CODEX_PRESEED",
+    ),
   ],
   remoteTranscriptPath: (home, remoteEnc, transcriptName) => {
     const { year, month, day } = parseCodexTranscriptName(transcriptName);
     return `${home}/.codex/sessions/${year}/${month}/${day}/${transcriptName}`;
   },
-  projectMemoryDir: () => null,
+  projectMemoryPath: () => null,
   resumeCmd: (sessionId, remoteProj) =>
     `cd ${quote([remoteProj])} && codex resume ${quote([sessionId])}`,
 };

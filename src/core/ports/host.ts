@@ -29,12 +29,6 @@ export interface HostDeps {
     outPath: string,
     opts?: { excludes: string[] },
   ): Promise<void>;
-  tarGz(
-    cwd: string,
-    entries: string[],
-    outPath: string,
-    opts?: { excludes: string[] },
-  ): Promise<void>;
   tarZstd(
     cwd: string,
     entries: string[],

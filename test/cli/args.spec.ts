@@ -7,13 +7,14 @@ import {
   readTransport,
 } from "../../src/cli/args.js";
 
-test("args parser uses a CLI parsing SDK", () => {
+test("args parser uses node:util parseArgs as the single parser", () => {
   const source = readFileSync("src/cli/args.ts", "utf8");
 
-  expect(source).toContain('from "citty"');
-  expect(source).not.toContain("readFlag");
-  expect(source).not.toContain("readCsvFlags");
-  expect(source).not.toContain("KNOWN_FLAGS");
+  expect(source).toContain('from "node:util"');
+  expect(source).not.toContain("citty");
+  expect(source).not.toContain("scanOptions");
+  expect(source).not.toContain("VALUE_OPTIONS");
+  expect(source).not.toContain("BOOLEAN_OPTIONS");
 });
 
 test("parseArgs keeps push defaults and flags", () => {
@@ -27,13 +28,12 @@ test("parseArgs keeps push defaults and flags", () => {
   });
   expect(
     parseArgs(
-      ["push", "--no-profile", "--strict", "--tunnel", "cloudflared"],
+      ["push", "--no-profile", "--tunnel", "cloudflared"],
       "/workspace/project",
     ),
   ).toMatchObject({
     cmd: "push",
     profile: false,
-    strict: true,
     transport: "cloudflared",
   });
   expect(
@@ -42,8 +42,38 @@ test("parseArgs keeps push defaults and flags", () => {
     cmd: "push",
     cwd: "/workspace/other",
   });
-  expect(parseArgs(["push", "--unknown"], "/workspace/project")).toMatchObject({
-    cmd: "help",
+  expect(() => parseArgs(["push", "--unknown"], "/workspace/project")).toThrow(
+    "Unknown option '--unknown'",
+  );
+  expect(() => parseArgs(["pushh"], "/workspace/project")).toThrow(
+    "Unknown command pushh",
+  );
+});
+
+test("parseArgs reads the kill id from positionals regardless of flag order", () => {
+  expect(parseArgs(["kill", "sbx-1"], "/workspace/project")).toMatchObject({
+    cmd: "kill",
+    killId: "sbx-1",
+  });
+  expect(
+    parseArgs(["--provider", "e2b", "kill", "sbx-1"], "/workspace/project"),
+  ).toMatchObject({
+    cmd: "kill",
+    killId: "sbx-1",
+    provider: "e2b",
+  });
+});
+
+test("parseArgs defaults profile and ssh to true with --no- opt-outs", () => {
+  expect(parseArgs(["push"], "/workspace/project")).toMatchObject({
+    profile: true,
+    ssh: true,
+  });
+  expect(
+    parseArgs(["push", "--no-profile", "--no-ssh"], "/workspace/project"),
+  ).toMatchObject({
+    profile: false,
+    ssh: false,
   });
 });
 
@@ -57,7 +87,7 @@ test("parseArgs reads repeated comma-split exclude and include flags", () => {
         "--exclude",
         ".cache",
         "--include",
-        "/Users/parsa/.cache/tool",
+        "/Users/alice/.cache/tool",
         "--include",
         "/opt/large,/tmp/shared",
       ],
@@ -65,13 +95,13 @@ test("parseArgs reads repeated comma-split exclude and include flags", () => {
     ),
   ).toMatchObject({
     excludes: ["node_modules", "dist", ".cache"],
-    includes: ["/Users/parsa/.cache/tool", "/opt/large", "/tmp/shared"],
+    includes: ["/Users/alice/.cache/tool", "/opt/large", "/tmp/shared"],
   });
   expect(() => parseArgs(["push", "--exclude"], "/workspace/project")).toThrow(
-    "--exclude requires a value",
+    "'--exclude <value>' argument missing",
   );
   expect(() => parseArgs(["push", "--include"], "/workspace/project")).toThrow(
-    "--include requires a value",
+    "'--include <value>' argument missing",
   );
 });
 
@@ -120,14 +150,11 @@ test("parseArgs validates tunnel values", () => {
 });
 
 test("buildTransport creates the selected transport", () => {
-  expect(buildTransport({ transport: "public" }, {}).id).toBe("public");
+  expect(buildTransport("public", {}).id).toBe("public");
   expect(
-    buildTransport(
-      { transport: "cloudflared" },
-      {
-        CLOUDFLARE_TUNNEL_TOKEN: "token",
-        CLOUDFLARE_TUNNEL_HOSTNAME: "sandhop.example.com",
-      },
-    ).id,
+    buildTransport("cloudflared", {
+      token: "token",
+      hostname: "sandhop.example.com",
+    }).id,
   ).toBe("cloudflared");
 });

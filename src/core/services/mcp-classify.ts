@@ -4,7 +4,12 @@ import type { McpServer } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
 import { quote } from "shell-quote";
 import { installCommandFor } from "./install-cmd.js";
-import { type PathMapping, maybeRealpath, remapValue } from "./mcp-paths.js";
+import {
+  type PathMapping,
+  maybeRealpath,
+  remapValue,
+  shellPathTokens,
+} from "./mcp-paths.js";
 
 export type McpServerClassification =
   | "remote-installable"
@@ -86,6 +91,59 @@ const isBinary = (host: HostDeps, path: string): boolean => {
 const isAppBundlePath = (path: string): boolean =>
   /\/Applications\/[^/]+\.app\//.test(path);
 
+const SANDBOX_PROVIDED_COMMANDS = new Set([
+  "bash",
+  "bun",
+  "bunx",
+  "env",
+  "git",
+  "node",
+  "npm",
+  "npx",
+  "python",
+  "python3",
+  "sh",
+  "uv",
+  "uvx",
+]);
+
+const whichLocal = (host: HostDeps, name: string): string | null => {
+  const path = host.env["PATH"];
+  if (path === undefined) return null;
+  for (const dir of path.split(":")) {
+    if (dir.length === 0) continue;
+    const candidate = `${dir}/${name}`;
+    if (host.exists(candidate)) return maybeRealpath(host, candidate);
+  }
+  return null;
+};
+
+export type CommandResolution =
+  | { kind: "server"; server: McpServer }
+  | { kind: "excluded"; reason: string };
+
+export const resolveServerCommand = (
+  host: HostDeps,
+  server: McpServer,
+): CommandResolution => {
+  if (server.transport !== "stdio") return { kind: "server", server };
+  if (server.command.includes("/")) return { kind: "server", server };
+  if (SANDBOX_PROVIDED_COMMANDS.has(server.command))
+    return { kind: "server", server };
+  const resolved = whichLocal(host, server.command);
+  if (resolved === null)
+    return {
+      kind: "excluded",
+      reason: `command not found on local PATH: ${server.command}`,
+    };
+  if (isBinary(host, resolved))
+    return {
+      kind: "excluded",
+      reason: `host-local binary (not transferable): ${server.command}`,
+    };
+  return { kind: "server", server: { ...server, command: resolved } };
+};
+
 const LOCAL_BIND_PATTERN =
   /(^|[^a-z])(localhost|127\.0\.0\.1|::1|0\.0\.0\.0)([^a-z]|$)/i;
 
@@ -164,10 +222,9 @@ const bashLocalPaths = (host: HostDeps, server: McpServer): string[] => {
   );
   const paths: string[] = [];
   for (const text of bashCommandTexts(server)) {
-    for (const match of text.matchAll(
-      /(?:^|[\s;&|])((?:\/|~\/|\$HOME|\$\{HOME\})[^\s;&|]+)/g,
-    )) {
-      const expanded = expandEnv(match[1]!, host.home, host.env);
+    for (const token of shellPathTokens(text)) {
+      if (token.startsWith("./") || token.startsWith("../")) continue;
+      const expanded = expandEnv(token, host.home, host.env);
       const real = maybeRealpath(host, expanded);
       if (real !== null && !sourced.has(real)) paths.push(real);
     }
@@ -213,25 +270,39 @@ const hasRuntimeShebang = (
     return text !== null && text.split("\n", 1)[0]!.includes(runtime);
   });
 
-export const addRuntime = (
-  host: HostDeps,
+export const addCommandRuntimes = (
   server: McpServer,
+  runtimes: Set<McpRuntime>,
+): void => {
+  const name = commandName(server);
+  const bashTexts = bashCommandTexts(server);
+  if (
+    name === "bun" ||
+    name === "bunx" ||
+    bashTexts.some((text) => /\bbunx?\b/.test(text))
+  )
+    runtimes.add("bun");
+  if (
+    name === "uv" ||
+    name === "uvx" ||
+    bashTexts.some((text) => /\buvx?\b/.test(text))
+  )
+    runtimes.add("uv");
+};
+
+export const addProjectRuntimes = (
+  host: HostDeps,
   paths: string[],
   root: string,
   runtimes: Set<McpRuntime>,
 ): void => {
-  const name = commandName(server);
   if (
-    name === "bun" ||
-    name === "bunx" ||
     host.exists(joinPath(root, "bun.lock")) ||
     host.exists(joinPath(root, "bun.lockb")) ||
     hasRuntimeShebang(host, paths, "bun")
   )
     runtimes.add("bun");
   if (
-    name === "uv" ||
-    name === "uvx" ||
     host.exists(joinPath(root, "uv.lock")) ||
     hasRuntimeShebang(host, paths, "uv")
   )
@@ -274,25 +345,7 @@ export const rewriteServer = (
   sandboxHome: string,
   mappings: PathMapping[],
 ): McpServer => {
-  if (server.transport !== "stdio")
-    return {
-      name: server.name,
-      transport: server.transport,
-      url: server.url,
-      ...(server.headers === undefined ? {} : { headers: server.headers }),
-      ...(server.bearerTokenEnvVar === undefined
-        ? {}
-        : { bearerTokenEnvVar: server.bearerTokenEnvVar }),
-      ...(server.httpHeaders === undefined
-        ? {}
-        : { httpHeaders: server.httpHeaders }),
-      ...(server.envHttpHeaders === undefined
-        ? {}
-        : { envHttpHeaders: server.envHttpHeaders }),
-      ...(server.startupTimeoutSec === undefined
-        ? {}
-        : { startupTimeoutSec: server.startupTimeoutSec }),
-    };
+  if (server.transport !== "stdio") return server;
   return {
     name: server.name,
     transport: "stdio",
@@ -320,5 +373,6 @@ export const rewriteServer = (
     ...(server.startupTimeoutSec === undefined
       ? {}
       : { startupTimeoutSec: server.startupTimeoutSec }),
+    ...(server.extras === undefined ? {} : { extras: server.extras }),
   };
 };

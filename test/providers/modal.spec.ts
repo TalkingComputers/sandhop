@@ -1,23 +1,24 @@
 import { expect, test, vi } from "vitest";
 import { remotePath } from "../../src/core/paths.js";
-import { FakeHost } from "../fakes/host.js";
 
 const RUNTIME = {
-  home: "/Users/parsabahraminejad",
-  username: "parsabahraminejad",
-  workdir: "/Users/parsabahraminejad/Desktop/project",
+  home: "/Users/alice",
+  username: "alice",
+  workdir: "/Users/alice/Desktop/project",
 };
 
 const runAsRuntime = (cmd: string): string[] => [
   "runuser",
   "-u",
-  "parsabahraminejad",
+  "alice",
   "--",
   "env",
-  "HOME=/Users/parsabahraminejad",
-  "SANDHOP_RUNTIME_HOME=/Users/parsabahraminejad",
-  "SANDHOP_RUNTIME_USER=parsabahraminejad",
-  "SANDHOP_RUNTIME_WORKDIR=/Users/parsabahraminejad/Desktop/project",
+  "HOME=/Users/alice",
+  "LANG=C.UTF-8",
+  "LC_ALL=C.UTF-8",
+  "SANDHOP_RUNTIME_HOME=/Users/alice",
+  "SANDHOP_RUNTIME_USER=alice",
+  "SANDHOP_RUNTIME_WORKDIR=/Users/alice/Desktop/project",
   "bash",
   "-lc",
   cmd,
@@ -28,24 +29,30 @@ const modalMocks = vi.hoisted(() => {
   const stderrReadText = vi.fn(async () => "stderr");
   const wait = vi.fn(async () => 7);
   const exec = vi.fn(async (command: string[]) =>
-    command[0] === "bash" &&
-    command[2] ===
-      `printf '%s\\n%s\\n%s\\n' "$SANDHOP_RUNTIME_HOME" "$SANDHOP_RUNTIME_USER" "$SANDHOP_RUNTIME_WORKDIR"`
+    command[0] === "cat"
       ? {
-          stdout: {
-            readText: vi.fn(
-              async () =>
-                "/Users/parsabahraminejad\nparsabahraminejad\n/Users/parsabahraminejad/Desktop/project\n",
-            ),
-          },
+          stdout: { readText: vi.fn(async () => "ready") },
           stderr: { readText: vi.fn(async () => "") },
           wait: vi.fn(async () => 0),
         }
-      : {
-          stdout: { readText: stdoutReadText },
-          stderr: { readText: stderrReadText },
-          wait,
-        },
+      : command[0] === "bash" &&
+          command[2] ===
+            `printf '%s\\n%s\\n%s\\n' "$SANDHOP_RUNTIME_HOME" "$SANDHOP_RUNTIME_USER" "$SANDHOP_RUNTIME_WORKDIR"`
+        ? {
+            stdout: {
+              readText: vi.fn(
+                async () =>
+                  "/Users/alice\nalice\n/Users/alice/Desktop/project\n",
+              ),
+            },
+            stderr: { readText: vi.fn(async () => "") },
+            wait: vi.fn(async () => 0),
+          }
+        : {
+            stdout: { readText: stdoutReadText },
+            stderr: { readText: stderrReadText },
+            wait,
+          },
   );
   const writeText = vi.fn(async () => undefined);
   const writeBytes = vi.fn(async () => undefined);
@@ -54,9 +61,9 @@ const modalMocks = vi.hoisted(() => {
     7681: { host: "modal-host.example" },
   }));
   const getTags = vi.fn(async () => ({
-    "sandhop.runtime.home": "/Users/parsabahraminejad",
-    "sandhop.runtime.user": "parsabahraminejad",
-    "sandhop.runtime.workdir": "/Users/parsabahraminejad/Desktop/project",
+    "sandhop.runtime.home": "/Users/alice",
+    "sandhop.runtime.user": "alice",
+    "sandhop.runtime.workdir": "/Users/alice/Desktop/project",
   }));
   const terminate = vi.fn(async () => undefined);
   const sandbox = {
@@ -123,11 +130,10 @@ const TOOL_INSTALL =
 
 test("ModalSandboxProvider creates a sandhop sandbox and maps exec results", async () => {
   const { ModalSandboxProvider } = await loadProvider();
-  const host = new FakeHost({
-    home: "/home/local",
-    env: { MODAL_TOKEN_ID: "id", MODAL_TOKEN_SECRET: "secret" },
+  const provider = new ModalSandboxProvider({
+    MODAL_TOKEN_ID: "id",
+    MODAL_TOKEN_SECRET: "secret",
   });
-  const provider = new ModalSandboxProvider(host);
 
   const sandbox = await provider.create({
     envs: { A: "1" },
@@ -135,7 +141,7 @@ test("ModalSandboxProvider creates a sandhop sandbox and maps exec results", asy
     ports: [7681],
     runtime: RUNTIME,
   });
-  expect(sandbox.home).toBe("/Users/parsabahraminejad");
+  expect(sandbox.home).toBe("/Users/alice");
 
   await expect(sandbox.exec("echo", ["ok"])).resolves.toEqual({
     exitCode: 7,
@@ -152,20 +158,20 @@ test("ModalSandboxProvider creates a sandhop sandbox and maps exec results", asy
   });
   expect(modalMocks.fromRegistry).toHaveBeenCalledWith(NODE_IMAGE);
   expect(modalMocks.image.dockerfileCommands).toHaveBeenCalledWith([
-    "RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git zstd tmux util-linux",
-    "RUN mkdir -p /Users/parsabahraminejad /Users/parsabahraminejad/Desktop/project && useradd --user-group --create-home --home-dir /Users/parsabahraminejad --shell /bin/bash parsabahraminejad && chown -R parsabahraminejad\\:parsabahraminejad /Users/parsabahraminejad /Users/parsabahraminejad/Desktop/project",
+    "RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git jq unzip zstd tmux util-linux",
+    `RUN mkdir -p /Users/alice /Users/alice/Desktop/project && useradd --user-group --create-home --home-dir /Users/alice --shell /bin/bash alice && printf '%s\\n' 'export PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"' 'export LANG=C.UTF-8 LC_ALL=C.UTF-8' > /Users/alice/.profile && chown -R alice\\:alice /Users/alice /Users/alice/Desktop/project`,
     TOOL_INSTALL,
-    "ENV HOME=/Users/parsabahraminejad",
+    "ENV HOME=/Users/alice",
   ]);
   expect(modalMocks.create).toHaveBeenCalledWith(
     { appId: "app-id" },
     {
       image: "node-image",
       commands: [
-        "RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git zstd tmux util-linux",
-        "RUN mkdir -p /Users/parsabahraminejad /Users/parsabahraminejad/Desktop/project && useradd --user-group --create-home --home-dir /Users/parsabahraminejad --shell /bin/bash parsabahraminejad && chown -R parsabahraminejad\\:parsabahraminejad /Users/parsabahraminejad /Users/parsabahraminejad/Desktop/project",
+        "RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git jq unzip zstd tmux util-linux",
+        `RUN mkdir -p /Users/alice /Users/alice/Desktop/project && useradd --user-group --create-home --home-dir /Users/alice --shell /bin/bash alice && printf '%s\\n' 'export PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"' 'export LANG=C.UTF-8 LC_ALL=C.UTF-8' > /Users/alice/.profile && chown -R alice\\:alice /Users/alice /Users/alice/Desktop/project`,
         TOOL_INSTALL,
-        "ENV HOME=/Users/parsabahraminejad",
+        "ENV HOME=/Users/alice",
       ],
     },
     {
@@ -174,51 +180,55 @@ test("ModalSandboxProvider creates a sandhop sandbox and maps exec results", asy
       encryptedPorts: [7681],
       env: {
         A: "1",
-        HOME: "/Users/parsabahraminejad",
-        SANDHOP_RUNTIME_HOME: "/Users/parsabahraminejad",
-        SANDHOP_RUNTIME_USER: "parsabahraminejad",
-        SANDHOP_RUNTIME_WORKDIR: "/Users/parsabahraminejad/Desktop/project",
+        HOME: "/Users/alice",
+        LANG: "C.UTF-8",
+        LC_ALL: "C.UTF-8",
+        SANDHOP_RUNTIME_HOME: "/Users/alice",
+        SANDHOP_RUNTIME_USER: "alice",
+        SANDHOP_RUNTIME_WORKDIR: "/Users/alice/Desktop/project",
       },
       memoryMiB: 4096,
       tags: {
-        "sandhop.runtime.home": "/Users/parsabahraminejad",
-        "sandhop.runtime.user": "parsabahraminejad",
-        "sandhop.runtime.workdir": "/Users/parsabahraminejad/Desktop/project",
+        "sandhop.runtime.home": "/Users/alice",
+        "sandhop.runtime.user": "alice",
+        "sandhop.runtime.workdir": "/Users/alice/Desktop/project",
       },
       timeoutMs: 600000,
-      workdir: "/Users/parsabahraminejad/Desktop/project",
+      workdir: "/Users/alice/Desktop/project",
     },
   );
   expect(modalMocks.exec).toHaveBeenCalledWith(["echo", "ok"], {
     env: {
-      HOME: "/Users/parsabahraminejad",
-      SANDHOP_RUNTIME_HOME: "/Users/parsabahraminejad",
-      SANDHOP_RUNTIME_USER: "parsabahraminejad",
-      SANDHOP_RUNTIME_WORKDIR: "/Users/parsabahraminejad/Desktop/project",
+      HOME: "/Users/alice",
+      LANG: "C.UTF-8",
+      LC_ALL: "C.UTF-8",
+      SANDHOP_RUNTIME_HOME: "/Users/alice",
+      SANDHOP_RUNTIME_USER: "alice",
+      SANDHOP_RUNTIME_WORKDIR: "/Users/alice/Desktop/project",
     },
     timeoutMs: 600000,
-    workdir: "/Users/parsabahraminejad/Desktop/project",
+    workdir: "/Users/alice/Desktop/project",
   });
   expect(modalMocks.exec).toHaveBeenCalledWith(["echo", "slow"], {
     env: {
-      HOME: "/Users/parsabahraminejad",
-      SANDHOP_RUNTIME_HOME: "/Users/parsabahraminejad",
-      SANDHOP_RUNTIME_USER: "parsabahraminejad",
-      SANDHOP_RUNTIME_WORKDIR: "/Users/parsabahraminejad/Desktop/project",
+      HOME: "/Users/alice",
+      LANG: "C.UTF-8",
+      LC_ALL: "C.UTF-8",
+      SANDHOP_RUNTIME_HOME: "/Users/alice",
+      SANDHOP_RUNTIME_USER: "alice",
+      SANDHOP_RUNTIME_WORKDIR: "/Users/alice/Desktop/project",
     },
     timeoutMs: 123000,
-    workdir: "/Users/parsabahraminejad/Desktop/project",
+    workdir: "/Users/alice/Desktop/project",
   });
 });
 
-test("ModalSandboxProvider spawn starts without awaiting process completion", async () => {
+test("ModalSandboxProvider startService starts without awaiting process completion", async () => {
   const { ModalSandboxProvider } = await loadProvider();
-  const provider = new ModalSandboxProvider(
-    new FakeHost({
-      home: "/home/local",
-      env: { MODAL_TOKEN_ID: "id", MODAL_TOKEN_SECRET: "secret" },
-    }),
-  );
+  const provider = new ModalSandboxProvider({
+    MODAL_TOKEN_ID: "id",
+    MODAL_TOKEN_SECRET: "secret",
+  });
   const sandbox = await provider.create({
     envs: {},
     timeoutMs: 600000,
@@ -228,18 +238,33 @@ test("ModalSandboxProvider spawn starts without awaiting process completion", as
   modalMocks.exec.mockClear();
   modalMocks.wait.mockClear();
 
-  await sandbox.spawn("ttyd", []);
+  await sandbox.startService({
+    file: "ttyd",
+    args: [],
+    port: 7681,
+    readiness: {
+      kind: "log",
+      path: remotePath("/tmp/ttyd.log"),
+      matches: [/ready/],
+      timeoutMs: 100,
+      intervalMs: 1,
+    },
+    stdoutPath: remotePath("/tmp/ttyd.log"),
+    stderrPath: remotePath("/tmp/ttyd.log"),
+  });
 
   expect(modalMocks.exec).toHaveBeenCalledWith(
-    runAsRuntime("nohup bash -lc ttyd >/dev/null 2>&1 &"),
+    runAsRuntime("ttyd > /tmp/ttyd.log 2>&1"),
     {
       env: {
-        HOME: "/Users/parsabahraminejad",
-        SANDHOP_RUNTIME_HOME: "/Users/parsabahraminejad",
-        SANDHOP_RUNTIME_USER: "parsabahraminejad",
-        SANDHOP_RUNTIME_WORKDIR: "/Users/parsabahraminejad/Desktop/project",
+        HOME: "/Users/alice",
+        LANG: "C.UTF-8",
+        LC_ALL: "C.UTF-8",
+        SANDHOP_RUNTIME_HOME: "/Users/alice",
+        SANDHOP_RUNTIME_USER: "alice",
+        SANDHOP_RUNTIME_WORKDIR: "/Users/alice/Desktop/project",
       },
-      workdir: "/Users/parsabahraminejad/Desktop/project",
+      workdir: "/Users/alice/Desktop/project",
     },
   );
   expect(modalMocks.wait).not.toHaveBeenCalled();
@@ -247,12 +272,10 @@ test("ModalSandboxProvider spawn starts without awaiting process completion", as
 
 test("ModalSandboxProvider rejects invalid Linux runtime usernames", async () => {
   const { ModalSandboxProvider } = await loadProvider();
-  const provider = new ModalSandboxProvider(
-    new FakeHost({
-      home: "/home/local",
-      env: { MODAL_TOKEN_ID: "id", MODAL_TOKEN_SECRET: "secret" },
-    }),
-  );
+  const provider = new ModalSandboxProvider({
+    MODAL_TOKEN_ID: "id",
+    MODAL_TOKEN_SECRET: "secret",
+  });
 
   await expect(
     provider.create({
@@ -274,13 +297,10 @@ test("ModalSandboxProvider rejects invalid Linux runtime usernames", async () =>
 
 test("ModalSandboxProvider uploads files, exposes ports, and destroys", async () => {
   const { ModalSandboxProvider } = await loadProvider();
-  const provider = new ModalSandboxProvider(
-    new FakeHost({
-      home: "/home/local",
-      env: { MODAL_TOKEN_ID: "id", MODAL_TOKEN_SECRET: "secret" },
-      bytes: { "/tmp/profile.tgz": new Uint8Array([9, 8]) },
-    }),
-  );
+  const provider = new ModalSandboxProvider({
+    MODAL_TOKEN_ID: "id",
+    MODAL_TOKEN_SECRET: "secret",
+  });
   const sandbox = await provider.create({
     envs: {},
     timeoutMs: 600000,
@@ -314,12 +334,10 @@ test("ModalSandboxProvider uploads files, exposes ports, and destroys", async ()
 
 test("ModalSandboxProvider connect and destroy use SDK lookups", async () => {
   const { ModalSandboxProvider } = await loadProvider();
-  const provider = new ModalSandboxProvider(
-    new FakeHost({
-      home: "/home/local",
-      env: { MODAL_TOKEN_ID: "id", MODAL_TOKEN_SECRET: "secret" },
-    }),
-  );
+  const provider = new ModalSandboxProvider({
+    MODAL_TOKEN_ID: "id",
+    MODAL_TOKEN_SECRET: "secret",
+  });
   const created = await provider.create({
     envs: {},
     timeoutMs: 600000,
@@ -334,7 +352,7 @@ test("ModalSandboxProvider connect and destroy use SDK lookups", async () => {
   await expect(provider.destroy("modal-sbx")).resolves.toBe(true);
 
   expect(connected).not.toBe(created);
-  expect(connected.home).toBe("/Users/parsabahraminejad");
+  expect(connected.home).toBe("/Users/alice");
   expect(modalMocks.fromId).toHaveBeenCalledTimes(2);
   expect(modalMocks.fromId).toHaveBeenNthCalledWith(1, "modal-sbx");
   expect(modalMocks.fromId).toHaveBeenNthCalledWith(2, "modal-sbx");
@@ -350,12 +368,10 @@ test("ModalSandboxProvider validates Node major before image lookup", async () =
   });
   try {
     const { ModalSandboxProvider } = await loadProvider();
-    const provider = new ModalSandboxProvider(
-      new FakeHost({
-        home: "/home/local",
-        env: { MODAL_TOKEN_ID: "id", MODAL_TOKEN_SECRET: "secret" },
-      }),
-    );
+    const provider = new ModalSandboxProvider({
+      MODAL_TOKEN_ID: "id",
+      MODAL_TOKEN_SECRET: "secret",
+    });
 
     await expect(
       provider.create({
@@ -379,12 +395,10 @@ test("ModalSandboxProvider missing package throws install hint", async () => {
   });
   const { ModalSandboxProvider } =
     await import("../../src/providers/modal/index.js");
-  const provider = new ModalSandboxProvider(
-    new FakeHost({
-      home: "/home/local",
-      env: { MODAL_TOKEN_ID: "id", MODAL_TOKEN_SECRET: "secret" },
-    }),
-  );
+  const provider = new ModalSandboxProvider({
+    MODAL_TOKEN_ID: "id",
+    MODAL_TOKEN_SECRET: "secret",
+  });
 
   await expect(
     provider.create({

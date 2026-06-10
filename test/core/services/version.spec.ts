@@ -1,10 +1,10 @@
 import { expect, test } from "vitest";
 import { CODEX } from "../../../src/agents/codex.js";
 import { CLAUDE_CODE } from "../../../src/agents/claude-code.js";
-import { VersionService } from "../../../src/core/services/version.js";
+import { detectVersion } from "../../../src/core/services/version.js";
 import { FakeHost } from "../../fakes/host.js";
 
-test("VersionService detects exact local CLI semver with agent binaries", () => {
+test("detectVersion detects exact local CLI semver with agent binaries", () => {
   const host = new FakeHost({
     home: "/home/local",
     env: {},
@@ -14,8 +14,8 @@ test("VersionService detects exact local CLI semver with agent binaries", () => 
     },
   });
 
-  expect(new VersionService(host, CLAUDE_CODE).detect()).toBe("2.1.160");
-  expect(new VersionService(host, CODEX).detect()).toBe("0.136.0");
+  expect(detectVersion(host, CLAUDE_CODE)).toBe("2.1.160");
+  expect(detectVersion(host, CODEX)).toBe("0.136.0");
   expect(host.execCalls).toEqual([
     { bin: "claude", args: ["--version"] },
     { bin: "codex", args: ["--version"] },

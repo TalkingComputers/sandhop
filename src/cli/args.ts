@@ -1,9 +1,12 @@
-import { parseArgs as parseCliArgs, type ArgsDef } from "citty";
+import { parseArgs as parseNodeArgs } from "node:util";
 import type { AgentId } from "../core/ports/agent.js";
 import type { Transport } from "../core/ports/transport.js";
 import type { SandhopTransport } from "./config.js";
 import { PROVIDER_IDS, type ProviderId } from "../providers/index.js";
-import { CloudflaredTransport } from "../transports/cloudflared.js";
+import {
+  CloudflaredTransport,
+  type CloudflaredOptions,
+} from "../transports/cloudflared.js";
 import { PublicTransport } from "../transports/public.js";
 
 export interface ParsedArgs {
@@ -17,43 +20,24 @@ export interface ParsedArgs {
   excludes: string[];
   includes: string[];
   profile: boolean;
-  strict: boolean;
+  ssh: boolean;
 }
 
-const CLI_ARGS = {
-  command: { type: "positional", required: false },
+const CLI_OPTIONS = {
   agent: { type: "string" },
   session: { type: "string" },
   cwd: { type: "string" },
   provider: { type: "string" },
   tunnel: { type: "string" },
-  exclude: { type: "string" },
-  include: { type: "string" },
-  profile: { type: "boolean", default: true },
-  strict: { type: "boolean", default: false },
-} as const satisfies ArgsDef;
+  exclude: { type: "string", multiple: true },
+  include: { type: "string", multiple: true },
+  profile: { type: "boolean" },
+  ssh: { type: "boolean" },
+  help: { type: "boolean", short: "h" },
+  version: { type: "boolean", short: "v" },
+} as const;
 
 const COMMANDS = new Set<ParsedArgs["cmd"]>(["push", "list", "kill", "setup"]);
-
-const VALUE_OPTIONS = new Set([
-  "--agent",
-  "--session",
-  "--cwd",
-  "--provider",
-  "--tunnel",
-  "--exclude",
-  "--include",
-]);
-
-const BOOLEAN_OPTIONS = new Set([
-  "--profile",
-  "--no-profile",
-  "--strict",
-  "--help",
-  "-h",
-  "--version",
-  "-v",
-]);
 
 export const readAgent = (value: string | undefined): AgentId | undefined => {
   if (value === undefined) return undefined;
@@ -88,91 +72,70 @@ const readOptionalProvider = (
 ): ProviderId | undefined =>
   value === undefined ? undefined : readProvider(value);
 
-const readOptionName = (token: string): string => {
-  const equalsIndex = token.indexOf("=");
-  return equalsIndex < 0 ? token : token.slice(0, equalsIndex);
+const splitCsv = (values: string[] | undefined): string[] =>
+  (values ?? [])
+    .flatMap((value) => value.split(","))
+    .filter((item) => item.length > 0);
+
+const readCmd = (
+  command: string | undefined,
+  values: { help?: boolean; version?: boolean },
+): ParsedArgs["cmd"] => {
+  if (values.version === true) return "version";
+  if (values.help === true || command === undefined || command === "help")
+    return "help";
+  if (COMMANDS.has(command as ParsedArgs["cmd"]))
+    return command as ParsedArgs["cmd"];
+  throw new Error(
+    `Unknown command ${command}\nRun \`sandhop --help\` for usage.`,
+  );
 };
 
-const hasUnknownOption = (argv: string[]): boolean =>
-  argv.some((token) => {
-    if (!token.startsWith("-") || token === "--") return false;
-    const name = readOptionName(token);
-    return !VALUE_OPTIONS.has(name) && !BOOLEAN_OPTIONS.has(name);
+const parseTokens = (
+  argv: string[],
+): ReturnType<
+  typeof parseNodeArgs<{
+    args: string[];
+    options: typeof CLI_OPTIONS;
+    allowPositionals: true;
+  }>
+> =>
+  parseNodeArgs({
+    args: argv,
+    options: CLI_OPTIONS,
+    allowPositionals: true,
+    allowNegative: true,
   });
 
-const assertOptionValues = (argv: string[]): void => {
-  for (const [index, token] of argv.entries()) {
-    const name = readOptionName(token);
-    if (!VALUE_OPTIONS.has(name) || token.includes("=")) continue;
-    const value = argv[index + 1];
-    if (value === undefined || value === "" || value.startsWith("--"))
-      throw new Error(`${name} requires a value`);
-  }
-};
-
-const readCsvOptionValues = (argv: string[], name: string): string[] => {
-  const values: string[] = [];
-  for (const [index, token] of argv.entries()) {
-    if (token === name) {
-      const value = argv[index + 1];
-      if (value === undefined || value === "" || value.startsWith("--"))
-        throw new Error(`${name} requires a value`);
-      values.push(...value.split(",").filter((item) => item.length > 0));
-      continue;
-    }
-    if (!token.startsWith(`${name}=`)) continue;
-    const value = token.slice(name.length + 1);
-    if (value === "") throw new Error(`${name} requires a value`);
-    values.push(...value.split(",").filter((item) => item.length > 0));
-  }
-  return values;
-};
-
-export const readExcludes = (argv: string[]): string[] =>
-  readCsvOptionValues(argv, "--exclude");
-
-export const readIncludes = (argv: string[]): string[] =>
-  readCsvOptionValues(argv, "--include");
-
-const readCmd = (argv: string[]): ParsedArgs["cmd"] => {
-  if (argv.includes("--version") || argv.includes("-v")) return "version";
-  if (argv.includes("--help") || argv.includes("-h") || argv[0] === "help")
-    return "help";
-  const parsed = parseCliArgs(argv, CLI_ARGS);
-  const command = parsed.command;
-  if (typeof command === "string" && COMMANDS.has(command))
-    return hasUnknownOption(argv) ? "help" : command;
-  return "help";
-};
-
 export const parseArgs = (argv: string[], cwd: string): ParsedArgs => {
-  assertOptionValues(argv);
-  const cmd = readCmd(argv);
-  const parsed = parseCliArgs(argv, CLI_ARGS);
+  let parsed: ReturnType<typeof parseTokens>;
+  try {
+    parsed = parseTokens(argv);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`${message}\nRun \`sandhop --help\` for usage.`);
+  }
+  const { values, positionals } = parsed;
+  const cmd = readCmd(positionals[0], values);
   return {
     cmd,
-    agent: readAgent(parsed.agent),
-    session: parsed.session,
-    killId: cmd === "kill" ? argv[1] : undefined,
-    cwd: parsed.cwd ?? cwd,
-    provider: readOptionalProvider(parsed.provider),
-    transport: readOptionalTransport(parsed.tunnel),
-    excludes: readExcludes(argv),
-    includes: readIncludes(argv),
-    profile: parsed.profile !== false,
-    strict: parsed.strict === true,
+    agent: readAgent(values.agent),
+    session: values.session,
+    killId: cmd === "kill" ? positionals[1] : undefined,
+    cwd: values.cwd ?? cwd,
+    provider: readOptionalProvider(values.provider),
+    transport: readOptionalTransport(values.tunnel),
+    excludes: splitCsv(values.exclude),
+    includes: splitCsv(values.include),
+    profile: values.profile !== false,
+    ssh: values.ssh !== false,
   };
 };
 
 export const buildTransport = (
-  args: { transport: SandhopTransport },
-  hostEnv: Record<string, string | undefined>,
-): Transport => {
-  if (args.transport === "public") return new PublicTransport();
-  if (args.transport === "cloudflared")
-    return new CloudflaredTransport({
-      token: hostEnv.CLOUDFLARE_TUNNEL_TOKEN,
-      hostname: hostEnv.CLOUDFLARE_TUNNEL_HOSTNAME,
-    });
-  throw new Error(`Unknown transport ${args.transport}`);
-};
+  transport: SandhopTransport,
+  cloudflare: CloudflaredOptions,
+): Transport =>
+  transport === "public"
+    ? new PublicTransport()
+    : new CloudflaredTransport(cloudflare);

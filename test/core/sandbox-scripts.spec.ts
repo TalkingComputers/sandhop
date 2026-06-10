@@ -11,8 +11,8 @@ import { join } from "node:path";
 import { expect, test } from "vitest";
 import {
   buildClaudePreSeedScript,
-  buildCodexPreSeedScript,
   buildCodexMcpConfigScript,
+  buildHomeWriteScript,
   buildMergeClaudeMcpScript,
 } from "../../src/core/sandbox-scripts.js";
 
@@ -50,10 +50,16 @@ test("buildClaudePreSeedScript merges onboarding and trust while preserving Clau
     }),
   );
 
-  runNodeScript(buildClaudePreSeedScript("/workspace/project"), {
-    ANTHROPIC_API_KEY: "proxy-key",
-    HOME: home,
-  });
+  runNodeScript(
+    buildClaudePreSeedScript("/workspace/project", {
+      allowedTools: ["Bash(npm test)"],
+      hasTrustDialogAccepted: false,
+    }),
+    {
+      ANTHROPIC_API_KEY: "proxy-key",
+      HOME: home,
+    },
+  );
 
   const parsed = JSON.parse(
     readFileSync(join(home, ".claude.json"), "utf8"),
@@ -61,6 +67,7 @@ test("buildClaudePreSeedScript merges onboarding and trust while preserving Clau
   expect(existsSync(join(home, ".claude.json.sandhop.tmp"))).toBe(false);
   expect(parsed.hasCompletedOnboarding).toBe(true);
   expect(parsed.projects["/workspace/project"]).toEqual({
+    allowedTools: ["Bash(npm test)"],
     hasTrustDialogAccepted: true,
     hasCompletedProjectOnboarding: true,
   });
@@ -80,7 +87,7 @@ test("buildClaudePreSeedScript does not duplicate approved API key suffixes", ()
     }),
   );
 
-  runNodeScript(buildClaudePreSeedScript("/workspace/project"), {
+  runNodeScript(buildClaudePreSeedScript("/workspace/project", {}), {
     ANTHROPIC_API_KEY: "prefix-12345678901234567890",
     HOME: home,
   });
@@ -94,38 +101,21 @@ test("buildClaudePreSeedScript does not duplicate approved API key suffixes", ()
   });
 });
 
-test("buildCodexPreSeedScript writes auth store and trust while preserving user policy", () => {
-  const home = mkdtempSync(join(tmpdir(), "sandhop-codex-preseed-"));
-  mkdirSync(join(home, ".codex"), { recursive: true });
-  writeFileSync(
-    join(home, ".codex", "config.toml"),
-    [
-      'model = "gpt-5.4"',
-      'approval_policy = "on-request"',
-      'sandbox_mode = "workspace-write"',
-      "",
-      "[mcp_servers.local]",
-      'command = "node"',
-      "",
-    ].join("\n"),
+test("buildHomeWriteScript atomically writes home-relative files and creates parent dirs", () => {
+  const home = mkdtempSync(join(tmpdir(), "sandhop-home-write-"));
+  const content = 'model = "gpt-5.4"\nweird = "quote\'s ; $(touch pwn)"\n';
+
+  runNodeScript(buildHomeWriteScript(".codex/config.toml", content), {
+    HOME: home,
+  });
+
+  expect(readFileSync(join(home, ".codex", "config.toml"), "utf8")).toBe(
+    content,
   );
-
-  runNodeScript(buildCodexPreSeedScript("/workspace/project"), { HOME: home });
-
-  const text = readFileSync(join(home, ".codex", "config.toml"), "utf8");
   expect(existsSync(join(home, ".codex", "config.toml.sandhop.tmp"))).toBe(
     false,
   );
-  expect(text).toContain('model = "gpt-5.4"');
-  expect(text).toContain('approval_policy = "on-request"');
-  expect(text).toContain('sandbox_mode = "workspace-write"');
-  expect(text).toContain('cli_auth_credentials_store = "file"');
-  expect(text).toContain("[mcp_servers.local]");
-  expect(text).toContain(
-    '[projects."/workspace/project"]\ntrust_level = "trusted"',
-  );
-  expect(text).not.toContain('approval_policy = "never"');
-  expect(text).not.toContain('sandbox_mode = "danger-full-access"');
+  expect(existsSync(join(home, "pwn"))).toBe(false);
 });
 
 test("buildCodexMcpConfigScript replaces stale Codex MCP tables", () => {
@@ -151,7 +141,7 @@ test("buildCodexMcpConfigScript replaces stale Codex MCP tables", () => {
 
   runNodeScript(
     buildCodexMcpConfigScript(
-      "$HOME/.codex/config.toml",
+      config,
       ["[mcp_servers.fresh]", 'command = "node"', ""].join("\n"),
     ),
     {
@@ -180,7 +170,7 @@ test("buildMergeClaudeMcpScript sets mcpServers and preserves existing fields", 
 
   runNodeScript(
     buildMergeClaudeMcpScript(
-      "$HOME/.claude.json",
+      config,
       JSON.stringify({ local: { command: "node", args: ["server.js"] } }),
     ),
     { HOME: home },

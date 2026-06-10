@@ -3,7 +3,7 @@ import { projectDirName } from "../../src/core/encode.js";
 import { buildManifest } from "../../src/core/manifest.js";
 
 test("buildManifest carries session metadata and derives remote paths", () => {
-  const cwd = "/Users/parsa/My Project";
+  const cwd = "/Users/alice/My Project";
 
   expect(
     buildManifest({

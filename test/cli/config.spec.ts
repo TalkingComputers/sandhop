@@ -1,6 +1,7 @@
 import {
   mkdtempSync,
   mkdirSync,
+  readFileSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -9,7 +10,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import {
-  applyConfigToEnv,
   configPath,
   loadConfig,
   saveConfig,
@@ -99,33 +99,9 @@ test("loadConfig rejects missing and non-string credentials", () => {
   }
 });
 
-test("applyConfigToEnv sets missing values, preserves existing values, and applies defaults", () => {
-  const env: Record<string, string | undefined> = {
-    E2B_API_KEY: "env-key",
-    SANDHOP_PROVIDER: "vercel",
-    SANDHOP_TRANSPORT: "public",
-    CLOUDFLARE_TUNNEL_TOKEN: "env-token",
-  };
+test("config module does not mutate the process environment", () => {
+  const source = readFileSync("src/cli/config.ts", "utf8");
 
-  applyConfigToEnv(
-    {
-      defaultProvider: "e2b",
-      transport: "cloudflared",
-      cloudflare: { token: "stored-token", hostname: "term.example.com" },
-      credentials: {
-        E2B_API_KEY: "stored-key",
-        MODAL_TOKEN_ID: "token-id",
-      },
-    },
-    env,
-  );
-
-  expect(env).toEqual({
-    E2B_API_KEY: "env-key",
-    SANDHOP_PROVIDER: "vercel",
-    SANDHOP_TRANSPORT: "public",
-    CLOUDFLARE_TUNNEL_TOKEN: "env-token",
-    CLOUDFLARE_TUNNEL_HOSTNAME: "term.example.com",
-    MODAL_TOKEN_ID: "token-id",
-  });
+  expect(source).not.toContain("applyConfigToEnv");
+  expect(source).not.toContain("env[key] =");
 });

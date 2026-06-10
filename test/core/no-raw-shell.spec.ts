@@ -13,7 +13,7 @@ const sourceFiles = (dir: string): string[] =>
 
 test("source has no deleted shell helper imports", () => {
   const offenders = sourceFiles("src").filter((path) =>
-    /from ["'].*\/shell\.js["']|shellQuote|quoteHomePath|quoteShellPath|SUDO_SETUP|SANDHOP_OWNER_SETUP|spawnPipe\(|node -e/.test(
+    /from ["'].*\/shell\.js["']|shellQuote|quoteHomePath|quoteShellPath|SUDO_SETUP|SANDHOP_OWNER_SETUP|spawnPipe\(|node -e|\bpgrep\b|verifyTerminalReady|spawnShell|ttydBindAddress/.test(
       readFileSync(path, "utf8"),
     ),
   );
@@ -31,5 +31,6 @@ test("raw provider APIs are replaced by file args and shell boundary methods", (
   expect(ports).not.toContain("spawn(cmd: string");
   expect(ports).toMatch(/exec\(\s*file: string,\s*args: readonly string\[]/);
   expect(ports).toContain("export const execShell");
-  expect(ports).toContain("export const spawnShell");
+  expect(ports).not.toContain("export const spawnShell");
+  expect(ports).toContain("startService(service: ServiceSpec)");
 });

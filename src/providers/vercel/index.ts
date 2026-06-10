@@ -15,18 +15,19 @@ import {
   buildRuntimeUserScript,
   buildRunuserArgs,
   buildSandboxToolInstallScript,
+  envPairs,
   readRuntimeMetadata,
   validateRuntime,
 } from "../../core/sandbox-runtime.js";
 import { destroyOrFalse } from "../destroy.js";
 import { toBuffer } from "../encode.js";
-import { requireCred } from "../index.js";
+import { requireCred, type ResolvedCredentials } from "../index.js";
 import { lazyImport, lazyOnce } from "../lazy-import.js";
 import {
   createSandbox,
-  renderDetachedShell,
-  renderShellCall,
-  type SandboxOps,
+  renderServiceShell,
+  type ProviderOps,
+  type ResolvedExecOptions,
 } from "../sandbox-adapter.js";
 import { quote } from "shell-quote";
 
@@ -39,9 +40,8 @@ interface VercelCredentials {
   projectId: string;
 }
 
-interface VercelHttpError extends Error {
-  status?: number;
-  statusCode?: number;
+interface VercelApiError extends Error {
+  response?: Pick<Response, "status">;
 }
 
 interface VercelCommandResult {
@@ -54,6 +54,7 @@ const VERCEL_INSTALL_HINT =
   "The 'vercel' provider needs @vercel/sandbox. Run: npm i @vercel/sandbox";
 const VERCEL_PACKAGE = "@vercel/sandbox";
 const COMMAND_TIMEOUT_MS = 600000;
+const VERCEL_MAX_SANDBOX_TIMEOUT_MS = 18_000_000;
 const VERCEL_NODE_MAJORS = [22, 24, 26] as const;
 const VERCEL_SANDBOX_VCPUS = 2;
 type VercelNodeRuntime = `node${(typeof VERCEL_NODE_MAJORS)[number]}`;
@@ -71,11 +72,8 @@ const vercelRuntime = (): VercelNodeRuntime => {
   return `node${major as (typeof VERCEL_NODE_MAJORS)[number]}`;
 };
 
-const isNotFoundError = (error: unknown): boolean => {
-  if (!(error instanceof Error)) return false;
-  const httpError = error as VercelHttpError;
-  return httpError.status === 404 || httpError.statusCode === 404;
-};
+const isNotFoundError = (error: unknown): boolean =>
+  error instanceof Error && (error as VercelApiError).response?.status === 404;
 
 const readCommand = async (
   result: VercelCommandResult,
@@ -84,6 +82,9 @@ const readCommand = async (
   stdout: await result.stdout(),
   stderr: await result.stderr(),
 });
+
+const clampTimeout = (timeoutMs: number): number =>
+  Math.min(timeoutMs, VERCEL_MAX_SANDBOX_TIMEOUT_MS);
 
 const runRootShell = async (
   sandbox: VercelSandboxInstance,
@@ -95,63 +96,25 @@ const runRootShell = async (
       cmd: "bash",
       args: ["-lc", script],
       sudo: true,
-      timeoutMs,
+      timeoutMs: clampTimeout(timeoutMs),
     }),
   );
 
 const runRootCommand = async (
   sandbox: VercelSandboxInstance,
-  runtime: SandboxRuntime,
   file: string,
   args: readonly string[],
-  opts:
-    | {
-        cwd?: string;
-        env?: Record<string, string>;
-        timeoutMs?: number;
-      }
-    | undefined,
+  opts: ResolvedExecOptions,
 ): Promise<RunResult> =>
   readCommand(
     await sandbox.runCommand({
       cmd: "env",
-      args: [
-        ...Object.entries({ ...opts?.env, ...buildRuntimeEnv(runtime) }).map(
-          ([key, value]) => `${key}=${value}`,
-        ),
-        file,
-        ...args,
-      ],
-      cwd: opts?.cwd ?? runtime.workdir,
+      args: [...envPairs(opts.env), file, ...args],
+      cwd: opts.cwd,
       sudo: true,
-      timeoutMs: opts?.timeoutMs ?? COMMAND_TIMEOUT_MS,
+      timeoutMs: clampTimeout(opts.timeoutMs),
     }),
   );
-
-const spawnRuntimeCommand = async (
-  sandbox: VercelSandboxInstance,
-  runtime: SandboxRuntime,
-  script: string,
-): Promise<void> => {
-  await sandbox.runCommand({
-    cmd: "runuser",
-    args: buildRunuserArgs(runtime, script).slice(1),
-    detached: true,
-    sudo: true,
-    timeoutMs: 0,
-  });
-};
-
-const buildVercelRuntimeScript = (
-  runtime: SandboxRuntime,
-  file: string,
-  args: readonly string[],
-  opts?: { cwd?: string; env?: Record<string, string> },
-): string =>
-  renderShellCall(file, args, {
-    cwd: opts?.cwd ?? runtime.workdir,
-    env: { ...opts?.env, ...buildRuntimeEnv(runtime) },
-  });
 
 const setupRuntime = async (
   sandbox: VercelSandboxInstance,
@@ -161,7 +124,7 @@ const setupRuntime = async (
   const result = await runRootShell(
     sandbox,
     [
-      "dnf install -y ca-certificates curl git zstd tmux util-linux shadow-utils",
+      "dnf install -y ca-certificates curl-minimal git jq unzip zstd tmux util-linux shadow-utils",
       buildRuntimeUserScript(runtime),
       buildSandboxToolInstallScript(),
     ].join(" && "),
@@ -200,7 +163,7 @@ const makeOps = (
   sandbox: VercelSandboxInstance,
   host: Pick<HostDeps, "readBytes">,
   runtime: SandboxRuntime,
-): SandboxOps => ({
+): ProviderOps => ({
   uploadFile: async (path, data) => {
     await installFile(sandbox, runtime, path, toBuffer(data));
   },
@@ -214,19 +177,18 @@ const makeOps = (
     );
   },
 
-  exec: async (file, args, opts) => {
-    return runRootCommand(sandbox, runtime, file, args, opts);
-  },
+  exec: (file, args, opts) => runRootCommand(sandbox, file, args, opts),
 
-  spawn: async (file, args, opts) => {
-    await spawnRuntimeCommand(
-      sandbox,
-      runtime,
-      renderDetachedShell(
-        buildVercelRuntimeScript(runtime, file, args, opts),
-        opts,
-      ),
-    );
+  spawnService: async (service) => {
+    await sandbox.runCommand({
+      cmd: "runuser",
+      args: buildRunuserArgs(runtime, renderServiceShell(service)).slice(1),
+      cwd: runtime.workdir,
+      detached: true,
+      env: buildRuntimeEnv(runtime),
+      sudo: true,
+      timeoutMs: VERCEL_MAX_SANDBOX_TIMEOUT_MS,
+    });
   },
 
   exposePort: (port) => Promise.resolve({ url: sandbox.domain(port) }),
@@ -238,18 +200,27 @@ const makeOps = (
 
 export class VercelSandboxProvider implements SandboxProvider {
   readonly name = "vercel";
-  readonly host: Pick<HostDeps, "env" | "readBytes">;
+  readonly host: Pick<HostDeps, "readBytes">;
+  readonly credentials: VercelCredentials;
   private readonly sdk: () => Promise<VercelModule>;
 
-  constructor(host: Pick<HostDeps, "env" | "readBytes">) {
+  constructor(
+    host: Pick<HostDeps, "readBytes">,
+    credentials: ResolvedCredentials,
+  ) {
     this.host = host;
+    this.credentials = {
+      token: requireCred(credentials, "VERCEL_TOKEN"),
+      teamId: requireCred(credentials, "VERCEL_TEAM_ID"),
+      projectId: requireCred(credentials, "VERCEL_PROJECT_ID"),
+    };
     this.sdk = lazyOnce(() =>
       lazyImport<VercelModule>(VERCEL_PACKAGE, VERCEL_INSTALL_HINT),
     );
   }
 
   async create(opts: CreateOptions): Promise<Sandbox> {
-    const credentials = this.credentials();
+    const credentials = this.credentials;
     const runtime = validateRuntime(opts.runtime);
     const { Sandbox } = await this.sdk();
     const name = sandboxName();
@@ -258,18 +229,23 @@ export class VercelSandboxProvider implements SandboxProvider {
       env: { ...opts.envs, ...buildRuntimeEnv(runtime) },
       name,
       persistent: false,
-      timeout: opts.timeoutMs,
+      timeout: clampTimeout(opts.timeoutMs),
       ports: opts.ports,
       resources: { vcpus: VERCEL_SANDBOX_VCPUS },
       runtime: vercelRuntime(),
       tags: buildRuntimeMetadata(runtime),
     });
-    await setupRuntime(sandbox, runtime, opts.timeoutMs);
+    try {
+      await setupRuntime(sandbox, runtime, opts.timeoutMs);
+    } catch (error: unknown) {
+      await sandbox.stop();
+      throw error;
+    }
     return createSandbox(name, runtime, makeOps(sandbox, this.host, runtime));
   }
 
   async connect(id: string): Promise<Sandbox> {
-    const credentials = this.credentials();
+    const credentials = this.credentials;
     const { Sandbox } = await this.sdk();
     const sandbox = await Sandbox.get({
       ...credentials,
@@ -281,10 +257,12 @@ export class VercelSandboxProvider implements SandboxProvider {
   }
 
   async list(): Promise<SandboxInfo[]> {
-    const credentials = this.credentials();
+    const credentials = this.credentials;
     const { Sandbox } = await this.sdk();
     const sandboxes: SandboxInfo[] = [];
     for await (const sandbox of await Sandbox.list(credentials)) {
+      if (sandbox.status !== "running" && sandbox.status !== "pending")
+        continue;
       const startedAt = new Date(sandbox.createdAt);
       if (Number.isNaN(startedAt.getTime()))
         throw new Error(`Invalid Vercel sandbox createdAt: ${sandbox.name}`);
@@ -297,18 +275,10 @@ export class VercelSandboxProvider implements SandboxProvider {
   }
 
   async destroy(id: string): Promise<boolean> {
-    const credentials = this.credentials();
+    const credentials = this.credentials;
     const { Sandbox } = await this.sdk();
     return destroyOrFalse(isNotFoundError, async () => {
       await (await Sandbox.get({ ...credentials, name: id })).stop();
     });
-  }
-
-  private credentials(): VercelCredentials {
-    return {
-      token: requireCred(this.host, "vercel", "VERCEL_TOKEN"),
-      teamId: requireCred(this.host, "vercel", "VERCEL_TEAM_ID"),
-      projectId: requireCred(this.host, "vercel", "VERCEL_PROJECT_ID"),
-    };
   }
 }

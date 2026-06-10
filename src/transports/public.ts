@@ -7,7 +7,7 @@ import type {
 export class PublicTransport implements Transport {
   readonly id = "public" as const;
 
-  ttydBindAddress(): string {
+  bindAddress(): string {
     return "0.0.0.0";
   }
 
@@ -16,7 +16,7 @@ export class PublicTransport implements Transport {
   }
 
   async expose(ctx: TransportContext): Promise<TransportResult> {
-    const exposed = await ctx.sandbox.exposePort(ctx.localPort);
+    const exposed = await ctx.sandbox.exposePort(ctx.service.port);
     return { url: exposed.url };
   }
 }

@@ -6,10 +6,38 @@ import type { HostDeps } from "../ports/host.js";
 import type { TransferProgress } from "../ports/progress.js";
 import { execShell, type Sandbox } from "../ports/provider.js";
 import { randomToken } from "../rand.js";
+import {
+  renderChownToRuntimeUser,
+  renderCreateOwnedDirs,
+} from "../sandbox-scripts.js";
 
 // 16MB: benchmarked fastest on bandwidth-limited links (more parallel chunks
 // saturate the upload than a few 90MB ones) and gives finer transfer progress.
 const CHUNK_BYTES = 16 * 1024 * 1024;
+const CHUNK_UPLOAD_DEADLINE_MS = 900_000;
+const EXTRACT_DEADLINE_MS = 900_000;
+
+// Provider SDK promises can dangle (lost socket without rejection), draining
+// the event loop and killing the process silently. The pending timer both
+// keeps the loop alive and converts a dangle into a visible failure.
+const withDeadline = async <T>(
+  promise: Promise<T>,
+  ms: number,
+  label: string,
+): Promise<T> => {
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<never>((unused, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`${label} timed out after ${ms}ms`)),
+      ms,
+    );
+  });
+  try {
+    return await Promise.race([promise, deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+};
 
 type TransferHost = Pick<
   HostDeps,
@@ -39,11 +67,6 @@ const makeLocalArchivePath = (safe: string, id: string): string =>
 const makeRemoteArchivePath = (safe: string, id: string): string =>
   `/tmp/${makeArchiveName(safe, id)}`;
 
-export interface TarCreateOptions {
-  isDirectory?: boolean;
-  excludes?: string[];
-}
-
 const tarSource = (
   path: string,
   isDirectory: boolean,
@@ -59,7 +82,7 @@ const makeExtractionCommands = (
   const extract = `zstd -d --long=27 -c ${quote([remoteArchive])} | tar -xf - -C ${quote([sandboxDestDir])}`;
   return [
     `zstd -t ${quote([remoteArchive])}`,
-    `mkdir -p ${quote([sandboxDestDir])}`,
+    ...renderCreateOwnedDirs([sandboxDestDir]),
     `bash -lc ${quote([`set -o pipefail; ${extract}`])}`,
   ];
 };
@@ -119,10 +142,11 @@ export class TransferService {
       bytesDone: 0,
       bytesTotal: 0,
     });
+    if (!this.host.exists(localPath))
+      throw new Error(`Transfer source missing for ${label}: ${localPath}`);
     const safe = safeLabel(label);
     const id = randomToken(12);
-    const isDirectory =
-      !this.host.exists(localPath) || this.host.isDirectory(localPath);
+    const isDirectory = this.host.isDirectory(localPath);
     const sandboxDestDir = isDirectory
       ? sandboxDestPath
       : dirname(sandboxDestPath);
@@ -153,9 +177,10 @@ export class TransferService {
         chunks.map((chunk, index) =>
           limit(
             async (localChunk: string, remoteChunk: string): Promise<void> => {
-              await this.sandbox.uploadPath(
-                remotePath(remoteChunk),
-                localChunk,
+              await withDeadline(
+                this.sandbox.uploadPath(remotePath(remoteChunk), localChunk),
+                CHUNK_UPLOAD_DEADLINE_MS,
+                `Chunk upload ${remoteChunk} (${label})`,
               );
               uploadedBytes += chunkSizes[index]!;
               opts.onProgress?.({
@@ -181,18 +206,20 @@ export class TransferService {
         bytesDone: totalBytes,
         bytesTotal: totalBytes,
       });
-      const restore = await execShell(
-        this.sandbox,
-        [
-          "set -e",
-          'SUDO=""',
-          'SANDHOP_OWNER="$(id -u "$SANDHOP_RUNTIME_USER"):$(id -g "$SANDHOP_RUNTIME_USER")"',
-          `cat ${catInputs} > ${quote([remoteArchive])}`,
-          makeSizeCheckCommand(remoteArchive, totalBytes),
-          ...makeExtractionCommands(remoteArchive, sandboxDestDir),
-          `$SUDO chown -R "$SANDHOP_OWNER" ${quote([sandboxDestPath])}`,
-          `rm -f ${cleanup}`,
-        ].join("\n"),
+      const restore = await withDeadline(
+        execShell(
+          this.sandbox,
+          [
+            "set -e",
+            `cat ${catInputs} > ${quote([remoteArchive])}`,
+            makeSizeCheckCommand(remoteArchive, totalBytes),
+            ...makeExtractionCommands(remoteArchive, sandboxDestDir),
+            ...renderChownToRuntimeUser([sandboxDestPath], true),
+            `rm -f ${cleanup}`,
+          ].join("\n"),
+        ),
+        EXTRACT_DEADLINE_MS,
+        `Archive extraction (${label})`,
       );
       if (restore.exitCode !== 0)
         throw new Error(

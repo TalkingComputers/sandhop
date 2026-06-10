@@ -11,6 +11,7 @@ import {
   maybeRealpath,
   remapValue,
   sandboxPath,
+  shellPathTokens,
   type PathMapping,
 } from "./mcp-paths.js";
 
@@ -45,9 +46,6 @@ interface RewriteContext {
   roots: Set<string>;
 }
 
-const PATH_TOKEN =
-  /(?:^|[\s"'(=;&|])((?:~\/|\$HOME\/|\$\{HOME\}\/|\/|\.\/|\.\.\/)[^"'`\s;&|)<>]*)/g;
-
 const expandTokenPath = (
   host: HostDeps,
   token: string,
@@ -71,8 +69,7 @@ const readScriptTokens = (
   cwd: string,
 ): ScriptToken[] => {
   const scripts: ScriptToken[] = [];
-  for (const match of command.matchAll(PATH_TOKEN)) {
-    const token = match[1]!;
+  for (const token of shellPathTokens(command)) {
     const expanded = expandTokenPath(host, token, cwd);
     const real = maybeRealpath(host, expanded);
     if (real === null || host.isDirectory(real)) continue;

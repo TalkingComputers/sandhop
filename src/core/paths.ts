@@ -43,7 +43,7 @@ export const uniqueSorted = (values: Iterable<string>): string[] =>
   [...new Set(values)].sort();
 
 export const listSkillNames = (
-  host: HostDeps,
+  host: Pick<HostDeps, "exists" | "walk">,
   skillsRoot: string,
 ): string[] => {
   if (!host.exists(skillsRoot)) return [];

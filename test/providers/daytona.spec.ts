@@ -1,7 +1,6 @@
 import { Buffer } from "node:buffer";
 import { expect, test, vi } from "vitest";
 import { remotePath } from "../../src/core/paths.js";
-import { FakeHost } from "../fakes/host.js";
 
 const RUNTIME = {
   home: "/home/local",
@@ -16,30 +15,39 @@ const daytonaMocks = vi.hoisted(() => {
   }));
   const createSession = vi.fn(async () => undefined);
   const executeSessionCommand = vi.fn(
-    async (sessionId: string, req: { command: string }) =>
-      req.command.includes("printf") && req.command.includes("SANDHOP_RUNTIME")
-        ? {
-            exitCode: 0,
-            stdout: "/home/local\nlocal\n/workspace/project\n",
-            stderr: "",
-          }
-        : req.command.includes("echo ok")
+    async (sessionId: string, req: { command: string; runAsync: boolean }) =>
+      req.runAsync
+        ? { cmdId: "cmd-1" }
+        : req.command.includes("printf") &&
+            req.command.includes("SANDHOP_RUNTIME")
           ? {
               exitCode: 0,
-              stdout: "ok\n",
+              stdout: "/home/local\nlocal\n/workspace/project\n",
               stderr: "",
             }
-          : req.command.includes("echo err")
+          : req.command.includes("echo ok")
             ? {
-                exitCode: 3,
-                stdout: "out\n",
-                stderr: "err\n",
-              }
-            : {
                 exitCode: 0,
-                stdout: "",
+                stdout: "ok\n",
                 stderr: "",
-              },
+              }
+            : req.command.includes("echo err")
+              ? {
+                  exitCode: 3,
+                  stdout: "out\n",
+                  stderr: "err\n",
+                }
+              : req.command.includes("cat /tmp/ttyd.log")
+                ? {
+                    exitCode: 0,
+                    stdout: "ready",
+                    stderr: "",
+                  }
+                : {
+                    exitCode: 0,
+                    stdout: "",
+                    stderr: "",
+                  },
   );
   const deleteSession = vi.fn(async () => undefined);
   const uploadFile = vi.fn(async () => undefined);
@@ -122,15 +130,11 @@ const loadProvider = async () => {
 
 test("DaytonaSandboxProvider creates a sandbox and maps session stdout and stderr", async () => {
   const { DaytonaSandboxProvider } = await loadProvider();
-  const host = new FakeHost({
-    home: "/home/local",
-    env: {
-      DAYTONA_API_KEY: "api-key",
-      DAYTONA_API_URL: "https://api.daytona.example",
-      DAYTONA_TARGET: "target",
-    },
+  const provider = new DaytonaSandboxProvider({
+    DAYTONA_API_KEY: "api-key",
+    DAYTONA_API_URL: "https://api.daytona.example",
+    DAYTONA_TARGET: "target",
   });
-  const provider = new DaytonaSandboxProvider(host);
 
   const sandbox = await provider.create({
     envs: { A: "1" },
@@ -159,7 +163,7 @@ test("DaytonaSandboxProvider creates a sandbox and maps session stdout and stder
   expect(daytonaMocks.Image.base).toHaveBeenCalledWith("node:22-bookworm-slim");
   expect(daytonaMocks.Image.debianSlim).not.toHaveBeenCalled();
   expect(daytonaMocks.image.runCommands).toHaveBeenCalledWith(
-    "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends zstd tmux curl ca-certificates git util-linux && rm -rf /var/lib/apt/lists/*",
+    "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends zstd tmux curl ca-certificates git jq unzip util-linux && rm -rf /var/lib/apt/lists/*",
     expect.any(String),
     expect.any(String),
   );
@@ -168,6 +172,8 @@ test("DaytonaSandboxProvider creates a sandbox and maps session stdout and stder
       envVars: {
         A: "1",
         HOME: "/home/local",
+        LANG: "C.UTF-8",
+        LC_ALL: "C.UTF-8",
         SANDHOP_RUNTIME_HOME: "/home/local",
         SANDHOP_RUNTIME_USER: "local",
         SANDHOP_RUNTIME_WORKDIR: "/workspace/project",
@@ -180,6 +186,8 @@ test("DaytonaSandboxProvider creates a sandbox and maps session stdout and stder
         "sandhop.runtime.user": "local",
         "sandhop.runtime.workdir": "/workspace/project",
       },
+      public: true,
+      resources: { cpu: 4, memory: 4, disk: 10 },
       user: "root",
     },
     { timeout: 600 },
@@ -210,9 +218,7 @@ test("DaytonaSandboxProvider creates a sandbox and maps session stdout and stder
 test("DaytonaSandboxProvider rejects invalid runtime before sandbox create", async () => {
   const { DaytonaSandboxProvider } = await loadProvider();
   daytonaMocks.create.mockClear();
-  const provider = new DaytonaSandboxProvider(
-    new FakeHost({ home: "/home/local", env: { DAYTONA_API_KEY: "api-key" } }),
-  );
+  const provider = new DaytonaSandboxProvider({ DAYTONA_API_KEY: "api-key" });
 
   await expect(
     provider.create({
@@ -230,9 +236,7 @@ test("DaytonaSandboxProvider rejects invalid runtime before sandbox create", asy
 
 test("DaytonaSandboxProvider runs non-bash exec env through env argv", async () => {
   const { DaytonaSandboxProvider } = await loadProvider();
-  const provider = new DaytonaSandboxProvider(
-    new FakeHost({ home: "/home/local", env: { DAYTONA_API_KEY: "api-key" } }),
-  );
+  const provider = new DaytonaSandboxProvider({ DAYTONA_API_KEY: "api-key" });
   const sandbox = await provider.create({
     envs: {},
     timeoutMs: 600000,
@@ -252,14 +256,9 @@ test("DaytonaSandboxProvider runs non-bash exec env through env argv", async () 
   expect(command).not.toContain("&& HOME\\=/home/local ");
 });
 
-test("DaytonaSandboxProvider spawn backgrounds commands without a session", async () => {
+test("DaytonaSandboxProvider startService starts async session commands", async () => {
   const { DaytonaSandboxProvider } = await loadProvider();
-  const provider = new DaytonaSandboxProvider(
-    new FakeHost({
-      home: "/home/local",
-      env: { DAYTONA_API_KEY: "api-key" },
-    }),
-  );
+  const provider = new DaytonaSandboxProvider({ DAYTONA_API_KEY: "api-key" });
   const sandbox = await provider.create({
     envs: {},
     timeoutMs: 600000,
@@ -267,44 +266,47 @@ test("DaytonaSandboxProvider spawn backgrounds commands without a session", asyn
     runtime: RUNTIME,
   });
   daytonaMocks.executeCommand.mockClear();
+  daytonaMocks.executeSessionCommand.mockClear();
 
-  await sandbox.spawn("ttyd", []);
-  await sandbox.spawn("cloudflared", []);
+  await sandbox.startService({
+    file: "ttyd",
+    args: [],
+    port: 7681,
+    readiness: {
+      kind: "log",
+      path: remotePath("/tmp/ttyd.log"),
+      matches: [/ready/],
+      timeoutMs: 100,
+      intervalMs: 1,
+    },
+    stdoutPath: remotePath("/tmp/ttyd.log"),
+    stderrPath: remotePath("/tmp/ttyd.log"),
+  });
 
-  expect(daytonaMocks.executeCommand).toHaveBeenNthCalledWith(
-    1,
-    expect.stringContaining("runuser -u local"),
-    "/workspace/project",
+  expect(daytonaMocks.executeCommand).not.toHaveBeenCalled();
+  expect(daytonaMocks.executeSessionCommand).toHaveBeenCalledWith(
+    expect.stringMatching(/^sandhop-service-/),
     {
-      HOME: "/home/local",
-      SANDHOP_RUNTIME_HOME: "/home/local",
-      SANDHOP_RUNTIME_USER: "local",
-      SANDHOP_RUNTIME_WORKDIR: "/workspace/project",
+      command: expect.stringContaining("runuser -u local"),
+      runAsync: true,
+      suppressInputEcho: true,
     },
     600,
   );
-  expect(daytonaMocks.executeCommand).toHaveBeenNthCalledWith(
-    2,
-    expect.stringContaining("runuser -u local"),
-    "/workspace/project",
+  expect(daytonaMocks.executeSessionCommand).toHaveBeenCalledWith(
+    expect.stringMatching(/^sandhop-exec-/),
     {
-      HOME: "/home/local",
-      SANDHOP_RUNTIME_HOME: "/home/local",
-      SANDHOP_RUNTIME_USER: "local",
-      SANDHOP_RUNTIME_WORKDIR: "/workspace/project",
+      command: expect.stringContaining("cat /tmp/ttyd.log"),
+      runAsync: false,
+      suppressInputEcho: true,
     },
-    600,
+    10,
   );
 });
 
 test("DaytonaSandboxProvider uses fixed command timeout after long create", async () => {
   const { DaytonaSandboxProvider } = await loadProvider();
-  const provider = new DaytonaSandboxProvider(
-    new FakeHost({
-      home: "/home/local",
-      env: { DAYTONA_API_KEY: "api-key" },
-    }),
-  );
+  const provider = new DaytonaSandboxProvider({ DAYTONA_API_KEY: "api-key" });
   const sandbox = await provider.create({
     envs: {},
     timeoutMs: 3_600_000,
@@ -315,7 +317,20 @@ test("DaytonaSandboxProvider uses fixed command timeout after long create", asyn
   daytonaMocks.executeSessionCommand.mockClear();
 
   await sandbox.exec("echo", ["ok"]);
-  await sandbox.spawn("ttyd", []);
+  await sandbox.startService({
+    file: "ttyd",
+    args: [],
+    port: 7681,
+    readiness: {
+      kind: "log",
+      path: remotePath("/tmp/ttyd.log"),
+      matches: [/ready/],
+      timeoutMs: 100,
+      intervalMs: 1,
+    },
+    stdoutPath: remotePath("/tmp/ttyd.log"),
+    stderrPath: remotePath("/tmp/ttyd.log"),
+  });
 
   expect(daytonaMocks.executeSessionCommand).toHaveBeenNthCalledWith(
     1,
@@ -327,15 +342,13 @@ test("DaytonaSandboxProvider uses fixed command timeout after long create", asyn
     },
     600,
   );
-  expect(daytonaMocks.executeCommand).toHaveBeenNthCalledWith(
-    1,
-    expect.stringContaining("runuser -u local"),
-    "/workspace/project",
+  expect(daytonaMocks.executeSessionCommand).toHaveBeenNthCalledWith(
+    2,
+    expect.stringMatching(/^sandhop-service-/),
     {
-      HOME: "/home/local",
-      SANDHOP_RUNTIME_HOME: "/home/local",
-      SANDHOP_RUNTIME_USER: "local",
-      SANDHOP_RUNTIME_WORKDIR: "/workspace/project",
+      command: expect.stringContaining("runuser -u local"),
+      runAsync: true,
+      suppressInputEcho: true,
     },
     600,
   );
@@ -343,12 +356,7 @@ test("DaytonaSandboxProvider uses fixed command timeout after long create", asyn
 
 test("DaytonaSandboxProvider rejects missing and malformed createdAt", async () => {
   const { DaytonaSandboxProvider } = await loadProvider();
-  const provider = new DaytonaSandboxProvider(
-    new FakeHost({
-      home: "/home/local",
-      env: { DAYTONA_API_KEY: "api-key" },
-    }),
-  );
+  const provider = new DaytonaSandboxProvider({ DAYTONA_API_KEY: "api-key" });
 
   await expect(provider.list()).rejects.toThrow(
     "Daytona sandbox createdAt missing: daytona-sbx",
@@ -362,12 +370,7 @@ test("DaytonaSandboxProvider rejects missing and malformed createdAt", async () 
 
 test("DaytonaSandboxProvider uploads files, exposes ports, and destroys", async () => {
   const { DaytonaSandboxProvider } = await loadProvider();
-  const provider = new DaytonaSandboxProvider(
-    new FakeHost({
-      home: "/home/local",
-      env: { DAYTONA_API_KEY: "api-key" },
-    }),
-  );
+  const provider = new DaytonaSandboxProvider({ DAYTONA_API_KEY: "api-key" });
   const sandbox = await provider.create({
     envs: {},
     timeoutMs: 600000,
@@ -407,12 +410,7 @@ test("DaytonaSandboxProvider uploads files, exposes ports, and destroys", async 
 
 test("DaytonaSandboxProvider connect and destroy use SDK lookups", async () => {
   const { DaytonaSandboxProvider } = await loadProvider();
-  const provider = new DaytonaSandboxProvider(
-    new FakeHost({
-      home: "/home/local",
-      env: { DAYTONA_API_KEY: "api-key" },
-    }),
-  );
+  const provider = new DaytonaSandboxProvider({ DAYTONA_API_KEY: "api-key" });
   const created = await provider.create({
     envs: {},
     timeoutMs: 600000,
@@ -438,9 +436,7 @@ test("DaytonaSandboxProvider missing package throws install hint", async () => {
   });
   const { DaytonaSandboxProvider } =
     await import("../../src/providers/daytona/index.js");
-  const provider = new DaytonaSandboxProvider(
-    new FakeHost({ home: "/home/local", env: { DAYTONA_API_KEY: "api-key" } }),
-  );
+  const provider = new DaytonaSandboxProvider({ DAYTONA_API_KEY: "api-key" });
 
   await expect(
     provider.create({

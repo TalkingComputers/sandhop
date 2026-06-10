@@ -54,18 +54,19 @@ test("ReinstallService plans marketplace, plugin, disable, git skill, and symlin
     },
   });
 
-  expect(new ReinstallService(host, CLAUDE_CODE).plan()).toEqual({
+  expect(new ReinstallService(host, CLAUDE_CODE).plan("/home/local")).toEqual({
     commands: [
-      'git clone https\\://github.com/acme/gstack.git "$HOME/.claude/skills/gstack" && git -C "$HOME/.claude/skills/gstack" checkout 0123456789abcdef0123456789abcdef01234567',
-      'cd "$HOME/.claude/skills/gstack" && npm ci',
-      'cd "$HOME/.claude/skills/gstack" && npm run build',
-      'mkdir -p "$HOME/.claude/skills/office-hours" && ln -sf "$HOME/.claude/skills/gstack/skills/office-hours/SKILL.md" "$HOME/.claude/skills/office-hours/SKILL.md"',
+      "git clone https\\://github.com/acme/gstack.git /home/local/.claude/skills/gstack && git -C /home/local/.claude/skills/gstack checkout 0123456789abcdef0123456789abcdef01234567",
+      "cd /home/local/.claude/skills/gstack && npm ci",
+      "cd /home/local/.claude/skills/gstack && npm run build",
+      "mkdir -p /home/local/.claude/skills/office-hours && ln -sf /home/local/.claude/skills/gstack/skills/office-hours/SKILL.md /home/local/.claude/skills/office-hours/SKILL.md",
       "claude plugin marketplace add anthropics/claude-plugins",
       "claude plugin marketplace add https\\://example.com/plugins.git",
       "claude plugin install frontend-design\\@official --scope project",
       "claude plugin install internal-tool\\@internal --scope user",
       "claude plugin disable serena\\@official",
     ],
+    mappings: [],
   });
   expect(host.execCalls).toEqual([
     {
@@ -117,9 +118,9 @@ test("ReinstallService plans local skill dependency installs", () => {
     },
   });
 
-  expect(new ReinstallService(host, CLAUDE_CODE).plan().commands).toEqual([
-    'cd "$HOME/.claude/skills/local" && npm ci',
-  ]);
+  expect(
+    new ReinstallService(host, CLAUDE_CODE).plan("/home/local").commands,
+  ).toEqual(["cd /home/local/.claude/skills/local && npm ci"]);
 });
 
 test("ReinstallService copies dirty and unpushed git skills instead of cloning them", () => {
@@ -156,10 +157,12 @@ test("ReinstallService copies dirty and unpushed git skills instead of cloning t
     },
   });
 
-  expect(new ReinstallService(host, CLAUDE_CODE).plan().commands).toEqual([
-    'git clone https\\://github.com/acme/clean.git "$HOME/.claude/skills/clean" && git -C "$HOME/.claude/skills/clean" checkout 1111111111111111111111111111111111111111',
-    'cd "$HOME/.claude/skills/dirty" && pnpm install --frozen-lockfile',
-    'cd "$HOME/.claude/skills/unpushed" && bun install --frozen-lockfile',
+  expect(
+    new ReinstallService(host, CLAUDE_CODE).plan("/home/local").commands,
+  ).toEqual([
+    "git clone https\\://github.com/acme/clean.git /home/local/.claude/skills/clean && git -C /home/local/.claude/skills/clean checkout 1111111111111111111111111111111111111111",
+    "cd /home/local/.claude/skills/dirty && pnpm install --frozen-lockfile",
+    "cd /home/local/.claude/skills/unpushed && bun install --frozen-lockfile",
   ]);
 });
 
@@ -191,10 +194,12 @@ test("ReinstallService links directory symlink skills and installs external syml
     },
   });
 
-  expect(new ReinstallService(host, CLAUDE_CODE).plan().commands).toEqual([
-    'git clone https\\://github.com/acme/gstack.git "$HOME/.claude/skills/gstack" && git -C "$HOME/.claude/skills/gstack" checkout 3333333333333333333333333333333333333333',
-    'cd "$HOME/.claude/skills/external" && yarn install --frozen-lockfile',
-    'mkdir -p "$HOME/.claude/skills" && ln -sfn "$HOME/.claude/skills/gstack/skills/linked-dir" "$HOME/.claude/skills/linked-dir"',
+  expect(
+    new ReinstallService(host, CLAUDE_CODE).plan("/home/local").commands,
+  ).toEqual([
+    "git clone https\\://github.com/acme/gstack.git /home/local/.claude/skills/gstack && git -C /home/local/.claude/skills/gstack checkout 3333333333333333333333333333333333333333",
+    "cd /home/local/.claude/skills/external && yarn install --frozen-lockfile",
+    "mkdir -p /home/local/.claude/skills && ln -sfn /home/local/.claude/skills/gstack/skills/linked-dir /home/local/.claude/skills/linked-dir",
   ]);
 });
 
@@ -208,8 +213,9 @@ test("ReinstallService skips broken symlink skills", () => {
     brokenRealpaths: ["/home/local/.claude/skills/broken"],
   });
 
-  expect(new ReinstallService(host, CLAUDE_CODE).plan()).toEqual({
+  expect(new ReinstallService(host, CLAUDE_CODE).plan("/home/local")).toEqual({
     commands: [],
+    mappings: [],
   });
 });
 
@@ -232,7 +238,9 @@ test("ReinstallService quotes marketplace and plugin metacharacters", () => {
     },
   });
 
-  expect(new ReinstallService(host, CLAUDE_CODE).plan().commands).toEqual([
+  expect(
+    new ReinstallService(host, CLAUDE_CODE).plan("/home/local").commands,
+  ).toEqual([
     'claude plugin marketplace add "https://example.com/a;\\$(id)\'"',
     'claude plugin install "plugin;\\$(id)\'@official" --scope user',
     'claude plugin disable "disabled;\\$(id)\'@official"',
@@ -254,9 +262,9 @@ test("ReinstallService treats corrupt plugin and settings JSON as absent", () =>
     },
   });
 
-  expect(new ReinstallService(host, CLAUDE_CODE).plan().commands).toEqual([
-    "claude plugin marketplace add anthropics/claude-plugins",
-  ]);
+  expect(
+    new ReinstallService(host, CLAUDE_CODE).plan("/home/local").commands,
+  ).toEqual(["claude plugin marketplace add anthropics/claude-plugins"]);
 });
 
 test("ReinstallService treats corrupt marketplaces JSON as absent", () => {
@@ -271,9 +279,9 @@ test("ReinstallService treats corrupt marketplaces JSON as absent", () => {
     },
   });
 
-  expect(new ReinstallService(host, CLAUDE_CODE).plan().commands).toEqual([
-    "claude plugin install serena\\@official --scope user",
-  ]);
+  expect(
+    new ReinstallService(host, CLAUDE_CODE).plan("/home/local").commands,
+  ).toEqual(["claude plugin install serena\\@official --scope user"]);
 });
 
 test("ReinstallService plans local-scope Claude plugin installs", () => {
@@ -287,9 +295,9 @@ test("ReinstallService plans local-scope Claude plugin installs", () => {
     },
   });
 
-  expect(new ReinstallService(host, CLAUDE_CODE).plan().commands).toEqual([
-    "claude plugin install serena\\@official --scope local",
-  ]);
+  expect(
+    new ReinstallService(host, CLAUDE_CODE).plan("/home/local").commands,
+  ).toEqual(["claude plugin install serena\\@official --scope local"]);
 });
 
 test("ReinstallService preserves duplicate Claude plugin install records", () => {
@@ -305,7 +313,9 @@ test("ReinstallService preserves duplicate Claude plugin install records", () =>
     },
   });
 
-  expect(new ReinstallService(host, CLAUDE_CODE).plan().commands).toEqual([
+  expect(
+    new ReinstallService(host, CLAUDE_CODE).plan("/home/local").commands,
+  ).toEqual([
     "claude plugin install serena\\@official --scope user",
     "claude plugin install serena\\@official --scope user",
   ]);
@@ -350,7 +360,9 @@ test.each([
       },
     });
 
-    expect(() => new ReinstallService(host, CLAUDE_CODE).plan()).toThrow(error);
+    expect(() =>
+      new ReinstallService(host, CLAUDE_CODE).plan("/home/local"),
+    ).toThrow(error);
   },
 );
 
@@ -367,5 +379,52 @@ test("ReinstallService does not plan Claude plugin installs for Codex", () => {
     },
   });
 
-  expect(new ReinstallService(host, CODEX).plan()).toEqual({ commands: [] });
+  expect(new ReinstallService(host, CODEX).plan("/home/local")).toEqual({
+    commands: [],
+    mappings: [],
+  });
+});
+
+test("ReinstallService transfers local marketplaces and adds them from mapped paths", () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: {
+      "/home/local/.claude/plugins/known_marketplaces.json": JSON.stringify({
+        "team-dir": {
+          source: {
+            source: "directory",
+            path: "/home/local/marketplaces/team",
+          },
+        },
+        "team-file": {
+          source: {
+            source: "file",
+            path: "/work/mp/.claude-plugin/marketplace.json",
+          },
+        },
+        missing: {
+          source: { source: "directory", path: "/home/local/gone" },
+        },
+      }),
+      "/home/local/marketplaces/team/.claude-plugin/marketplace.json": "{}",
+      "/work/mp/.claude-plugin/marketplace.json": "{}",
+    },
+  });
+
+  expect(new ReinstallService(host, CLAUDE_CODE).plan("/home/sandbox")).toEqual(
+    {
+      commands: [
+        "claude plugin marketplace add /home/sandbox/marketplaces/team",
+        "claude plugin marketplace add /work/mp/.claude-plugin/marketplace.json",
+      ],
+      mappings: [
+        {
+          localPath: "/home/local/marketplaces/team",
+          sandboxPath: "/home/sandbox/marketplaces/team",
+        },
+        { localPath: "/work/mp", sandboxPath: "/work/mp" },
+      ],
+    },
+  );
 });

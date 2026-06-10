@@ -4,6 +4,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,8 +16,8 @@ const EXPECTED_CLAUDE_COMMAND = readFileSync(
   "utf8",
 );
 
-const EXPECTED_CODEX_PROMPT = readFileSync(
-  new URL("../../plugin/prompts/sandhop.md", import.meta.url),
+const EXPECTED_CODEX_SKILL = readFileSync(
+  new URL("../../plugin/skills/sandhop/SKILL.md", import.meta.url),
   "utf8",
 );
 
@@ -32,7 +33,7 @@ afterEach(() => {
   for (const root of tempRoots.splice(0)) rmSync(root, { recursive: true });
 });
 
-test("installCommands writes Claude Code and Codex slash commands when agent homes exist", () => {
+test("installCommands writes the Claude Code slash command and Codex skill when agent homes exist", () => {
   const home = makeHome();
   mkdirSync(join(home, ".claude"));
   mkdirSync(join(home, ".codex"));
@@ -42,8 +43,20 @@ test("installCommands writes Claude Code and Codex slash commands when agent hom
     readFileSync(join(home, ".claude", "commands", "sandhop.md"), "utf8"),
   ).toBe(EXPECTED_CLAUDE_COMMAND);
   expect(
-    readFileSync(join(home, ".codex", "prompts", "sandhop.md"), "utf8"),
-  ).toBe(EXPECTED_CODEX_PROMPT);
+    readFileSync(join(home, ".codex", "skills", "sandhop", "SKILL.md"), "utf8"),
+  ).toBe(EXPECTED_CODEX_SKILL);
+});
+
+test("installCommands removes a stale Codex prompt from the deprecated prompts dir", () => {
+  const home = makeHome();
+  mkdirSync(join(home, ".codex", "prompts"), { recursive: true });
+  writeFileSync(join(home, ".codex", "prompts", "sandhop.md"), "old");
+
+  expect(installCommands(home)).toEqual(["Codex"]);
+  expect(existsSync(join(home, ".codex", "prompts", "sandhop.md"))).toBe(false);
+  expect(
+    existsSync(join(home, ".codex", "skills", "sandhop", "SKILL.md")),
+  ).toBe(true);
 });
 
 test("installCommands writes only detected agents and never creates missing agent roots", () => {

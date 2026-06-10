@@ -1,12 +1,11 @@
 import { expect, test } from "vitest";
 import { CredentialError } from "../../src/core/errors.js";
-import type { ProviderId } from "../../src/providers/index.js";
 import {
   PROVIDER_IDS,
   PROVIDER_INFO,
   buildProvider,
-  optionalCred,
   requireCred,
+  resolveCredentials,
 } from "../../src/providers/index.js";
 import { FakeHost } from "../fakes/host.js";
 
@@ -14,21 +13,32 @@ test("provider registry lists e2b, modal, daytona, and vercel", () => {
   expect(PROVIDER_IDS).toEqual(["e2b", "modal", "daytona", "vercel"]);
 });
 
-test("provider registry builds all supported providers", () => {
+test("provider registry builds all supported providers", async () => {
   const host = new FakeHost({ home: "/home/local", env: {} });
 
-  expect(buildProvider("e2b", host).name).toBe("e2b");
-  expect(buildProvider("modal", host).name).toBe("modal");
-  expect(buildProvider("daytona", host).name).toBe("daytona");
-  expect(buildProvider("vercel", host).name).toBe("vercel");
-});
-
-test("provider registry rejects unknown providers", () => {
-  const host = new FakeHost({ home: "/home/local", env: {} });
-
-  expect(() => buildProvider("bogus" as ProviderId, host)).toThrow(
-    "Unknown provider bogus",
+  expect((await buildProvider("e2b", host, { E2B_API_KEY: "key" })).name).toBe(
+    "e2b",
   );
+  expect(
+    (
+      await buildProvider("modal", host, {
+        MODAL_TOKEN_ID: "id",
+        MODAL_TOKEN_SECRET: "secret",
+      })
+    ).name,
+  ).toBe("modal");
+  expect(
+    (await buildProvider("daytona", host, { DAYTONA_API_KEY: "key" })).name,
+  ).toBe("daytona");
+  expect(
+    (
+      await buildProvider("vercel", host, {
+        VERCEL_TOKEN: "token",
+        VERCEL_TEAM_ID: "team",
+        VERCEL_PROJECT_ID: "project",
+      })
+    ).name,
+  ).toBe("vercel");
 });
 
 test("PROVIDER_INFO declares credential prompts for every provider", () => {
@@ -123,39 +133,36 @@ test("PROVIDER_INFO declares credential prompts for every provider", () => {
     );
 });
 
-test("requireCred returns declared credentials and throws CredentialError for missing required credentials", () => {
-  const host = new FakeHost({ home: "/home/local", env: {} });
-  const loaded = new FakeHost({
-    home: "/home/local",
-    env: { E2B_API_KEY: "e2b-key" },
-  });
+test("resolveCredentials merges env over stored config and validates required fields", () => {
+  expect(
+    resolveCredentials(
+      "daytona",
+      { DAYTONA_API_KEY: "env-key", DAYTONA_API_URL: "" },
+      { DAYTONA_API_KEY: "stored-key", DAYTONA_TARGET: "eu" },
+    ),
+  ).toEqual({ DAYTONA_API_KEY: "env-key", DAYTONA_TARGET: "eu" });
+  expect(
+    resolveCredentials("e2b", {}, { E2B_API_KEY: "stored-key", BOGUS: "x" }),
+  ).toEqual({ E2B_API_KEY: "stored-key" });
 
   let error: unknown;
   try {
-    requireCred(host, "daytona", "DAYTONA_API_KEY");
+    resolveCredentials("daytona", {}, undefined);
   } catch (caught: unknown) {
     error = caught;
   }
 
-  expect(requireCred(loaded, "e2b", "E2B_API_KEY")).toBe("e2b-key");
   expect(error).toBeInstanceOf(CredentialError);
   expect(error).toMatchObject({
     message: "DAYTONA_API_KEY is required — set it or run `sandhop setup`",
   });
 });
 
-test("credential accessors require declared provider fields and type optional credentials", () => {
-  const host = new FakeHost({
-    home: "/home/local",
-    env: { DAYTONA_API_KEY: "key", DAYTONA_API_URL: "" },
-  });
-
-  expect(optionalCred(host, "daytona", "DAYTONA_API_URL")).toBeUndefined();
-  expect(optionalCred(host, "daytona", "DAYTONA_TARGET")).toBeUndefined();
-  expect(() => requireCred(host, "daytona", "BOGUS")).toThrow(
-    "BOGUS is not declared for daytona",
+test("requireCred reads resolved credentials and throws CredentialError when absent", () => {
+  expect(requireCred({ E2B_API_KEY: "e2b-key" }, "E2B_API_KEY")).toBe(
+    "e2b-key",
   );
-  expect(() => optionalCred(host, "daytona", "BOGUS")).toThrow(
-    "BOGUS is not declared for daytona",
+  expect(() => requireCred({}, "E2B_API_KEY")).toThrow(
+    "E2B_API_KEY is required — set it or run `sandhop setup`",
   );
 });

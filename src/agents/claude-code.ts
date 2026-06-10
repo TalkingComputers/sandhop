@@ -1,5 +1,4 @@
 import { projectDirName } from "../core/encode.js";
-import { collectEnvRefs } from "../core/env.js";
 import { isRecord, parseJsonRecord } from "../core/json.js";
 import { basename } from "../core/paths.js";
 import { quote } from "shell-quote";
@@ -11,6 +10,7 @@ import type {
   Agent,
   AgentHostDeps,
   AgentMcpDeps,
+  AgentPreSeedDeps,
   AuthBundle,
   McpConfigWrite,
   McpServer,
@@ -18,6 +18,12 @@ import type {
   RemoteMcpServer,
 } from "../core/ports/agent.js";
 import { makeVersionParser, sortNewest } from "./shared.js";
+import {
+  collectClaudeExtraEnvRefs,
+  listClaudeProfileEntries,
+  listExternalSymlinkSkills,
+  readJsonEnvRefs,
+} from "./claude-profile.js";
 import {
   CLAUDE_JSON_HOME_PATH,
   CLAUDE_JSON_PATH,
@@ -31,35 +37,63 @@ import {
 const CLAUDE_CREDENTIALS_PATH = ".claude/.credentials.json";
 const GOOGLE_CREDENTIALS_REMOTE_PATH = "$HOME/.sandhop/google-creds.json";
 
-const addJsonEnvRefs = (refs: Set<string>, value: unknown): void => {
-  if (Array.isArray(value)) {
-    for (const item of value) addJsonEnvRefs(refs, item);
-    return;
-  }
-  if (!isRecord(value)) return;
-  for (const [key, child] of Object.entries(value)) {
-    if (key === "env" && isRecord(child)) {
-      for (const name of Object.keys(child)) refs.add(name);
-    }
-    addJsonEnvRefs(refs, child);
-  }
-};
-
-const readJsonEnvRefs = (text: string): string[] => {
-  const refs = new Set<string>();
-  for (const name of collectEnvRefs(text)) refs.add(name);
-  try {
-    addJsonEnvRefs(refs, JSON.parse(text) as unknown);
-  } catch {
-    return [...refs].sort();
-  }
-  return [...refs].sort();
-};
-
 const parseVersion = makeVersionParser("claude-code");
+const CLAUDE_PATH_EXPORT = 'export PATH="$HOME/.local/bin:$PATH"';
+const CLAUDE_RUNTIME_ENV = "DISABLE_AUTOUPDATER=1 DISABLE_UPDATES=1";
+const CLAUDE_SANDHOP_COMMAND = "<command-name>/sandhop</command-name>";
+
+const isSandhopUserLine = (line: string): boolean => {
+  if (!line.includes(CLAUDE_SANDHOP_COMMAND)) return false;
+  const parsed = parseJsonRecord(line);
+  return parsed !== null && parsed.type === "user";
+};
+
+const prepareTranscript = (bytes: Uint8Array): Uint8Array => {
+  const text = new TextDecoder().decode(bytes);
+  const lines = text.split("\n");
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    if (!isSandhopUserLine(lines[i]!)) continue;
+    const head = lines.slice(0, i).join("\n");
+    return new TextEncoder().encode(head.length === 0 ? "" : `${head}\n`);
+  }
+  return bytes;
+};
 
 const hasText = (value: string | null | undefined): value is string =>
   value !== null && value !== undefined && value.length > 0;
+
+const CARRIED_PROJECT_KEYS = [
+  "allowedTools",
+  "enabledMcpjsonServers",
+  "disabledMcpjsonServers",
+  "hasClaudeMdExternalIncludesApproved",
+] as const;
+
+const carriedProjectState = (
+  deps: AgentPreSeedDeps,
+  cwd: string,
+): Record<string, unknown> => {
+  const text = deps.readFile(joinClaudeLocalPath(deps.home, CLAUDE_JSON_PATH));
+  const parsed = text === null ? null : parseJsonRecord(text);
+  const projects = parsed?.projects;
+  if (!isRecord(projects)) return {};
+  const project = projects[cwd];
+  if (!isRecord(project)) return {};
+  const carried: Record<string, unknown> = {};
+  for (const key of CARRIED_PROJECT_KEYS)
+    if (project[key] !== undefined) carried[key] = project[key];
+  return carried;
+};
+
+const installNativeClaude = (version: string): string =>
+  [
+    `curl -fsSL https://claude.ai/install.sh | bash -s ${quote([version])}`,
+    CLAUDE_PATH_EXPORT,
+    `expected=${quote([version])}`,
+    'actual="$("$HOME/.local/bin/claude" --version)"',
+    'actual="${actual%% *}"',
+    'test "$actual" = "$expected" || { printf \'Claude Code version mismatch: expected %s, got %s\\n\' "$expected" "$actual" >&2; exit 1; }',
+  ].join("\n");
 
 const addEnv = (
   envs: Record<string, string>,
@@ -178,6 +212,25 @@ const readClaudeRemoteTransport = (
   return "http";
 };
 
+const CONSUMED_SERVER_KEYS = new Set([
+  "args",
+  "command",
+  "cwd",
+  "env",
+  "headers",
+  "type",
+  "url",
+]);
+
+const collectExtras = (
+  server: Record<string, unknown>,
+): Record<string, unknown> | undefined => {
+  const entries = Object.entries(server).filter(
+    ([key]) => !CONSUMED_SERVER_KEYS.has(key),
+  );
+  return entries.length === 0 ? undefined : Object.fromEntries(entries);
+};
+
 const readMcpServers = (value: unknown, servers: McpServer[]): void => {
   if (!isRecord(value)) return;
   for (const [name, server] of Object.entries(value)) {
@@ -190,12 +243,14 @@ const readMcpServers = (value: unknown, servers: McpServer[]): void => {
     const env = readStringRecord(server.env);
     const headers = readStringRecord(server.headers);
     const cwd = typeof server.cwd === "string" ? server.cwd : undefined;
+    const extras = collectExtras(server);
     if (url !== undefined) {
       servers.push({
         name,
         transport: readClaudeRemoteTransport(server.type),
         url,
         ...(headers === undefined ? {} : { headers }),
+        ...(extras === undefined ? {} : { extras }),
       });
       continue;
     }
@@ -207,6 +262,7 @@ const readMcpServers = (value: unknown, servers: McpServer[]): void => {
       ...(args === undefined ? {} : { args }),
       ...(env === undefined ? {} : { env }),
       ...(cwd === undefined ? {} : { cwd }),
+      ...(extras === undefined ? {} : { extras }),
     });
   }
 };
@@ -238,16 +294,16 @@ const parseMcpServers = (deps: AgentMcpDeps, cwd: string): McpServer[] => {
 const formatMcpConfig = (servers: McpServer[]): McpConfigWrite => {
   const mcpServers: Record<
     string,
-    Omit<McpServer, "name" | "transport"> & { type: McpTransport }
+    Omit<McpServer, "name" | "transport" | "extras"> & { type: McpTransport }
   > = {};
   for (const server of servers) {
-    const { name, transport, ...config } = server;
-    mcpServers[name] = { type: transport, ...config };
+    const { name, transport, extras, ...config } = server;
+    mcpServers[name] = { ...extras, type: transport, ...config };
   }
   return {
     path: CLAUDE_JSON_HOME_PATH,
     content: `${JSON.stringify(mcpServers, null, 2)}\n`,
-    mode: "merge-claude-json",
+    mode: "merge-mcp-servers",
   };
 };
 
@@ -277,6 +333,10 @@ export const CLAUDE_CODE: Agent = {
         }),
     );
   },
+  profileEntries: listClaudeProfileEntries,
+  externalSkills: listExternalSymlinkSkills,
+  extraEnvRefs: collectClaudeExtraEnvRefs,
+  prepareTranscript,
   mcpConfigPaths: (home, cwd) => [
     `${cwd}/.mcp.json`,
     `${cwd}/${CLAUDE_SETTINGS_PATH}`,
@@ -290,19 +350,25 @@ export const CLAUDE_CODE: Agent = {
   parseMcpServers,
   formatMcpConfig,
   authEnv,
-  installCmd: (version) => `npm i -g @anthropic-ai/claude-code@${version}`,
+  installCmd: installNativeClaude,
   supportsSettingsScripts: () => true,
   supportsReinstall: () => true,
-  preSeed: (remoteProj) => [
-    buildNodeScript(buildClaudePreSeedScript(remoteProj), "CLAUDE_PRESEED"),
+  preSeed: (deps, remoteProj) => [
+    buildNodeScript(
+      buildClaudePreSeedScript(
+        remoteProj,
+        carriedProjectState(deps, remoteProj),
+      ),
+      "CLAUDE_PRESEED",
+    ),
   ],
   remoteTranscriptPath: (home, remoteEnc, transcriptName) =>
     `${home}/${CLAUDE_PROJECTS_PATH}/${remoteEnc}/${transcriptName}`,
-  projectMemoryDir: (home, remoteEnc) =>
-    `${home}/${CLAUDE_PROJECTS_PATH}/${remoteEnc}/memory`,
+  projectMemoryPath: (remoteEnc) =>
+    `${CLAUDE_PROJECTS_PATH}/${remoteEnc}/memory`,
   resumeCmd: (sessionId, remoteProj, mcpTimeout) => {
     const env =
       mcpTimeout === undefined ? "" : `MCP_TIMEOUT=${quote([mcpTimeout])} `;
-    return `cd ${quote([remoteProj])} && ${env}claude --resume ${quote([sessionId])}`;
+    return `cd ${quote([remoteProj])} && ${CLAUDE_PATH_EXPORT} && ${CLAUDE_RUNTIME_ENV} ${env}claude --resume ${quote([sessionId])}`;
   },
 };

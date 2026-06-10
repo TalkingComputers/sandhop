@@ -19,11 +19,11 @@ test("dirname handles paths without slash and absolute parents", () => {
 });
 
 test("home path functions expand provided homes", () => {
-  expect(expandHome("$HOME/.codex/auth.json", "/Users/parsa")).toBe(
-    "/Users/parsa/.codex/auth.json",
+  expect(expandHome("$HOME/.codex/auth.json", "/Users/alice")).toBe(
+    "/Users/alice/.codex/auth.json",
   );
-  expect(expandHome("~/.codex/auth.json", "/Users/parsa")).toBe(
-    "/Users/parsa/.codex/auth.json",
+  expect(expandHome("~/.codex/auth.json", "/Users/alice")).toBe(
+    "/Users/alice/.codex/auth.json",
   );
   expect(expandHome("$HOME/.codex/auth.json", "/home/user")).toBe(
     "/home/user/.codex/auth.json",

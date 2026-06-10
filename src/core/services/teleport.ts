@@ -1,30 +1,29 @@
-import { buildManifest } from "../manifest.js";
+import { buildManifest, type Manifest } from "../manifest.js";
 import { TTYD_PORT } from "../constants.js";
 import { dirname, expandHome, remotePath } from "../paths.js";
-import type { Agent } from "../ports/agent.js";
+import type { Agent, AuthBundle, SessionRef } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
 import type { Multiplexer } from "../ports/multiplexer.js";
 import {
   PushProgressId,
   type PushProgressListener,
+  type TransferProgress,
 } from "../ports/progress.js";
 import {
   execShell,
-  spawnShell,
+  type CommandInvocation,
   type Sandbox,
   type SandboxProvider,
 } from "../ports/provider.js";
 import type { Transport } from "../ports/transport.js";
 import { randomToken } from "../rand.js";
-import { quote } from "shell-quote";
-import type { AuthExtractor } from "./auth.js";
-import type { BootstrapService } from "./bootstrap.js";
+import { execShellAsUser } from "../sandbox-runtime.js";
+import { renderRestoreScript } from "./bootstrap.js";
 import type { SshBundle, SshCollector } from "./git-ssh.js";
 import { mapHomePath } from "./mcp-paths.js";
-import type { SecretsCollector } from "./secrets.js";
-import type { SessionReader } from "./session.js";
+import { renderPathPrep, uploadOwnedFiles } from "./sandbox-files.js";
+import type { SecretsBundle, SecretsCollector } from "./secrets.js";
 import { TransferService } from "./transfer.js";
-import type { VersionDetector } from "./version.js";
 
 export interface TeleportResult {
   url: string;
@@ -32,15 +31,17 @@ export interface TeleportResult {
   sandbox: Sandbox;
   user: string;
   pass: string;
+  sshHosts: string[];
 }
 
 export interface TeleportOptions {
-  sessionId?: string;
   transport: Transport;
   excludes: string[];
   includes: string[];
   timeoutMs: number;
   onProgress?: PushProgressListener;
+  onTransfer?: (transfer: TransferProgress) => void;
+  beforeTerminalStart?: (sandbox: Sandbox) => Promise<void>;
 }
 
 export interface TeleportServices {
@@ -54,101 +55,45 @@ export interface TeleportServices {
     | "isDirectory"
     | "cpuCount"
     | "readBytes"
+    | "readFile"
     | "realpath"
     | "remove"
     | "splitFile"
     | "tarZstd"
     | "username"
   >;
-  session: SessionReader;
+  session: SessionRef;
   secrets: SecretsCollector;
-  auth: AuthExtractor;
-  version: VersionDetector;
-  bootstrap: BootstrapService;
+  auth: () => AuthBundle;
+  version: () => string;
   gitSsh: SshCollector;
   multiplexer: Multiplexer;
 }
 
 const TTYD_SESSION = "sandhop";
-const TERMINAL_LOG = "/tmp/sandhop-terminal.log";
-const CLAUDE_SANDHOP_COMMAND = "<command-name>/sandhop</command-name>";
-const USER_TRANSCRIPT_LINE = '"type":"user"';
+const TERMINAL_LOG = remotePath("/tmp/sandhop-terminal.log");
+const TERMINAL_READY_TIMEOUT_MS = 10000;
+const TERMINAL_READY_INTERVAL_MS = 100;
 
-const prepareTranscriptUpload = (
-  agent: Agent,
-  bytes: Uint8Array,
-): Uint8Array => {
-  if (agent.id !== "claude-code") return bytes;
-  const text = new TextDecoder().decode(bytes);
-  const lines = text.split("\n");
-  let end = text.length;
-  for (let i = lines.length - 1; i >= 0; i -= 1) {
-    const line = lines[i]!;
-    const start = end - line.length;
-    if (
-      line.includes(USER_TRANSCRIPT_LINE) &&
-      line.includes(CLAUDE_SANDHOP_COMMAND)
-    )
-      return new TextEncoder().encode(text.slice(0, start));
-    end = start - 1;
-  }
-  return bytes;
-};
-
-const buildTerminalCommand = (
+const buildTerminalArgs = (
   bind: string,
   user: string,
   pass: string,
-  command: string,
-): string => {
-  const bindFlag = bind === "0.0.0.0" ? "" : `-i ${quote([bind])} `;
-  return `ttyd ${bindFlag}-p ${TTYD_PORT} -W -c ${quote([`${user}:${pass}`])} ${command} >> ${TERMINAL_LOG} 2>&1`;
-};
-
-const verifyTerminalReady = async (sandbox: Sandbox): Promise<void> => {
-  const result = await execShell(
-    sandbox,
-    [
-      "i=0",
-      'while [ "$i" -lt 50 ]; do',
-      `  if pgrep -f ${quote([`ttyd .*${TTYD_PORT}`])} >/dev/null 2>&1; then exit 0; fi`,
-      "  i=$((i+1))",
-      "  sleep 0.1",
-      "done",
-      'echo "[sandhop] terminal failed to start" >&2',
-      `if [ -f ${quote([TERMINAL_LOG])} ]; then tail -n 80 ${quote([TERMINAL_LOG])} >&2; fi`,
-      "exit 1",
-    ].join("\n"),
-    { timeoutMs: 10000 },
-  );
-  if (result.exitCode !== 0)
-    throw new Error(
-      `Terminal failed to start: ${result.stderr.length > 0 ? result.stderr : result.stdout}`,
-    );
-};
-
-const uploadModeFiles = async (
-  bootstrap: BootstrapService,
-  sandbox: Sandbox,
-  files: { path: string; content: string; mode?: string }[],
-): Promise<void> => {
-  for (const file of files) {
-    const dest = expandHome(file.path, sandbox.home);
-    await bootstrap.prepAndUpload(sandbox, dest, file.content);
-    if (file.mode !== undefined) await sandbox.exec("chmod", [file.mode, dest]);
-  }
-};
-
-const uploadSshBundle = async (
-  bootstrap: BootstrapService,
-  sandbox: Sandbox,
-  bundle: SshBundle,
-): Promise<void> => {
-  if (bundle.files.length === 0) return;
-  await uploadModeFiles(bootstrap, sandbox, bundle.files);
-  const dirs = bundle.dirs.map((dir) => expandHome(dir, sandbox.home));
-  await Promise.all(dirs.map((dir) => sandbox.exec("chmod", ["700", dir])));
-};
+  command: CommandInvocation,
+): string[] => [
+  ...(bind === "0.0.0.0" ? [] : ["-i", bind]),
+  "-p",
+  String(TTYD_PORT),
+  "-W",
+  "-t",
+  "disableLeaveAlert=true",
+  "-t",
+  "disableResizeOverlay=true",
+  "-c",
+  `${user}:${pass}`,
+  command.file,
+  ...command.args,
+];
 
 const readGitConfig = (
   host: Pick<HostDeps, "exec">,
@@ -181,17 +126,12 @@ export class TeleportService {
     const user = this.services.host.username;
     const pass = randomToken(24);
     opts.onProgress?.({ step: PushProgressId.Snapshotting });
-    const [bundle, session, baseSecrets, auth, cliVersion, sshBundle] =
-      await Promise.all([
-        this.services.host.realpath(cwd),
-        opts.sessionId === undefined
-          ? this.services.session.latest(cwd)
-          : this.services.session.byId(cwd, opts.sessionId),
-        this.services.secrets.collect(cwd),
-        this.services.auth.extract(),
-        this.services.version.detect(),
-        this.services.gitSsh.collect(cwd),
-      ]);
+    const bundle = this.services.host.realpath(cwd);
+    const session = this.services.session;
+    const baseSecrets = this.services.secrets.collect(cwd);
+    const auth = this.services.auth();
+    const cliVersion = this.services.version();
+    const sshBundle = this.services.gitSsh.collect(cwd);
     const manifest = buildManifest({
       agent: this.agent.id,
       cliVersion,
@@ -214,102 +154,43 @@ export class TeleportService {
     });
     try {
       opts.onProgress?.({ step: PushProgressId.UploadingBundle });
-      await execShell(
-        sandbox,
-        this.services.bootstrap.renderProjectPrep(manifest),
-      );
-      const transfer = new TransferService(this.services.host, sandbox);
-      await transfer.send(bundle, manifest.remoteProj, "bundle", {
-        excludes: opts.excludes,
-      });
-      const mem = this.agent.projectMemoryDir(
-        this.services.host.home,
-        manifest.remoteEnc,
-      );
-      if (mem !== null && this.services.host.exists(mem))
-        await transfer.send(
-          mem,
-          expandHome(
-            `$HOME/.claude/projects/${manifest.remoteEnc}/memory`,
-            sandbox.home,
-          ),
-          "memory",
-          { excludes: opts.excludes },
-        );
-      for (const [index, include] of opts.includes.entries()) {
-        if (!this.services.host.exists(include)) continue;
-        const realInclude = this.services.host.realpath(include);
-        const dest = mapHomePath(
-          this.services.host.home,
-          sandbox.home,
-          realInclude,
-          "passthrough",
-        );
-        const destDir = this.services.host.isDirectory(realInclude)
-          ? dest
-          : dirname(dest);
-        await execShell(
-          sandbox,
-          this.services.bootstrap.renderPathPrep(destDir),
-        );
-        await transfer.send(realInclude, dest, `include-${index}`, {
-          excludes: opts.excludes,
-        });
-      }
-      await sandbox.uploadFile(
-        remotePath("/tmp/transcript.jsonl"),
-        prepareTranscriptUpload(
-          this.agent,
-          this.services.host.readBytes(session.transcriptPath),
-        ),
-      );
-      await uploadModeFiles(this.services.bootstrap, sandbox, [
-        ...baseSecrets.files.map((file) => ({ ...file })),
-        ...auth.files,
+      await Promise.all([
+        this.uploadWorkspace(sandbox, bundle, manifest, opts),
+        (async (): Promise<void> => {
+          await this.uploadCredentials(
+            sandbox,
+            session,
+            baseSecrets,
+            auth,
+            sshBundle,
+          );
+          opts.onProgress?.({
+            step: PushProgressId.InstallingRuntime,
+            packageName: this.agent.pkg,
+            version: manifest.cliVersion,
+          });
+          await this.restoreRuntime(sandbox, manifest, opts.transport);
+        })(),
       ]);
-      await uploadSshBundle(this.services.bootstrap, sandbox, sshBundle);
-      opts.onProgress?.({
-        step: PushProgressId.InstallingRuntime,
-        packageName: this.agent.pkg,
-        version: manifest.cliVersion,
-      });
-      await this.services.bootstrap.uploadRestoreScripts(sandbox, manifest);
-      const restore = await execShell(
-        sandbox,
-        this.services.bootstrap.render(manifest, {
-          home: sandbox.home,
-          transportSteps: opts.transport.bootstrapSteps(),
-          gitUserName: readGitConfig(this.services.host, "user.name"),
-          gitUserEmail: readGitConfig(this.services.host, "user.email"),
-        }),
-      );
-      if (
-        restore.exitCode !== 0 ||
-        !restore.stdout.includes("SANDHOP_RESTORE_OK")
-      )
-        throw new Error(`Restore failed: ${restore.stderr || restore.stdout}`);
+      await opts.beforeTerminalStart?.(sandbox);
       opts.onProgress?.({ step: PushProgressId.RestoringSession });
-      const resume = this.agent.resumeCmd(
-        session.sessionId,
-        manifest.remoteProj,
-        this.services.host.env.MCP_TIMEOUT,
-      );
-      const bind = opts.transport.ttydBindAddress();
-      const command = this.services.multiplexer.attach(
-        TTYD_SESSION,
-        `bash -lc ${quote([resume])}`,
-      );
-      await spawnShell(
+      const url = await this.startTerminal(
         sandbox,
-        buildTerminalCommand(bind, user, pass, command),
+        session,
+        manifest,
+        opts,
+        user,
+        pass,
       );
-      await verifyTerminalReady(sandbox);
-      const { url } = await opts.transport.expose({
-        sandbox,
-        localPort: TTYD_PORT,
-      });
       opts.onProgress?.({ step: PushProgressId.Ready });
-      return { url, sandboxId: sandbox.id, sandbox, user, pass };
+      return {
+        url,
+        sandboxId: sandbox.id,
+        sandbox,
+        user,
+        pass,
+        sshHosts: sshBundle.hosts,
+      };
     } catch (error: unknown) {
       try {
         await sandbox.destroy();
@@ -321,5 +202,139 @@ export class TeleportService {
       }
       throw error;
     }
+  }
+
+  private async uploadWorkspace(
+    sandbox: Sandbox,
+    bundle: string,
+    manifest: Manifest,
+    opts: TeleportOptions,
+  ): Promise<void> {
+    const host = this.services.host;
+    await execShell(sandbox, renderPathPrep(manifest.remoteProj));
+    const transfer = new TransferService(host, sandbox);
+    await transfer.send(bundle, manifest.remoteProj, "bundle", {
+      excludes: opts.excludes,
+      onProgress: opts.onTransfer,
+    });
+    const memRel = this.agent.projectMemoryPath(manifest.remoteEnc);
+    if (memRel !== null && host.exists(`${host.home}/${memRel}`))
+      await transfer.send(
+        `${host.home}/${memRel}`,
+        `${sandbox.home}/${memRel}`,
+        "memory",
+        { excludes: opts.excludes },
+      );
+    await Promise.all(
+      opts.includes.map(async (include, index): Promise<void> => {
+        if (!host.exists(include)) return;
+        const realInclude = host.realpath(include);
+        const dest = mapHomePath(
+          host.home,
+          sandbox.home,
+          realInclude,
+          "passthrough",
+        );
+        const destDir = host.isDirectory(realInclude) ? dest : dirname(dest);
+        await execShell(sandbox, renderPathPrep(destDir));
+        await transfer.send(realInclude, dest, `include-${index}`, {
+          excludes: opts.excludes,
+        });
+      }),
+    );
+  }
+
+  private async uploadCredentials(
+    sandbox: Sandbox,
+    session: SessionRef,
+    baseSecrets: SecretsBundle,
+    auth: AuthBundle,
+    sshBundle: SshBundle,
+  ): Promise<void> {
+    await sandbox.uploadFile(
+      remotePath("/tmp/transcript.jsonl"),
+      this.agent.prepareTranscript(
+        this.services.host.readBytes(session.transcriptPath),
+      ),
+    );
+    await uploadOwnedFiles(
+      sandbox,
+      [...baseSecrets.files, ...auth.files, ...sshBundle.files].map((file) => ({
+        ...file,
+        path: expandHome(file.path, sandbox.home),
+      })),
+      sshBundle.dirs.map((dir) => ({
+        ...dir,
+        path: expandHome(dir.path, sandbox.home),
+      })),
+    );
+  }
+
+  private async restoreRuntime(
+    sandbox: Sandbox,
+    manifest: Manifest,
+    transport: Transport,
+  ): Promise<void> {
+    const preSeedScripts = this.agent.preSeed(
+      this.services.host,
+      manifest.remoteProj,
+    );
+    await uploadOwnedFiles(sandbox, [...preSeedScripts], []);
+    const restore = await execShellAsUser(
+      sandbox,
+      renderRestoreScript(this.agent, this.services.multiplexer, manifest, {
+        home: sandbox.home,
+        preSeedScripts,
+        transportSteps: transport.bootstrapSteps(),
+        gitUserName: readGitConfig(this.services.host, "user.name"),
+        gitUserEmail: readGitConfig(this.services.host, "user.email"),
+      }),
+    );
+    if (
+      restore.exitCode !== 0 ||
+      !restore.stdout.includes("SANDHOP_RESTORE_OK")
+    )
+      throw new Error(`Restore failed: ${restore.stderr || restore.stdout}`);
+  }
+
+  private async startTerminal(
+    sandbox: Sandbox,
+    session: SessionRef,
+    manifest: Manifest,
+    opts: TeleportOptions,
+    user: string,
+    pass: string,
+  ): Promise<string> {
+    const resume = this.agent.resumeCmd(
+      session.sessionId,
+      manifest.remoteProj,
+      this.services.host.env.MCP_TIMEOUT,
+    );
+    const command = this.services.multiplexer.attach(TTYD_SESSION, {
+      file: "bash",
+      args: ["-lc", resume],
+    });
+    const service = await sandbox.startService({
+      file: "ttyd",
+      args: buildTerminalArgs(
+        opts.transport.bindAddress(),
+        user,
+        pass,
+        command,
+      ),
+      port: TTYD_PORT,
+      readiness: {
+        kind: "http",
+        url: `http://127.0.0.1:${TTYD_PORT}`,
+        status: 401,
+        timeoutMs: TERMINAL_READY_TIMEOUT_MS,
+        intervalMs: TERMINAL_READY_INTERVAL_MS,
+      },
+      stdoutPath: TERMINAL_LOG,
+      stderrPath: TERMINAL_LOG,
+      appendOutput: true,
+    });
+    const { url } = await opts.transport.expose({ sandbox, service });
+    return url;
   }
 }
