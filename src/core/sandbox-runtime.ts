@@ -89,6 +89,12 @@ export const buildRunuserArgs = (
   script,
 ];
 
+export const renderUserCommand = (
+  runtime: SandboxRuntime,
+  script: string,
+): string =>
+  `runuser -u ${quote([runtime.username])} -- bash -lc ${quote([script])}`;
+
 export const execShellAsUser = (
   sandbox: Sandbox,
   script: string,

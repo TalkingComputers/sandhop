@@ -161,7 +161,11 @@ export const CODEX: Agent = {
   formatMcpConfig,
   authEnv,
   installCmd: (version) =>
-    `NPM_CONFIG_PREFIX="$HOME/.local" npm i -g @openai/codex@${version}`,
+    [
+      `expected=${quote([version])}`,
+      'current="$("$HOME/.local/bin/codex" --version 2>/dev/null || true)"',
+      `case "$current" in *"$expected"*) : ;; *) NPM_CONFIG_PREFIX="$HOME/.local" npm i -g @openai/codex@${version} ;; esac`,
+    ].join(" && "),
   supportsSettingsScripts: () => false,
   supportsReinstall: () => false,
   preSeed: (deps, remoteProj) => [

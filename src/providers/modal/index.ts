@@ -17,6 +17,7 @@ import {
   buildRunuserArgs,
   buildSandboxToolInstallScript,
   readRuntimeMetadata,
+  renderUserCommand,
   validateRuntime,
 } from "../../core/sandbox-runtime.js";
 import { destroyOrFalse } from "../destroy.js";
@@ -61,12 +62,18 @@ const nodeImage = (): string => {
   return `node:${major}`;
 };
 
-const buildModalDockerfileCommands = (runtime: SandboxRuntime): string[] => {
+const buildModalDockerfileCommands = (
+  runtime: SandboxRuntime,
+  agentInstall?: string,
+): string[] => {
   const valid = validateRuntime(runtime);
   return [
     "RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git jq unzip zstd tmux util-linux",
     `RUN ${buildRuntimeUserScript(valid)}`,
     `RUN ${buildSandboxToolInstallScript()}`,
+    ...(agentInstall === undefined
+      ? []
+      : [`RUN ${renderUserCommand(valid, agentInstall)}`]),
     `ENV HOME=${valid.home}`,
   ];
 };
@@ -143,7 +150,10 @@ export class ModalSandboxProvider implements SandboxProvider {
 
   async create(opts: CreateOptions): Promise<Sandbox> {
     const runtime = validateRuntime(opts.runtime);
-    const dockerfileCommands = buildModalDockerfileCommands(runtime);
+    const dockerfileCommands = buildModalDockerfileCommands(
+      runtime,
+      opts.agentInstall,
+    );
     const client = await this.client();
     const app = await client.apps.fromName("sandhop", {
       createIfMissing: true,

@@ -151,6 +151,7 @@ export class TeleportService {
         username: this.services.host.username,
         workdir: cwd,
       },
+      agentInstall: this.agent.installCmd(manifest.cliVersion),
     });
     try {
       opts.onProgress?.({ step: PushProgressId.UploadingBundle });

@@ -87,13 +87,15 @@ const carriedProjectState = (
 
 const installNativeClaude = (version: string): string =>
   [
-    `curl -fsSL https://claude.ai/install.sh | bash -s ${quote([version])}`,
-    CLAUDE_PATH_EXPORT,
     `expected=${quote([version])}`,
+    'current="$("$HOME/.local/bin/claude" --version 2>/dev/null || true)"',
+    'current="${current%% *}"',
+    `if [ "$current" != "$expected" ]; then curl -fsSL https://claude.ai/install.sh | bash -s ${quote([version])}; fi`,
+    CLAUDE_PATH_EXPORT,
     'actual="$("$HOME/.local/bin/claude" --version)"',
     'actual="${actual%% *}"',
     'test "$actual" = "$expected" || { printf \'Claude Code version mismatch: expected %s, got %s\\n\' "$expected" "$actual" >&2; exit 1; }',
-  ].join("\n");
+  ].join(" && ");
 
 const addEnv = (
   envs: Record<string, string>,

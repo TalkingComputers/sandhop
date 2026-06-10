@@ -288,7 +288,8 @@ test("runEnrichment records MCP transfer failure, skips installs, and still comp
   const log = sandbox.execs.join("\n");
 
   expect(profileIndex).toBeGreaterThan(-1);
-  expect(mcpIndex).toBeGreaterThan(profileIndex);
+  expect(mcpIndex).toBeGreaterThan(-1);
+  expect(markerIndex).toBeGreaterThan(profileIndex);
   expect(markerIndex).toBeGreaterThan(mcpIndex);
   expect(
     report.steps.find((step) => step.step === EnrichmentStepId.McpCodeTransfer),

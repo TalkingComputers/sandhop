@@ -17,6 +17,7 @@ import {
   buildSandboxToolInstallScript,
   envPairs,
   readRuntimeMetadata,
+  renderUserCommand,
   validateRuntime,
 } from "../../core/sandbox-runtime.js";
 import { destroyOrFalse } from "../destroy.js";
@@ -120,6 +121,7 @@ const setupRuntime = async (
   sandbox: VercelSandboxInstance,
   runtime: SandboxRuntime,
   timeoutMs: number,
+  agentInstall?: string,
 ): Promise<void> => {
   const result = await runRootShell(
     sandbox,
@@ -127,6 +129,9 @@ const setupRuntime = async (
       "dnf install -y ca-certificates curl-minimal git jq unzip zstd tmux util-linux shadow-utils",
       buildRuntimeUserScript(runtime),
       buildSandboxToolInstallScript(),
+      ...(agentInstall === undefined
+        ? []
+        : [renderUserCommand(runtime, agentInstall)]),
     ].join(" && "),
     timeoutMs,
   );
@@ -236,7 +241,7 @@ export class VercelSandboxProvider implements SandboxProvider {
       tags: buildRuntimeMetadata(runtime),
     });
     try {
-      await setupRuntime(sandbox, runtime, opts.timeoutMs);
+      await setupRuntime(sandbox, runtime, opts.timeoutMs, opts.agentInstall);
     } catch (error: unknown) {
       await sandbox.stop();
       throw error;

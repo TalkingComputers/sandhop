@@ -14,6 +14,7 @@ import {
   buildRuntimeEnv,
   buildRuntimeUserScript,
   readRuntimeMetadata,
+  renderUserCommand,
   validateRuntime,
 } from "../../core/sandbox-runtime.js";
 import { toArrayBuffer } from "../encode.js";
@@ -45,15 +46,16 @@ const loadE2b = lazyOnce(() =>
   lazyImport<E2bModule>(E2B_PACKAGE, E2B_INSTALL_HINT),
 );
 
-const templateName = (runtime: SandboxRuntime): string =>
+const templateName = (runtime: SandboxRuntime, agentInstall?: string): string =>
   `sandhop-${createHash("sha256")
-    .update(JSON.stringify(validateRuntime(runtime)))
+    .update(JSON.stringify({ agentInstall, runtime: validateRuntime(runtime) }))
     .digest("hex")
     .slice(0, 16)}`;
 
 const buildSandhopTemplate = (
   Template: E2bModule["Template"],
   runtime: SandboxRuntime,
+  agentInstall?: string,
 ) =>
   Template()
     .fromBaseImage()
@@ -70,7 +72,15 @@ const buildSandhopTemplate = (
     .runCmd(buildRuntimeUserScript(runtime), { user: "root" })
     .setWorkdir(runtime.workdir)
     .setUser(runtime.username)
-    .runCmd(buildSandboxToolInstallScript(), { user: "root" })
+    .runCmd(
+      [
+        buildSandboxToolInstallScript(),
+        ...(agentInstall === undefined
+          ? []
+          : [renderUserCommand(runtime, agentInstall)]),
+      ].join(" && "),
+      { user: "root" },
+    )
     .setWorkdir(runtime.workdir)
     .setUser(runtime.username);
 
@@ -165,10 +175,10 @@ export class E2bSandboxProvider implements SandboxProvider {
     const e2b = await loadE2b();
     const credentials = this.credentials;
     const runtime = validateRuntime(opts.runtime);
-    const template = templateName(runtime);
+    const template = templateName(runtime, opts.agentInstall);
     if (!(await e2b.Template.exists(template, credentials)))
       await e2b.Template.build(
-        buildSandhopTemplate(e2b.Template, runtime),
+        buildSandhopTemplate(e2b.Template, runtime, opts.agentInstall),
         template,
         {
           ...credentials,

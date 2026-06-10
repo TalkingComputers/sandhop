@@ -58,6 +58,7 @@ export interface CreateOptions {
   timeoutMs: number;
   ports: number[];
   runtime: SandboxRuntime;
+  agentInstall?: string;
 }
 
 export interface ExposedPort {

@@ -137,6 +137,9 @@ test("TeleportService collects, transfers one zstd bundle, and starts HTTPS ttyd
         username: "host-user",
         workdir: "/workspace/project",
       },
+      agentInstall: expect.stringContaining(
+        "curl -fsSL https://claude.ai/install.sh | bash -s 2.1.160",
+      ),
     },
   ]);
   expect(provider.sandbox.pathUploads).toEqual([

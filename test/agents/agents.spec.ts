@@ -44,8 +44,11 @@ test("declarative agents install exact versions and compose native resume comman
   ).toBe(
     'cd /home/user/project && export PATH="$HOME/.local/bin:$PATH" && DISABLE_AUTOUPDATER=1 DISABLE_UPDATES=1 MCP_TIMEOUT=120000 claude --resume session-id',
   );
-  expect(CODEX.installCmd("0.136.0")).toBe(
+  expect(CODEX.installCmd("0.136.0")).toContain(
     'NPM_CONFIG_PREFIX="$HOME/.local" npm i -g @openai/codex@0.136.0',
+  );
+  expect(CODEX.installCmd("0.136.0")).toContain(
+    '"$HOME/.local/bin/codex" --version',
   );
   expect(CODEX.resumeCmd("session-id", "/home/user/project", undefined)).toBe(
     "cd /home/user/project && codex resume session-id",

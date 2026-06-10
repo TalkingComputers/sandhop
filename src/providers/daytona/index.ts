@@ -16,6 +16,7 @@ import {
   buildRuntimeEnv,
   buildRuntimeMetadata,
   buildRuntimeUserScript,
+  renderUserCommand,
   buildRunuserArgs,
   buildSandboxToolInstallScript,
   readRuntimeMetadata,
@@ -61,12 +62,16 @@ const autoStopMinutes = (timeoutMs: number): number =>
 const buildImage = (
   Image: DaytonaModule["Image"],
   runtime: SandboxRuntime,
+  agentInstall?: string,
 ): ReturnType<DaytonaModule["Image"]["base"]> =>
   Image.base(DAYTONA_NODE_IMAGE)
     .runCommands(
       "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends zstd tmux curl ca-certificates git jq unzip util-linux && rm -rf /var/lib/apt/lists/*",
       buildRuntimeUserScript(runtime),
       buildSandboxToolInstallScript(),
+      ...(agentInstall === undefined
+        ? []
+        : [renderUserCommand(runtime, agentInstall)]),
     )
     .env(buildRuntimeEnv(runtime))
     .workdir(runtime.workdir);
@@ -78,7 +83,7 @@ const buildCreateParams = (
   autoStopInterval: autoStopMinutes(opts.timeoutMs),
   envVars: { ...opts.envs, ...buildRuntimeEnv(opts.runtime) },
   ephemeral: true,
-  image: buildImage(Image, opts.runtime),
+  image: buildImage(Image, opts.runtime, opts.agentInstall),
   labels: buildRuntimeMetadata(opts.runtime),
   public: true,
   resources: {

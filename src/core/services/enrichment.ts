@@ -131,6 +131,12 @@ const EMPTY_SCRIPT_PLAN: ScriptCapturePlan = {
   installCmds: [],
 };
 
+const STEP_ORDER = Object.values(EnrichmentStepId);
+
+const sortSteps = (steps: EnrichmentStepResult[]): void => {
+  steps.sort((a, b) => STEP_ORDER.indexOf(a.step) - STEP_ORDER.indexOf(b.step));
+};
+
 export class EnrichmentService {
   readonly agent: Agent;
   readonly services: EnrichmentServices;
@@ -164,58 +170,66 @@ export class EnrichmentService {
       undefined,
       onEvent,
     );
-    await recordStep(
-      steps,
-      EnrichmentStepId.ProfileTransfer,
-      async (): Promise<void> => {
-        if (!profile) return;
-        await this.sendProfile(onEvent);
-      },
-      onEvent,
-    );
-    const scriptPlan =
-      (await recordStep(
+    const captured: { codePlan: CodePlan | null } = { codePlan: null };
+    await Promise.all([
+      recordStep(
         steps,
-        EnrichmentStepId.SettingsScriptsTransfer,
-        () => this.sendScripts(cwd, onEvent),
+        EnrichmentStepId.ProfileTransfer,
+        async (): Promise<void> => {
+          if (!profile) return;
+          await this.sendProfile(onEvent);
+        },
         onEvent,
-      )) ?? EMPTY_SCRIPT_PLAN;
-    await recordScriptStep(
-      this.sandbox,
-      steps,
-      EnrichmentStepId.SettingsScriptDependencyInstalls,
-      renderSettingsScriptInstalls(scriptPlan),
-      { timeoutMs: ENRICHMENT_EXEC_TIMEOUT_MS },
-      onEvent,
-    );
-    const codePlan = await recordStep(
-      steps,
-      EnrichmentStepId.McpCodeTransfer,
-      () => this.sendMcpCode(cwd, onEvent),
-      onEvent,
-    );
-    if (codePlan === null)
-      skipStep(
+      ),
+      (async (): Promise<void> => {
+        const scriptPlan =
+          (await recordStep(
+            steps,
+            EnrichmentStepId.SettingsScriptsTransfer,
+            () => this.sendScripts(cwd, onEvent),
+            onEvent,
+          )) ?? EMPTY_SCRIPT_PLAN;
+        await recordScriptStep(
+          this.sandbox,
+          steps,
+          EnrichmentStepId.SettingsScriptDependencyInstalls,
+          renderSettingsScriptInstalls(scriptPlan),
+          { timeoutMs: ENRICHMENT_EXEC_TIMEOUT_MS },
+          onEvent,
+        );
+      })(),
+      (async (): Promise<void> => {
+        captured.codePlan = await recordStep(
+          steps,
+          EnrichmentStepId.McpCodeTransfer,
+          () => this.sendMcpCode(cwd, onEvent),
+          onEvent,
+        );
+        if (captured.codePlan === null)
+          skipStep(
+            steps,
+            EnrichmentStepId.McpDependencyInstalls,
+            "MCP code transfer failed; dependency installs skipped",
+            onEvent,
+          );
+        else
+          await recordScriptStep(
+            this.sandbox,
+            steps,
+            EnrichmentStepId.McpDependencyInstalls,
+            renderEnrichmentInstalls(captured.codePlan),
+            { timeoutMs: ENRICHMENT_EXEC_TIMEOUT_MS },
+            onEvent,
+          );
+      })(),
+      recordStep(
         steps,
-        EnrichmentStepId.McpDependencyInstalls,
-        "MCP code transfer failed; dependency installs skipped",
+        EnrichmentStepId.PluginGitSkillReinstall,
+        () => this.reinstallPlugins(onEvent),
         onEvent,
-      );
-    else
-      await recordScriptStep(
-        this.sandbox,
-        steps,
-        EnrichmentStepId.McpDependencyInstalls,
-        renderEnrichmentInstalls(codePlan),
-        { timeoutMs: ENRICHMENT_EXEC_TIMEOUT_MS },
-        onEvent,
-      );
-    await recordStep(
-      steps,
-      EnrichmentStepId.PluginGitSkillReinstall,
-      () => this.reinstallPlugins(onEvent),
-      onEvent,
-    );
+      ),
+    ]);
+    sortSteps(steps);
     await runLogged(this.sandbox, renderEnrichmentCompletion(steps)).catch(
       async (error: unknown): Promise<void> => {
         await appendLog(this.sandbox, formatErrorStack(error)).catch(
@@ -223,7 +237,7 @@ export class EnrichmentService {
         );
       },
     );
-    return { steps, mcpExcluded: codePlan?.excluded ?? [] };
+    return { steps, mcpExcluded: captured.codePlan?.excluded ?? [] };
   }
 
   private async sendProfile(
