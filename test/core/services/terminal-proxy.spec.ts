@@ -70,6 +70,7 @@ beforeAll(async () => {
       LISTEN_PORT,
       UPSTREAM_PORT,
       htmlPath,
+      "sandhop-spec-nosession",
     ),
   );
   proxy = spawn("node", [scriptPath], { stdio: "ignore" });
@@ -99,6 +100,15 @@ test("proxy serves the custom frontend at the root path", async () => {
   expect(res.status).toBe(200);
   expect(res.body).toBe("<html>sandhop-test-frontend</html>");
   const unauth = await httpGet("/", {});
+  expect(unauth.status).toBe(401);
+});
+
+test("proxy reports null size when the tmux session does not exist", async () => {
+  const auth = `Basic ${Buffer.from("user:pw").toString("base64")}`;
+  const res = await httpGet("/size", { authorization: auth });
+  expect(res.status).toBe(200);
+  expect(JSON.parse(res.body)).toBeNull();
+  const unauth = await httpGet("/size", {});
   expect(unauth.status).toBe(401);
 });
 

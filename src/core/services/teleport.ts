@@ -3,7 +3,7 @@ import { TTYD_PORT } from "../constants.js";
 import { dirname, expandHome, remotePath } from "../paths.js";
 import type { Agent, AuthBundle, SessionRef } from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
-import type { Multiplexer, TerminalGrid } from "../ports/multiplexer.js";
+import type { Multiplexer } from "../ports/multiplexer.js";
 import {
   PushProgressId,
   type PushProgressListener,
@@ -87,7 +87,6 @@ const TERMINAL_LOG = remotePath("/tmp/sandhop-terminal.log");
 const TERMINAL_READY_TIMEOUT_MS = 10000;
 const TERMINAL_READY_INTERVAL_MS = 100;
 const TTYD_UPSTREAM_PORT = 7682;
-const TERMINAL_GRID: TerminalGrid = { cols: 200, rows: 50 };
 
 const buildTerminalCommand = (
   user: string,
@@ -311,7 +310,6 @@ export class TeleportService {
       sandbox,
       renderRestoreScript(this.agent, this.services.multiplexer, manifest, {
         home: sandbox.home,
-        grid: TERMINAL_GRID,
         preSeedScripts,
         transportSteps: transport.bootstrapSteps(),
         gitUserName: readGitConfig(this.services.host, "user.name"),
@@ -354,11 +352,12 @@ export class TeleportService {
             TTYD_PORT,
             TTYD_UPSTREAM_PORT,
             TERMINAL_HTML_PATH,
+            TTYD_SESSION,
           ),
         },
         {
           path: remotePath(TERMINAL_HTML_PATH),
-          content: buildTerminalFrontendHtml(TERMINAL_GRID),
+          content: buildTerminalFrontendHtml(),
         },
       ],
       [],

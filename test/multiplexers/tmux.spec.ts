@@ -1,10 +1,10 @@
 import { expect, test } from "vitest";
 import { TmuxMultiplexer } from "../../src/multiplexers/tmux.js";
 
-test("TmuxMultiplexer returns tmux install commands with a fixed manual window size", () => {
-  expect(new TmuxMultiplexer().install({ cols: 200, rows: 50 })).toEqual([
+test("TmuxMultiplexer returns tmux install commands sized by the latest client", () => {
+  expect(new TmuxMultiplexer().install()).toEqual([
     "command -v tmux",
-    `printf '%s\\n' 'set -g status off' 'set -g window-size latest' 'set -g default-size 200x50' 'set -g focus-events on' 'set -g mouse on' 'set -g history-limit 10000' > "$HOME/.tmux.conf"`,
+    `printf '%s\\n' 'set -g status off' 'set -g window-size latest' 'set -g focus-events on' 'set -g mouse on' 'set -g history-limit 10000' > "$HOME/.tmux.conf"`,
   ]);
 });
 

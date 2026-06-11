@@ -19,7 +19,7 @@ const tmuxMultiplexer = {
   id: "tmux",
   install: (): string[] => [
     "bash -lc 'DEBIAN_FRONTEND=noninteractive apt-get install -y tmux'",
-    `printf '%s\\n' 'set -g status off' 'set -g window-size latest' 'set -g default-size 200x50' 'set -g focus-events on' 'set -g mouse on' 'set -g history-limit 10000' > "$HOME/.tmux.conf"`,
+    `printf '%s\\n' 'set -g status off' 'set -g window-size latest' 'set -g focus-events on' 'set -g mouse on' 'set -g history-limit 10000' > "$HOME/.tmux.conf"`,
   ],
   attach: (session: string, command: CommandInvocation): CommandInvocation => ({
     file: "tmux",

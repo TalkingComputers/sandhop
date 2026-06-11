@@ -8,14 +8,14 @@ Claude on the web and Codex cloud are good for clean repo tasks. Sandhop is for 
 
 ## Quickstart
 
-Requires Node.js `>=22.12.0`. Older Node 22 builds such as `22.6.0` cannot load the current E2B SDK dependency chain and can fail with `ERR_REQUIRE_ESM` during `sandhop setup`; check with `node -p "process.version + ' require_module=' + process.features.require_module"` and upgrade if `require_module` is not `true`.
+Requires Node.js `>=22.12.0`. Older Node 22 builds such as `22.6.0` cannot load the current E2B SDK dependency chain and can fail with `ERR_REQUIRE_ESM` during `sandhop setup`.
 
 ```bash
 npm install -g sandhop
 sandhop setup
 ```
 
-`sandhop setup` is a short wizard: pick your sandbox provider, paste its API key, choose a transport, and it installs the sandhop trigger into whichever agents you have — a `/sandhop` slash command for Claude Code, and a `$sandhop` skill for Codex (Codex removed custom slash commands in 0.117; restart Codex after setup so it scans the new skill). Credentials are stored in `~/.config/sandhop/config.json` (mode 600). You are never asked for your Claude/Codex API key — that auth is captured from your existing local session at teleport time.
+`sandhop setup` is a short wizard: pick your sandbox provider, paste its API key, choose a transport, and it installs the sandhop trigger into whichever agents you have — a `/sandhop` slash command for Claude Code, and a `$sandhop` skill for Codex. Credentials are stored in `~/.config/sandhop/config.json`. You are never asked for your Claude/Codex API key — that auth is captured from your existing local session at teleport time.
 
 Then, from inside a project session:
 
@@ -57,8 +57,6 @@ sandhop list                              # list running sandboxes
 sandhop kill <sandbox-id>                 # destroy a sandbox
 ```
 
-(`sandhop` is the global bin; `node dist/cli/main.js <cmd>` is equivalent from source.)
-
 ### Flags
 
 - `--provider e2b|modal|daytona|vercel` — sandbox provider (default: configured / `e2b`).
@@ -74,7 +72,7 @@ sandhop kill <sandbox-id>                 # destroy a sandbox
 ## Transports / private access
 
 - **`--tunnel public`** (default): exposes ttyd through the provider's HTTPS preview, gated by Sandhop's per-teleport ttyd Basic Auth.
-- **`--tunnel cloudflared`**: binds ttyd to loopback and runs cloudflared inside the sandbox. Works through provider egress where native expose is token-gated (e.g. Daytona).
+- **`(WIP) --tunnel cloudflared`**: binds ttyd to loopback and runs cloudflared inside the sandbox. Works through provider egress where native expose is token-gated (e.g. Daytona).
   - _Quick tunnel_ (default): zero-config `*.trycloudflare.com` URL + Basic Auth.
   - _Named tunnel_ (Access-gated, private): set `CLOUDFLARE_TUNNEL_TOKEN` + `CLOUDFLARE_TUNNEL_HOSTNAME` (or via `sandhop setup`); Sandhop returns `https://<your-hostname>` and Cloudflare Access enforces login.
 
@@ -94,34 +92,6 @@ sandhop kill <sandbox-id>                 # destroy a sandbox
 4. Install the matching agent CLI, restore the transcript, start the terminal service, and verify service readiness.
 5. Run inline enrichment for agent profile, settings scripts, MCP code/deps, plugins, marketplaces, and skills before printing `SANDHOP_URL` / `SANDHOP_AUTH`. Enrichment steps fail soft: a failed step is reported (`Environment ready · 6/7 steps ok`) but never destroys the sandbox, and skipped MCP servers (e.g. localhost-bound) are listed with reasons.
 
-## Security model
-
-- Single-tenant ephemeral sandbox per push; auth/secrets travel as env/credential files over TLS, not in the tarball.
-- Default access is HTTPS + per-teleport ttyd Basic Auth; `--tunnel cloudflared` adds quick-tunnel or Access-gated named-tunnel options.
-- Sandhop never logs secret values.
-- Destroy a sandbox with `sandhop kill <sandbox-id>`.
-
-## Architecture
-
-TypeScript modular monolith with a hexagonal core.
-
-- `src/core`: ports, pure data types, orchestration services (teleport, snapshot, secrets, MCP).
-- `src/host`: local Node filesystem/process/keychain/tar adapter.
-- `src/providers`: sandbox provider adapters — E2B, Modal, Daytona, Vercel — behind one `SandboxProvider` port + registry.
-- `src/agents`: Claude Code and Codex adapters behind one `Agent` port.
-- `src/transports`: `public` (provider URL) and `cloudflared` URL adapters.
-- `src/cli`: composition root, `sandhop setup` wizard, and CLI entrypoints.
-- `plugin/`: the Claude Code `/sandhop` command (`commands/`) and Codex `$sandhop` skill (`skills/`) installed by `sandhop setup`.
-
-## Limitations
-
-- You need an existing local Claude Code or Codex session for the target cwd.
-- Large dirty trees take time to archive and upload.
-- MCP servers that depend on local-only resources (localhost databases, local data files, a browser) or that require interactive OAuth (e.g. Notion, Ramp) won't function in a fresh sandbox — log in inside the sandbox, or expect them absent/unauthenticated.
-- **Codex resume is org-bound**: it replays the session's encrypted reasoning to the API, so the shipped credential must belong to the org that created the rollout. The default `~/.codex/auth.json` ships as-is (fine for ordinary OpenAI logins). Sessions created under a custom provider profile (e.g. Azure) resume only with that provider's credential; ChatGPT-OAuth `auth.json` (no `OPENAI_API_KEY`) is unverified for cross-machine resume.
-- The agent CLI installs at your exact local version, so Codex may show its standard "update available" notice — informational; choose "skip" to continue.
-- Cloud rebuilds need network access to the git/npm/bun/uv sources referenced by your manifests.
-
 ## Development
 
 ```bash
@@ -129,17 +99,6 @@ npm ci
 npm run build
 npx vitest run
 ```
-
-## Releasing
-
-`package.json` is the single version source (the CLI reads it at runtime). To cut a release:
-
-```bash
-npm version patch   # or minor / major — bumps package.json, commits, tags vX.Y.Z
-git push --follow-tags
-```
-
-CI publishes the tag to npm (trusted publishing, with provenance) and creates the GitHub release.
 
 ## License
 
