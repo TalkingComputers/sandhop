@@ -28,6 +28,7 @@ import {
   hasConversation,
   mergeForkAncestry,
   parseCodexTranscriptName,
+  readModelProvider,
   readRecordedCwd,
 } from "./codex-session.js";
 
@@ -189,8 +190,16 @@ export const CODEX: Agent = {
     return `${home}/.codex/sessions/${year}/${month}/${day}/${transcriptName}`;
   },
   projectMemoryPath: () => null,
-  resumeCmd: (sessionId, remoteProj) =>
-    sessionId === null
-      ? `cd ${quote([remoteProj])} && codex`
-      : `cd ${quote([remoteProj])} && codex resume ${quote([sessionId])}`,
+  // Codex does not restore model_provider on resume (openai/codex#15219);
+  // pin it from the session meta so azure-style sessions do not replay
+  // provider-encrypted reasoning against the wrong endpoint.
+  resumeCmd: (resume, remoteProj) => {
+    if (resume === null) return `cd ${quote([remoteProj])} && codex`;
+    const provider = readModelProvider(
+      new TextDecoder().decode(resume.transcript),
+    );
+    const override =
+      provider === null ? "" : ` -c model_provider=${quote([provider])}`;
+    return `cd ${quote([remoteProj])} && codex${override} resume ${quote([resume.sessionId])}`;
+  },
 };

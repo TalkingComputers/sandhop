@@ -50,6 +50,24 @@ export const readTomlEnvRefs = (text: string): string[] => {
       if (envHttpHeaders !== undefined)
         for (const value of Object.values(envHttpHeaders)) refs.add(value);
     }
+  const modelProviders = toTomlTable(parsed.model_providers, "model_providers");
+  if (modelProviders !== undefined)
+    for (const [name, value] of Object.entries(modelProviders)) {
+      const provider = toTomlTable(value, `model_providers.${name}`);
+      if (provider === undefined)
+        throw new Error(`Expected model_providers.${name}`);
+      const envKey = toTomlString(
+        provider.env_key,
+        `model_providers.${name}.env_key`,
+      );
+      if (envKey !== undefined) refs.add(envKey);
+      const envHttpHeaders = toTomlStringRecord(
+        provider.env_http_headers,
+        `model_providers.${name}.env_http_headers`,
+      );
+      if (envHttpHeaders !== undefined)
+        for (const value of Object.values(envHttpHeaders)) refs.add(value);
+    }
   for (const value of Object.values(parsed))
     collectEnvRefsFromValue(refs, value);
   return [...refs].sort();

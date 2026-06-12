@@ -17,6 +17,7 @@ import {
   type NodeScript,
 } from "../../src/core/sandbox-scripts.js";
 import { classify } from "../../src/core/services/mcp-classify.js";
+import type { ResumeSession } from "../../src/core/ports/agent.js";
 import { FakeHost } from "../fakes/host.js";
 
 const stageNodeScripts = (scripts: readonly NodeScript[]): string[] => {
@@ -34,13 +35,25 @@ test("declarative agents install exact versions and compose native resume comman
   expect(CLAUDE_CODE.installCmd("2.1.160")).toContain(
     "Claude Code version mismatch",
   );
+  const resumeOf = (sessionId: string, transcript = ""): ResumeSession => ({
+    sessionId,
+    transcript: new TextEncoder().encode(transcript),
+  });
   expect(
-    CLAUDE_CODE.resumeCmd("session-id", "/home/user/project", undefined),
+    CLAUDE_CODE.resumeCmd(
+      resumeOf("session-id"),
+      "/home/user/project",
+      undefined,
+    ),
   ).toBe(
     'cd /home/user/project && export PATH="$HOME/.local/bin:$PATH" && DISABLE_AUTOUPDATER=1 DISABLE_UPDATES=1 claude --resume session-id',
   );
   expect(
-    CLAUDE_CODE.resumeCmd("session-id", "/home/user/project", "120000"),
+    CLAUDE_CODE.resumeCmd(
+      resumeOf("session-id"),
+      "/home/user/project",
+      "120000",
+    ),
   ).toBe(
     'cd /home/user/project && export PATH="$HOME/.local/bin:$PATH" && DISABLE_AUTOUPDATER=1 DISABLE_UPDATES=1 MCP_TIMEOUT=120000 claude --resume session-id',
   );
@@ -50,8 +63,20 @@ test("declarative agents install exact versions and compose native resume comman
   expect(CODEX.installCmd("0.136.0")).toContain(
     '"$HOME/.local/bin/codex" --version',
   );
-  expect(CODEX.resumeCmd("session-id", "/home/user/project", undefined)).toBe(
-    "cd /home/user/project && codex resume session-id",
+  expect(
+    CODEX.resumeCmd(resumeOf("session-id"), "/home/user/project", undefined),
+  ).toBe("cd /home/user/project && codex resume session-id");
+  expect(
+    CODEX.resumeCmd(
+      resumeOf(
+        "session-id",
+        '{"type":"session_meta","payload":{"model_provider":"azure"}}\n',
+      ),
+      "/home/user/project",
+      undefined,
+    ),
+  ).toBe(
+    "cd /home/user/project && codex -c model_provider=azure resume session-id",
   );
   expect(CLAUDE_CODE.resumeCmd(null, "/home/user/project", undefined)).toBe(
     'cd /home/user/project && export PATH="$HOME/.local/bin:$PATH" && DISABLE_AUTOUPDATER=1 DISABLE_UPDATES=1 claude',
@@ -60,7 +85,11 @@ test("declarative agents install exact versions and compose native resume comman
     "cd /home/user/project && codex",
   );
   expect(
-    CLAUDE_CODE.resumeCmd("session;$(id)'", "/tmp/proj;$(touch pwn)'", "1;id"),
+    CLAUDE_CODE.resumeCmd(
+      resumeOf("session;$(id)'"),
+      "/tmp/proj;$(touch pwn)'",
+      "1;id",
+    ),
   ).toBe(
     `cd "/tmp/proj;\\$(touch pwn)'" && export PATH="$HOME/.local/bin:$PATH" && DISABLE_AUTOUPDATER=1 DISABLE_UPDATES=1 MCP_TIMEOUT=1\\;id claude --resume "session;\\$(id)'"`,
   );
@@ -462,6 +491,22 @@ env_http_headers = { Authorization = "AUTH_TOKEN" }
 
 test("Codex env refs return raw refs when TOML parsing fails", () => {
   expect(CODEX.mcpEnvRefs('token = "${TOKEN}"\n[')).toEqual(["TOKEN"]);
+});
+
+test("Codex env refs include third-party model provider keys", () => {
+  expect(
+    CODEX.mcpEnvRefs(`
+[model_providers.azure]
+name = "Azure OpenAI"
+base_url = "https://example.openai.azure.com/openai/v1"
+env_key = "AZURE_OPENAI_API_KEY"
+wire_api = "responses"
+
+[model_providers.org]
+base_url = "https://api.example.com/v1"
+env_http_headers = { "OpenAI-Organization" = "OPENAI_ORGANIZATION" }
+`),
+  ).toEqual(["AZURE_OPENAI_API_KEY", "OPENAI_ORGANIZATION"]);
 });
 
 test("Codex MCP parsing skips malformed TOML files and keeps valid servers", () => {

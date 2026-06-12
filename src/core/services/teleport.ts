@@ -1,7 +1,12 @@
 import { buildManifest, type Manifest } from "../manifest.js";
 import { TTYD_PORT } from "../constants.js";
 import { dirname, expandHome, remotePath } from "../paths.js";
-import type { Agent, AuthBundle, SessionRef } from "../ports/agent.js";
+import type {
+  Agent,
+  AuthBundle,
+  ResumeSession,
+  SessionRef,
+} from "../ports/agent.js";
 import type { HostDeps } from "../ports/host.js";
 import type { Multiplexer } from "../ports/multiplexer.js";
 import {
@@ -200,7 +205,9 @@ export class TeleportService {
       opts.onProgress?.({ step: PushProgressId.RestoringSession });
       const url = await this.startTerminal(
         sandbox,
-        this.agent.canResume(transcript) ? session.sessionId : null,
+        this.agent.canResume(transcript)
+          ? { sessionId: session.sessionId, transcript }
+          : null,
         manifest,
         opts,
         user,
@@ -323,14 +330,14 @@ export class TeleportService {
 
   private async startTerminal(
     sandbox: Sandbox,
-    sessionId: string | null,
+    session: ResumeSession | null,
     manifest: Manifest,
     opts: TeleportOptions,
     user: string,
     pass: string,
   ): Promise<string> {
     const resume = this.agent.resumeCmd(
-      sessionId,
+      session,
       manifest.remoteProj,
       this.services.host.env.MCP_TIMEOUT,
     );

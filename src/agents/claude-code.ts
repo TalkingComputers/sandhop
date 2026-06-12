@@ -123,6 +123,13 @@ const addEnv = (
   if (value !== undefined) envs[name] = value;
 };
 
+const AWS_CRED_ENVS = [
+  "AWS_REGION",
+  "AWS_ACCESS_KEY_ID",
+  "AWS_SECRET_ACCESS_KEY",
+  "AWS_SESSION_TOKEN",
+] as const;
+
 const addEnvs = (
   envs: Record<string, string>,
   deps: AgentHostDeps,
@@ -151,6 +158,13 @@ const authEnv = (deps: AgentHostDeps): AuthBundle => {
   const apiKey = hasText(envKey) ? envKey : deps.keychain("Claude Code", null);
   if (hasText(apiKey)) envs.ANTHROPIC_API_KEY = apiKey;
   addEnv(envs, deps, "CLAUDE_CODE_OAUTH_TOKEN");
+  addEnvs(envs, deps, [
+    "ANTHROPIC_MODEL",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+    "ANTHROPIC_SMALL_FAST_MODEL",
+  ]);
   if (deps.env.ANTHROPIC_AUTH_TOKEN !== undefined)
     addEnvs(envs, deps, [
       "ANTHROPIC_AUTH_TOKEN",
@@ -160,20 +174,47 @@ const authEnv = (deps: AgentHostDeps): AuthBundle => {
   if (deps.env.CLAUDE_CODE_USE_BEDROCK !== undefined)
     addEnvs(envs, deps, [
       "CLAUDE_CODE_USE_BEDROCK",
-      "AWS_REGION",
+      "CLAUDE_CODE_SKIP_BEDROCK_AUTH",
+      ...AWS_CRED_ENVS,
       "AWS_BEARER_TOKEN_BEDROCK",
-      "AWS_ACCESS_KEY_ID",
-      "AWS_SECRET_ACCESS_KEY",
-      "AWS_SESSION_TOKEN",
       "ANTHROPIC_BEDROCK_BASE_URL",
+      "ANTHROPIC_SMALL_FAST_MODEL_AWS_REGION",
+    ]);
+  if (deps.env.CLAUDE_CODE_USE_MANTLE !== undefined)
+    addEnvs(envs, deps, [
+      "CLAUDE_CODE_USE_MANTLE",
+      "CLAUDE_CODE_SKIP_MANTLE_AUTH",
+      ...AWS_CRED_ENVS,
+      "ANTHROPIC_BEDROCK_MANTLE_BASE_URL",
+      "ANTHROPIC_SMALL_FAST_MODEL_AWS_REGION",
+    ]);
+  if (deps.env.CLAUDE_CODE_USE_ANTHROPIC_AWS !== undefined)
+    addEnvs(envs, deps, [
+      "CLAUDE_CODE_USE_ANTHROPIC_AWS",
+      "CLAUDE_CODE_SKIP_ANTHROPIC_AWS_AUTH",
+      ...AWS_CRED_ENVS,
+      "ANTHROPIC_AWS_API_KEY",
+      "ANTHROPIC_AWS_BASE_URL",
+      "ANTHROPIC_AWS_WORKSPACE_ID",
+    ]);
+  if (deps.env.CLAUDE_CODE_USE_FOUNDRY !== undefined)
+    addEnvs(envs, deps, [
+      "CLAUDE_CODE_USE_FOUNDRY",
+      "CLAUDE_CODE_SKIP_FOUNDRY_AUTH",
+      "ANTHROPIC_FOUNDRY_API_KEY",
+      "ANTHROPIC_FOUNDRY_BASE_URL",
+      "ANTHROPIC_FOUNDRY_RESOURCE",
     ]);
   if (deps.env.CLAUDE_CODE_USE_VERTEX !== undefined) {
     addEnvs(envs, deps, [
       "CLAUDE_CODE_USE_VERTEX",
+      "CLAUDE_CODE_SKIP_VERTEX_AUTH",
       "ANTHROPIC_VERTEX_PROJECT_ID",
       "CLOUD_ML_REGION",
       "ANTHROPIC_VERTEX_BASE_URL",
     ]);
+    for (const name of Object.keys(deps.env))
+      if (name.startsWith("VERTEX_REGION_")) addEnv(envs, deps, name);
     const googleCredentialsPath = deps.env.GOOGLE_APPLICATION_CREDENTIALS;
     if (googleCredentialsPath !== undefined) {
       const googleCredentials = deps.readFile(googleCredentialsPath);
@@ -193,11 +234,14 @@ const authEnv = (deps: AgentHostDeps): AuthBundle => {
     envs.CLAUDE_CODE_OAUTH_TOKEN !== undefined ||
     envs.ANTHROPIC_AUTH_TOKEN !== undefined ||
     envs.CLAUDE_CODE_USE_BEDROCK !== undefined ||
+    envs.CLAUDE_CODE_USE_MANTLE !== undefined ||
+    envs.CLAUDE_CODE_USE_ANTHROPIC_AWS !== undefined ||
+    envs.CLAUDE_CODE_USE_FOUNDRY !== undefined ||
     envs.CLAUDE_CODE_USE_VERTEX !== undefined
   )
     return { envs, files };
   throw new Error(
-    "No Claude Code credential found. Provide one of: ~/.claude/.credentials.json, keychain service Claude Code-credentials, ANTHROPIC_API_KEY, keychain service Claude Code, CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_AUTH_TOKEN, CLAUDE_CODE_USE_BEDROCK, CLAUDE_CODE_USE_VERTEX",
+    "No Claude Code credential found. Provide one of: ~/.claude/.credentials.json, keychain service Claude Code-credentials, ANTHROPIC_API_KEY, keychain service Claude Code, CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_AUTH_TOKEN, or a third-party platform flag (CLAUDE_CODE_USE_BEDROCK, CLAUDE_CODE_USE_MANTLE, CLAUDE_CODE_USE_ANTHROPIC_AWS, CLAUDE_CODE_USE_FOUNDRY, CLAUDE_CODE_USE_VERTEX)",
   );
 };
 
@@ -386,10 +430,11 @@ export const CLAUDE_CODE: Agent = {
     `${home}/${CLAUDE_PROJECTS_PATH}/${remoteEnc}/${transcriptName}`,
   projectMemoryPath: (remoteEnc) =>
     `${CLAUDE_PROJECTS_PATH}/${remoteEnc}/memory`,
-  resumeCmd: (sessionId, remoteProj, mcpTimeout) => {
+  resumeCmd: (resume, remoteProj, mcpTimeout) => {
     const env =
       mcpTimeout === undefined ? "" : `MCP_TIMEOUT=${quote([mcpTimeout])} `;
-    const resume = sessionId === null ? "" : ` --resume ${quote([sessionId])}`;
-    return `cd ${quote([remoteProj])} && ${CLAUDE_PATH_EXPORT} && ${CLAUDE_RUNTIME_ENV} ${env}claude${resume}`;
+    const flag =
+      resume === null ? "" : ` --resume ${quote([resume.sessionId])}`;
+    return `cd ${quote([remoteProj])} && ${CLAUDE_PATH_EXPORT} && ${CLAUDE_RUNTIME_ENV} ${env}claude${flag}`;
   },
 };

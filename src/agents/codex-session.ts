@@ -90,6 +90,22 @@ const entrySignature = (line: string): string => {
   }
 };
 
+export const readModelProvider = (text: string): string | null => {
+  const first = text.split("\n", 1)[0]!;
+  try {
+    const parsed = JSON.parse(first) as {
+      type?: unknown;
+      payload?: { model_provider?: unknown };
+    };
+    if (parsed.type !== "session_meta") return null;
+    return typeof parsed.payload?.model_provider === "string"
+      ? parsed.payload.model_provider
+      : null;
+  } catch {
+    return null;
+  }
+};
+
 export const hasConversation = (text: string): boolean =>
   text.split("\n").some((line) => {
     try {

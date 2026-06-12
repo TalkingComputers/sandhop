@@ -115,8 +115,13 @@ export interface Agent {
   ): string;
   projectMemoryPath(remoteEnc: string): string | null;
   resumeCmd(
-    sessionId: string | null,
+    resume: ResumeSession | null,
     remoteProj: string,
     mcpTimeout: string | undefined,
   ): string;
+}
+
+export interface ResumeSession {
+  sessionId: string;
+  transcript: Uint8Array;
 }
