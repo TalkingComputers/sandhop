@@ -146,23 +146,52 @@ export class NodeHost implements HostDeps {
   }
 
   keychain(service: string, account: string | null): string | null {
+    // A missing item is an expected probe miss (security exits 44,
+    // secret-tool exits 1) and stays quiet; any other failure (locked
+    // keychain, denied access) is a real fault and gets surfaced.
+    const lookup =
+      process.platform === "darwin"
+        ? {
+            bin: "security",
+            args: [
+              "find-generic-password",
+              "-w",
+              "-s",
+              service,
+              ...(account === null ? [] : ["-a", account]),
+            ],
+            missingStatus: 44,
+          }
+        : process.platform === "linux"
+          ? {
+              bin: "secret-tool",
+              args: [
+                "lookup",
+                "service",
+                service,
+                ...(account === null ? [] : ["account", account]),
+              ],
+              missingStatus: 1,
+            }
+          : null;
+    if (lookup === null) return null;
     try {
-      if (process.platform === "darwin") {
-        const args =
-          account === null
-            ? ["find-generic-password", "-w", "-s", service]
-            : ["find-generic-password", "-w", "-s", service, "-a", account];
-        return execFileSync("security", args, { encoding: "utf8" }).trim();
-      }
-      if (process.platform === "linux") {
-        const args =
-          account === null
-            ? ["lookup", "service", service]
-            : ["lookup", "service", service, "account", account];
-        return execFileSync("secret-tool", args, { encoding: "utf8" }).trim();
-      }
-      return null;
-    } catch {
+      return execFileSync(lookup.bin, lookup.args, {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      }).trim();
+    } catch (error: unknown) {
+      const failure = error as {
+        status?: number | null;
+        stderr?: string | null;
+        code?: string;
+      };
+      if (failure.status === lookup.missingStatus || failure.code === "ENOENT")
+        return null;
+      const detail = (failure.stderr ?? "").trim().split("\n")[0] ?? "";
+      console.error(
+        `sandhop: keychain lookup for "${service}" failed${detail === "" ? "" : `: ${detail}`}`,
+      );
       return null;
     }
   }

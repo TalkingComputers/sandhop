@@ -79,3 +79,11 @@ test("NodeHost tarZstd still fails on a missing source directory", async () => {
     host.tarZstd(join(tmpdir(), "sandhop-does-not-exist"), ["."], out),
   ).rejects.toThrow();
 });
+
+test("keychain returns null quietly for missing items", () => {
+  const host = new NodeHost();
+  expect(host.keychain("sandhop-spec-nonexistent-service", null)).toBeNull();
+  expect(
+    host.keychain("sandhop-spec-nonexistent-service", "sandhop-spec-account"),
+  ).toBeNull();
+});
