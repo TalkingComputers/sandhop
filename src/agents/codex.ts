@@ -26,6 +26,7 @@ import {
 } from "./codex-mcp.js";
 import {
   codexId,
+  collectSubagentRollouts,
   hasConversation,
   mergeForkAncestry,
   parseCodexTranscriptName,
@@ -208,7 +209,14 @@ export const CODEX: Agent = {
     return `${home}/.codex/sessions/${year}/${month}/${day}/${transcriptName}`;
   },
   projectMemoryPath: () => null,
-  sessionDataPath: () => null,
+  sessionData: (deps, remoteEnc, sessionId, transcript) => {
+    void remoteEnc;
+    void sessionId;
+    return collectSubagentRollouts(
+      deps,
+      new TextDecoder().decode(transcript),
+    ).map((path) => path.slice(deps.home.length + 1));
+  },
   // Codex does not restore model_provider on resume (openai/codex#15219);
   // pin it from the session meta so azure-style sessions do not replay
   // provider-encrypted reasoning against the wrong endpoint.

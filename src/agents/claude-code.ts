@@ -401,8 +401,10 @@ export const CLAUDE_CODE: Agent = {
   },
   // The per-session directory holds subagent sidechains, tool results, and
   // workflow state that the resumed session references.
-  sessionDataPath: (remoteEnc, sessionId) =>
-    `${CLAUDE_PROJECTS_PATH}/${remoteEnc}/${sessionId}`,
+  sessionData: (deps, remoteEnc, sessionId) => {
+    void deps;
+    return [`${CLAUDE_PROJECTS_PATH}/${remoteEnc}/${sessionId}`];
+  },
   profileEntries: listClaudeProfileEntries,
   externalSkills: listExternalSymlinkSkills,
   extraEnvRefs: collectClaudeExtraEnvRefs,

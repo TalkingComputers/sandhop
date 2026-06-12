@@ -94,7 +94,12 @@ export interface Agent {
   detectVersionArgs: string[];
   parseVersion(output: string): string;
   matchSession(deps: AgentSessionDeps, cwd: string): SessionRef[];
-  sessionDataPath(remoteEnc: string, sessionId: string): string | null;
+  sessionData(
+    deps: AgentSessionDeps,
+    remoteEnc: string,
+    sessionId: string,
+    transcript: Uint8Array,
+  ): string[];
   profileEntries(deps: AgentProfileDeps): string[];
   externalSkills(deps: AgentProfileDeps): ExternalSkill[];
   extraEnvRefs(deps: AgentProfileDeps): string[];

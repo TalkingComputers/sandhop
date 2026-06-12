@@ -116,6 +116,81 @@ export const hasConversation = (text: string): boolean =>
     }
   });
 
+interface RolloutLine {
+  type?: unknown;
+  payload?: {
+    type?: unknown;
+    name?: unknown;
+    namespace?: unknown;
+    call_id?: unknown;
+    output?: unknown;
+  };
+}
+
+const UUID_PATTERN =
+  /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
+
+const collectChildIds = (text: string): string[] => {
+  const spawnCallIds = new Set<string>();
+  const ids = new Set<string>();
+  const parsedLines: RolloutLine[] = [];
+  for (const line of text.split("\n")) {
+    if (line.length === 0) continue;
+    try {
+      parsedLines.push(JSON.parse(line) as RolloutLine);
+    } catch {
+      continue;
+    }
+  }
+  for (const parsed of parsedLines) {
+    const payload = parsed.payload;
+    if (
+      parsed.type === "response_item" &&
+      payload?.type === "function_call" &&
+      payload.namespace === "multi_agent_v1" &&
+      typeof payload.call_id === "string"
+    )
+      spawnCallIds.add(payload.call_id);
+  }
+  for (const parsed of parsedLines) {
+    const payload = parsed.payload;
+    if (
+      parsed.type !== "response_item" ||
+      payload?.type !== "function_call_output" ||
+      typeof payload.call_id !== "string" ||
+      !spawnCallIds.has(payload.call_id) ||
+      typeof payload.output !== "string"
+    )
+      continue;
+    for (const match of payload.output.matchAll(UUID_PATTERN))
+      ids.add(match[0]);
+  }
+  return [...ids];
+};
+
+// Subagent threads spawned via multi_agent_v1 live as ordinary rollouts in
+// the sessions tree; the resumed parent inspects them through /agent, so
+// they travel with the session (including children of children).
+export const collectSubagentRollouts = (
+  deps: AgentSessionDeps,
+  transcript: string,
+): string[] => {
+  const found = new Map<string, string>();
+  const seen = new Set<string>();
+  const queue = collectChildIds(transcript);
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const path = findRollout(deps, id);
+    if (path === null) continue;
+    found.set(id, path);
+    const text = deps.readFile(path);
+    if (text !== null) queue.push(...collectChildIds(text));
+  }
+  return [...found.values()].sort();
+};
+
 export const mergeForkAncestry = (
   deps: AgentSessionDeps,
   transcript: string,

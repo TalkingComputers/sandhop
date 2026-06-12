@@ -184,7 +184,7 @@ export class TeleportService {
     try {
       opts.onProgress?.({ step: PushProgressId.UploadingBundle });
       await Promise.all([
-        this.uploadWorkspace(sandbox, bundle, manifest, opts),
+        this.uploadWorkspace(sandbox, bundle, manifest, opts, transcript),
         (async (): Promise<void> => {
           await this.uploadCredentials(
             sandbox,
@@ -240,6 +240,7 @@ export class TeleportService {
     bundle: string,
     manifest: Manifest,
     opts: TeleportOptions,
+    transcript: Uint8Array,
   ): Promise<void> {
     const host = this.services.host;
     await execShell(sandbox, renderPathPrep(manifest.remoteProj));
@@ -260,20 +261,22 @@ export class TeleportService {
           onSkipped: (paths) => opts.onSkipped?.("memory", paths),
         },
       );
-    const dataRel = this.agent.sessionDataPath(
-      manifest.remoteEnc,
-      manifest.sessionId,
-    );
-    if (dataRel !== null && host.exists(`${host.home}/${dataRel}`))
+    const dataRels = this.agent
+      .sessionData(host, manifest.remoteEnc, manifest.sessionId, transcript)
+      .filter((rel) => host.exists(`${host.home}/${rel}`));
+    for (const [index, dataRel] of dataRels.entries()) {
+      const destDir = dirname(`${sandbox.home}/${dataRel}`);
+      await execShell(sandbox, renderPathPrep(destDir));
       await transfer.send(
         `${host.home}/${dataRel}`,
         `${sandbox.home}/${dataRel}`,
-        "session-data",
+        `session-data-${index}`,
         {
           excludes: opts.excludes,
-          onSkipped: (paths) => opts.onSkipped?.("session-data", paths),
+          onSkipped: (paths) => opts.onSkipped?.(dataRel, paths),
         },
       );
+    }
     await Promise.all(
       opts.includes.map(async (include, index): Promise<void> => {
         if (!host.exists(include)) return;

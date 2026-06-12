@@ -768,11 +768,68 @@ test("resolveSession ignores subagent sidechain transcripts", () => {
   expect(resolved.session.sessionId).toBe("main-session");
 });
 
-test("Claude maps the per-session data directory; Codex has none", () => {
-  expect(CLAUDE_CODE.sessionDataPath("-workspace-project", "session-id")).toBe(
-    ".claude/projects/-workspace-project/session-id",
+test("Claude maps the per-session data directory", () => {
+  const host = new FakeHost({ home: "/home/local", env: {} });
+  expect(
+    CLAUDE_CODE.sessionData(
+      host,
+      "-workspace-project",
+      "session-id",
+      new Uint8Array(),
+    ),
+  ).toEqual([".claude/projects/-workspace-project/session-id"]);
+});
+
+test("Codex collects spawned subagent rollouts recursively from the transcript", () => {
+  const child =
+    "/home/local/.codex/sessions/2026/06/12/rollout-2026-06-12T09-53-49-019ebc1c-432a-7ff3-99cf-4a93b8ddd5f8.jsonl";
+  const grandchild =
+    "/home/local/.codex/sessions/2026/06/12/rollout-2026-06-12T09-55-00-019ebc1d-1111-7ff3-99cf-4a93b8ddd5f9.jsonl";
+  const spawn = (id: string, call: string): string =>
+    [
+      JSON.stringify({
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          name: "spawn_agent",
+          namespace: "multi_agent_v1",
+          call_id: call,
+          arguments: "{}",
+        },
+      }),
+      JSON.stringify({
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: call,
+          output: JSON.stringify({ agent_id: id }),
+        },
+      }),
+    ].join("\n");
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: {
+      [child]: spawn("019ebc1d-1111-7ff3-99cf-4a93b8ddd5f9", "call_2"),
+      [grandchild]: '{"type":"response_item","payload":{"type":"message"}}',
+    },
+  });
+
+  const transcript = new TextEncoder().encode(
+    spawn("019ebc1c-432a-7ff3-99cf-4a93b8ddd5f8", "call_1"),
   );
-  expect(CODEX.sessionDataPath("enc", "session-id")).toBeNull();
+  expect(CODEX.sessionData(host, "enc", "session-id", transcript)).toEqual([
+    ".codex/sessions/2026/06/12/rollout-2026-06-12T09-53-49-019ebc1c-432a-7ff3-99cf-4a93b8ddd5f8.jsonl",
+    ".codex/sessions/2026/06/12/rollout-2026-06-12T09-55-00-019ebc1d-1111-7ff3-99cf-4a93b8ddd5f9.jsonl",
+  ]);
+  expect(
+    CODEX.sessionData(
+      host,
+      "enc",
+      "s",
+      new TextEncoder().encode('{"type":"session_meta","payload":{}}'),
+    ),
+  ).toEqual([]);
 });
 
 test("resolveSession pins codex sessions from CODEX_THREAD_ID", () => {
