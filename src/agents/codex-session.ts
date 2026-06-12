@@ -90,6 +90,16 @@ const entrySignature = (line: string): string => {
   }
 };
 
+export const hasConversation = (text: string): boolean =>
+  text.split("\n").some((line) => {
+    try {
+      const parsed = JSON.parse(line) as { type?: unknown };
+      return parsed.type === "response_item";
+    } catch {
+      return false;
+    }
+  });
+
 export const mergeForkAncestry = (
   deps: AgentSessionDeps,
   transcript: string,

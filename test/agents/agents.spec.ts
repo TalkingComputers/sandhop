@@ -53,6 +53,12 @@ test("declarative agents install exact versions and compose native resume comman
   expect(CODEX.resumeCmd("session-id", "/home/user/project", undefined)).toBe(
     "cd /home/user/project && codex resume session-id",
   );
+  expect(CLAUDE_CODE.resumeCmd(null, "/home/user/project", undefined)).toBe(
+    'cd /home/user/project && export PATH="$HOME/.local/bin:$PATH" && DISABLE_AUTOUPDATER=1 DISABLE_UPDATES=1 claude',
+  );
+  expect(CODEX.resumeCmd(null, "/home/user/project", undefined)).toBe(
+    "cd /home/user/project && codex",
+  );
   expect(
     CLAUDE_CODE.resumeCmd("session;$(id)'", "/tmp/proj;$(touch pwn)'", "1;id"),
   ).toBe(
@@ -579,6 +585,33 @@ test("Claude transcript trimming ignores non-user lines quoting the sandhop comm
   );
 
   expect(trimmed).toBe(`${lines.slice(0, 2).join("\n")}\n`);
+});
+
+test("canResume detects conversations so /sandhop-first sessions start fresh", () => {
+  const encoder = new TextEncoder();
+  const metaOnly = [
+    '{"type":"last-prompt","sessionId":"s"}',
+    '{"type":"permission-mode","permissionMode":"bypassPermissions"}',
+  ].join("\n");
+  expect(CLAUDE_CODE.canResume(encoder.encode(metaOnly))).toBe(false);
+  expect(CLAUDE_CODE.canResume(encoder.encode(""))).toBe(false);
+  expect(
+    CLAUDE_CODE.canResume(
+      encoder.encode(
+        `${metaOnly}\n{"type":"user","message":{"role":"user","content":"hi"}}`,
+      ),
+    ),
+  ).toBe(true);
+
+  const codexMeta = '{"type":"session_meta","payload":{"cwd":"/p"}}';
+  expect(CODEX.canResume(encoder.encode(codexMeta))).toBe(false);
+  expect(
+    CODEX.canResume(
+      encoder.encode(
+        `${codexMeta}\n{"type":"response_item","payload":{"type":"message"}}`,
+      ),
+    ),
+  ).toBe(true);
 });
 
 test("resolveSession chooses the agent with the newest latest session", () => {

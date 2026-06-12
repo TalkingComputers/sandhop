@@ -97,6 +97,8 @@ export interface Agent {
   externalSkills(deps: AgentProfileDeps): ExternalSkill[];
   extraEnvRefs(deps: AgentProfileDeps): string[];
   prepareTranscript(deps: AgentSessionDeps, bytes: Uint8Array): Uint8Array;
+  canResume(bytes: Uint8Array): boolean;
+  canResume(bytes: Uint8Array): boolean;
   mcpConfigPaths(home: string, cwd: string): string[];
   mcpEnvRefs(configText: string): string[];
   parseMcpServers(deps: AgentMcpDeps, cwd: string): McpServer[];
@@ -113,7 +115,7 @@ export interface Agent {
   ): string;
   projectMemoryPath(remoteEnc: string): string | null;
   resumeCmd(
-    sessionId: string,
+    sessionId: string | null,
     remoteProj: string,
     mcpTimeout: string | undefined,
   ): string;

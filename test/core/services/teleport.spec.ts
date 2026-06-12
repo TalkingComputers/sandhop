@@ -14,6 +14,8 @@ import { FakeHost } from "../../fakes/host.js";
 import { FakeProvider } from "../../fakes/provider.js";
 
 const encoder = new TextEncoder();
+const CLAUDE_TRANSCRIPT =
+  '{"type":"user","message":{"role":"user","content":"hi"}}';
 
 const tmuxMultiplexer = {
   id: "tmux",
@@ -56,7 +58,7 @@ const createBasicTeleport = (): {
     files: { "/workspace/project/README.md": "" },
     bytes: {
       "/home/local/.claude/projects/-workspace-project/session-id.jsonl":
-        encoder.encode("transcript"),
+        encoder.encode(CLAUDE_TRANSCRIPT),
     },
   });
   const provider = new FakeProvider();
@@ -89,7 +91,7 @@ test("TeleportService collects, transfers one zstd bundle, and starts HTTPS ttyd
     files: { "/workspace/project/README.md": "" },
     bytes: {
       "/home/local/.claude/projects/-workspace-project/session-id.jsonl":
-        encoder.encode("transcript"),
+        encoder.encode(CLAUDE_TRANSCRIPT),
     },
     execValues: {
       "git config --global --get user.name": "Host User\n",
@@ -178,7 +180,7 @@ test("TeleportService collects, transfers one zstd bundle, and starts HTTPS ttyd
   ]);
   expect(provider.sandbox.uploads).toContainEqual({
     path: "/tmp/transcript.jsonl",
-    data: encoder.encode("transcript"),
+    data: encoder.encode(CLAUDE_TRANSCRIPT),
   });
   expect(provider.sandbox.uploads).toContainEqual({
     path: expect.stringMatching(
@@ -245,6 +247,49 @@ test("TeleportService collects, transfers one zstd bundle, and starts HTTPS ttyd
   expect(result.pass).toMatch(/^[A-Za-z0-9_-]{24}$/);
 });
 
+test("TeleportService starts a fresh agent when the trimmed transcript has no conversation", async () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: { "/workspace/project/README.md": "" },
+    bytes: {
+      "/home/local/.claude/projects/-workspace-project/session-id.jsonl":
+        encoder.encode(
+          '{"type":"permission-mode","permissionMode":"bypassPermissions"}\n{"type":"user","message":{"role":"user","content":"<command-name>/sandhop</command-name>"}}\n',
+        ),
+    },
+  });
+  const provider = new FakeProvider();
+  const session: SessionRef = {
+    sessionId: "session-id",
+    transcriptPath:
+      "/home/local/.claude/projects/-workspace-project/session-id.jsonl",
+    transcriptName: "session-id.jsonl",
+  };
+  const service = new TeleportService(provider, CLAUDE_CODE, {
+    host,
+    session,
+    secrets: { collect: () => ({ envs: {}, files: [] }) },
+    auth: () => ({ envs: {}, files: [] }),
+    version: () => "2.1.160",
+    gitSsh: emptyGitSsh,
+    multiplexer: tmuxMultiplexer,
+  });
+
+  await service.run("/workspace/project", {
+    excludes: [],
+    includes: [],
+    transport: new PublicTransport(),
+    timeoutMs: 3_600_000,
+  });
+
+  const terminal = provider.sandbox.services[0]!.args.join(" ");
+  expect(terminal).not.toContain("--resume");
+  expect(terminal).toContain(
+    'cd /workspace/project && export PATH="$HOME/.local/bin:$PATH" && DISABLE_AUTOUPDATER=1 DISABLE_UPDATES=1 claude\'',
+  );
+});
+
 test("TeleportService runs preparation before terminal startup and exposure", async () => {
   const { provider, service } = createBasicTeleport();
   const observed: { services: number; exposedPorts: number; execs: number }[] =
@@ -302,7 +347,7 @@ test("TeleportService transfers Claude project memory after the bundle when pres
     },
     bytes: {
       "/home/local/.claude/projects/-workspace-project/session-id.jsonl":
-        encoder.encode("transcript"),
+        encoder.encode(CLAUDE_TRANSCRIPT),
     },
   });
   const provider = new FakeProvider();
@@ -409,7 +454,7 @@ test("TeleportService injects transport bootstrap steps and loopback ttyd bind",
     files: { "/workspace/project/README.md": "" },
     bytes: {
       "/home/local/.claude/projects/-workspace-project/session-id.jsonl":
-        encoder.encode("transcript"),
+        encoder.encode(CLAUDE_TRANSCRIPT),
     },
   });
   const provider = new FakeProvider();
@@ -477,7 +522,7 @@ test("TeleportService uploads secret and auth files without MCP code bundles", a
     files: { "/workspace/project/README.md": "" },
     bytes: {
       "/home/local/.claude/projects/-workspace-project/session-id.jsonl":
-        encoder.encode("transcript"),
+        encoder.encode(CLAUDE_TRANSCRIPT),
     },
   });
   const provider = new FakeProvider();
@@ -564,7 +609,7 @@ test("TeleportService restore failure surfaces stdout when stderr is empty", asy
     files: { "/workspace/project/README.md": "" },
     bytes: {
       "/home/local/.claude/projects/-workspace-project/session-id.jsonl":
-        encoder.encode("transcript"),
+        encoder.encode(CLAUDE_TRANSCRIPT),
     },
   });
   const provider = new FakeProvider();
@@ -618,7 +663,7 @@ test("TeleportService ships SSH bundle, bundle excludes, and mirrored includes",
     },
     bytes: {
       "/home/local/.claude/projects/-workspace-project/session-id.jsonl":
-        encoder.encode("transcript"),
+        encoder.encode(CLAUDE_TRANSCRIPT),
     },
   });
   const provider = new FakeProvider();
@@ -722,8 +767,8 @@ test("TeleportService ships SSH bundle, bundle excludes, and mirrored includes",
 
 test("TeleportService wraps Codex resume in the shared tmux ttyd session", async () => {
   const transcript = [
-    '{"type":"user","message":{"role":"user","content":"<command-name>/sandhop</command-name>"}}',
-    '{"type":"assistant","message":{"role":"assistant","content":"done"}}',
+    '{"type":"session_meta","payload":{"cwd":"/workspace/project"}}',
+    '{"type":"response_item","payload":{"type":"message","role":"user","content":"hi"}}',
   ].join("\n");
   const host = new FakeHost({
     home: "/home/local",

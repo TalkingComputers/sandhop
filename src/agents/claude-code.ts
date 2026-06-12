@@ -64,6 +64,18 @@ const prepareTranscript = (
   return bytes;
 };
 
+const canResume = (bytes: Uint8Array): boolean =>
+  new TextDecoder()
+    .decode(bytes)
+    .split("\n")
+    .some((line) => {
+      const parsed = parseJsonRecord(line);
+      return (
+        parsed !== null &&
+        (parsed.type === "user" || parsed.type === "assistant")
+      );
+    });
+
 const hasText = (value: string | null | undefined): value is string =>
   value !== null && value !== undefined && value.length > 0;
 
@@ -344,6 +356,7 @@ export const CLAUDE_CODE: Agent = {
   externalSkills: listExternalSymlinkSkills,
   extraEnvRefs: collectClaudeExtraEnvRefs,
   prepareTranscript,
+  canResume,
   mcpConfigPaths: (home, cwd) => [
     `${cwd}/.mcp.json`,
     `${cwd}/${CLAUDE_SETTINGS_PATH}`,
@@ -376,6 +389,7 @@ export const CLAUDE_CODE: Agent = {
   resumeCmd: (sessionId, remoteProj, mcpTimeout) => {
     const env =
       mcpTimeout === undefined ? "" : `MCP_TIMEOUT=${quote([mcpTimeout])} `;
-    return `cd ${quote([remoteProj])} && ${CLAUDE_PATH_EXPORT} && ${CLAUDE_RUNTIME_ENV} ${env}claude --resume ${quote([sessionId])}`;
+    const resume = sessionId === null ? "" : ` --resume ${quote([sessionId])}`;
+    return `cd ${quote([remoteProj])} && ${CLAUDE_PATH_EXPORT} && ${CLAUDE_RUNTIME_ENV} ${env}claude${resume}`;
   },
 };

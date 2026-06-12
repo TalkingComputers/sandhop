@@ -159,6 +159,10 @@ export class TeleportService {
       transcriptName: session.transcriptName,
       ts: Date.now(),
     });
+    const transcript = this.agent.prepareTranscript(
+      this.services.host,
+      this.services.host.readBytes(session.transcriptPath),
+    );
     const envs = { ...baseSecrets.envs, ...auth.envs };
     opts.onProgress?.({ step: PushProgressId.CreatingSandbox });
     const sandbox = await this.provider.create({
@@ -179,7 +183,7 @@ export class TeleportService {
         (async (): Promise<void> => {
           await this.uploadCredentials(
             sandbox,
-            session,
+            transcript,
             baseSecrets,
             auth,
             sshBundle,
@@ -196,7 +200,7 @@ export class TeleportService {
       opts.onProgress?.({ step: PushProgressId.RestoringSession });
       const url = await this.startTerminal(
         sandbox,
-        session,
+        this.agent.canResume(transcript) ? session.sessionId : null,
         manifest,
         opts,
         user,
@@ -271,18 +275,12 @@ export class TeleportService {
 
   private async uploadCredentials(
     sandbox: Sandbox,
-    session: SessionRef,
+    transcript: Uint8Array,
     baseSecrets: SecretsBundle,
     auth: AuthBundle,
     sshBundle: SshBundle,
   ): Promise<void> {
-    await sandbox.uploadFile(
-      remotePath("/tmp/transcript.jsonl"),
-      this.agent.prepareTranscript(
-        this.services.host,
-        this.services.host.readBytes(session.transcriptPath),
-      ),
-    );
+    await sandbox.uploadFile(remotePath("/tmp/transcript.jsonl"), transcript);
     await uploadOwnedFiles(
       sandbox,
       [...baseSecrets.files, ...auth.files, ...sshBundle.files].map((file) => ({
@@ -325,14 +323,14 @@ export class TeleportService {
 
   private async startTerminal(
     sandbox: Sandbox,
-    session: SessionRef,
+    sessionId: string | null,
     manifest: Manifest,
     opts: TeleportOptions,
     user: string,
     pass: string,
   ): Promise<string> {
     const resume = this.agent.resumeCmd(
-      session.sessionId,
+      sessionId,
       manifest.remoteProj,
       this.services.host.env.MCP_TIMEOUT,
     );

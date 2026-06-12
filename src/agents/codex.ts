@@ -25,6 +25,7 @@ import {
 } from "./codex-mcp.js";
 import {
   codexId,
+  hasConversation,
   mergeForkAncestry,
   parseCodexTranscriptName,
   readRecordedCwd,
@@ -157,6 +158,7 @@ export const CODEX: Agent = {
     const merged = mergeForkAncestry(deps, text);
     return merged === text ? bytes : new TextEncoder().encode(merged);
   },
+  canResume: (bytes) => hasConversation(new TextDecoder().decode(bytes)),
   mcpConfigPaths: (home, cwd) => [
     `${home}/.codex/config.toml`,
     `${cwd}/.codex/config.toml`,
@@ -188,5 +190,7 @@ export const CODEX: Agent = {
   },
   projectMemoryPath: () => null,
   resumeCmd: (sessionId, remoteProj) =>
-    `cd ${quote([remoteProj])} && codex resume ${quote([sessionId])}`,
+    sessionId === null
+      ? `cd ${quote([remoteProj])} && codex`
+      : `cd ${quote([remoteProj])} && codex resume ${quote([sessionId])}`,
 };
