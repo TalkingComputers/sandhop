@@ -208,6 +208,7 @@ export const CODEX: Agent = {
     return `${home}/.codex/sessions/${year}/${month}/${day}/${transcriptName}`;
   },
   projectMemoryPath: () => null,
+  sessionDataPath: () => null,
   // Codex does not restore model_provider on resume (openai/codex#15219);
   // pin it from the session meta so azure-style sessions do not replay
   // provider-encrypted reasoning against the wrong endpoint.

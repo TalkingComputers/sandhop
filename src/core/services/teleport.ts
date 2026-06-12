@@ -260,6 +260,20 @@ export class TeleportService {
           onSkipped: (paths) => opts.onSkipped?.("memory", paths),
         },
       );
+    const dataRel = this.agent.sessionDataPath(
+      manifest.remoteEnc,
+      manifest.sessionId,
+    );
+    if (dataRel !== null && host.exists(`${host.home}/${dataRel}`))
+      await transfer.send(
+        `${host.home}/${dataRel}`,
+        `${sandbox.home}/${dataRel}`,
+        "session-data",
+        {
+          excludes: opts.excludes,
+          onSkipped: (paths) => opts.onSkipped?.("session-data", paths),
+        },
+      );
     await Promise.all(
       opts.includes.map(async (include, index): Promise<void> => {
         if (!host.exists(include)) return;

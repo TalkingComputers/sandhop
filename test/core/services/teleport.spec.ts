@@ -290,6 +290,53 @@ test("TeleportService starts a fresh agent when the trimmed transcript has no co
   );
 });
 
+test("TeleportService ships the per-session data directory beside the session", async () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: {
+      "/workspace/project/README.md": "",
+      "/home/local/.claude/projects/-workspace-project/session-id/subagents/agent-x.jsonl":
+        '{"type":"sidechain"}\n',
+    },
+    bytes: {
+      "/home/local/.claude/projects/-workspace-project/session-id.jsonl":
+        encoder.encode(CLAUDE_TRANSCRIPT),
+    },
+  });
+  const provider = new FakeProvider();
+  const session: SessionRef = {
+    sessionId: "session-id",
+    transcriptPath:
+      "/home/local/.claude/projects/-workspace-project/session-id.jsonl",
+    transcriptName: "session-id.jsonl",
+  };
+  const service = new TeleportService(provider, CLAUDE_CODE, {
+    host,
+    session,
+    secrets: { collect: () => ({ envs: {}, files: [] }) },
+    auth: () => ({ envs: {}, files: [] }),
+    version: () => "2.1.160",
+    gitSsh: emptyGitSsh,
+    multiplexer: tmuxMultiplexer,
+  });
+
+  await service.run("/workspace/project", {
+    excludes: [],
+    includes: [],
+    transport: new PublicTransport(),
+    timeoutMs: 3_600_000,
+  });
+
+  const extracts = provider.sandbox.execs.filter((exec) =>
+    exec.includes("session-data"),
+  );
+  expect(extracts.length).toBeGreaterThan(0);
+  expect(extracts.join("\n")).toContain(
+    "/home/local/.claude/projects/-workspace-project/session-id",
+  );
+});
+
 test("TeleportService runs preparation before terminal startup and exposure", async () => {
   const { provider, service } = createBasicTeleport();
   const observed: { services: number; exposedPorts: number; execs: number }[] =

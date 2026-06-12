@@ -121,6 +121,7 @@ test("renderRestoreScript installs exact CLI version, places transcript, and ins
   const script = renderRestoreScript(CLAUDE_CODE, tmuxMultiplexer, manifest, {
     home: "/home/user",
     preSeedScripts: [],
+    sidechainNames: [],
   });
 
   expect(script).toContain(
@@ -173,6 +174,7 @@ test("renderRestoreScript quotes remote project shell paths with metacharacters"
     {
       home: "/home/user",
       preSeedScripts: [],
+      sidechainNames: [],
     },
   );
   const quotedRemoteProj = `"/Users/alice/My Project;\\$(touch pwn)'"`;
@@ -192,6 +194,7 @@ test("renderRestoreScript emits quoted git identity after safe directory when su
   const script = renderRestoreScript(CLAUDE_CODE, tmuxMultiplexer, manifest, {
     home: "/home/user",
     preSeedScripts: [],
+    sidechainNames: [],
     gitUserName: "Alice O'Connor",
     gitUserEmail: "alice+test@example.com",
   });
@@ -215,6 +218,7 @@ test("renderRestoreScript injects transport steps before agent install", () => {
   const script = renderRestoreScript(CLAUDE_CODE, tmuxMultiplexer, manifest, {
     home: "/home/user",
     preSeedScripts: [],
+    sidechainNames: [],
     transportSteps: ["install cloudflared"],
   });
 

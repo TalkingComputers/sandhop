@@ -768,6 +768,13 @@ test("resolveSession ignores subagent sidechain transcripts", () => {
   expect(resolved.session.sessionId).toBe("main-session");
 });
 
+test("Claude maps the per-session data directory; Codex has none", () => {
+  expect(CLAUDE_CODE.sessionDataPath("-workspace-project", "session-id")).toBe(
+    ".claude/projects/-workspace-project/session-id",
+  );
+  expect(CODEX.sessionDataPath("enc", "session-id")).toBeNull();
+});
+
 test("resolveSession pins codex sessions from CODEX_THREAD_ID", () => {
   const oldRollout =
     "/home/local/.codex/sessions/2026/06/01/rollout-2026-06-01T00-00-00-old-thread.jsonl";
