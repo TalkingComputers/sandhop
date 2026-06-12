@@ -1,6 +1,6 @@
 {
   "name": "sandhop",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Teleport live local Claude Code and Codex sessions to auth-gated cloud sandbox terminals.",
   "type": "module",
   "bin": {
