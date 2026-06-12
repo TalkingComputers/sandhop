@@ -2,6 +2,7 @@ import type {
   Agent,
   AgentHostDeps,
   AgentPreSeedDeps,
+  AgentProfileDeps,
   AuthBundle,
 } from "../core/ports/agent.js";
 import {
@@ -35,6 +36,19 @@ import {
 const parseVersion = makeVersionParser("codex");
 const CODEX_SKILLS_PATHS = [".agents/skills", ".codex/skills"];
 const CODEX_CONFIG_PATH = ".codex/config.toml";
+
+const listProfileConfigs = (deps: AgentProfileDeps): string[] => {
+  const prefix = `${deps.home}/.codex/`;
+  return deps
+    .walk(`${deps.home}/.codex`)
+    .filter((path) => {
+      if (!path.startsWith(prefix)) return false;
+      const rest = path.slice(prefix.length);
+      return !rest.includes("/") && rest.endsWith(".config.toml");
+    })
+    .map((path) => path.slice(deps.home.length + 1))
+    .sort();
+};
 
 const buildPreSeededConfig = (
   deps: AgentPreSeedDeps,
@@ -122,7 +136,10 @@ export const CODEX: Agent = {
       ".codex/instructions.md",
       ".codex/prompts",
       ".codex/rules",
+      ".codex/hooks.json",
+      ".codex/agents",
     ].filter((path) => deps.exists(`${deps.home}/${path}`)),
+    ...listProfileConfigs(deps),
     ...CODEX_SKILLS_PATHS.flatMap((skillsPath) =>
       listPlainSkillDirs(deps, `${deps.home}/${skillsPath}`).map(
         (skill) => `${skillsPath}/${skill.name}`,

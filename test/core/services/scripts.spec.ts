@@ -108,3 +108,47 @@ test("ScriptCaptureService maps local scripts from Claude settings and rewrites 
     "python /home/user/work/scripts/project-hook.py",
   );
 });
+
+test("ScriptCaptureService covers local settings files and all script-bearing settings", () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: {
+      "/home/local/.claude/settings.local.json": JSON.stringify({
+        fileSuggestion: {
+          type: "command",
+          command: "~/.claude/file-suggestion.sh",
+        },
+        otelHeadersHelper: "$HOME/bin/otel-headers.sh",
+        gcpAuthRefresh: "/home/local/bin/gcp-refresh.sh --quiet",
+      }),
+      "/home/local/.claude/file-suggestion.sh": "#!/bin/sh\n",
+      "/home/local/bin/otel-headers.sh": "#!/bin/sh\n",
+      "/home/local/bin/gcp-refresh.sh": "#!/bin/sh\n",
+    },
+  });
+
+  const plan = new ScriptCaptureService(host).plan(
+    "/home/local/work",
+    "/sandbox/home",
+  );
+
+  expect(plan.mappings.map((m) => m.localPath)).toEqual([
+    "/home/local/.claude/file-suggestion.sh",
+    "/home/local/bin/gcp-refresh.sh",
+    "/home/local/bin/otel-headers.sh",
+  ]);
+  expect(plan.rewrites).toHaveLength(1);
+  const rewritten = JSON.parse(plan.rewrites[0]!.content) as {
+    fileSuggestion: { command: string };
+    otelHeadersHelper: string;
+    gcpAuthRefresh: string;
+  };
+  expect(rewritten.fileSuggestion.command).toBe(
+    "/sandbox/home/.claude/file-suggestion.sh",
+  );
+  expect(rewritten.otelHeadersHelper).toBe("/sandbox/home/bin/otel-headers.sh");
+  expect(rewritten.gcpAuthRefresh).toBe(
+    "/sandbox/home/bin/gcp-refresh.sh --quiet",
+  );
+});

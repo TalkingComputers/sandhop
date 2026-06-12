@@ -1,4 +1,5 @@
 import {
+  CLAUDE_SETTINGS_LOCAL_PATH,
   CLAUDE_SETTINGS_PATH,
   joinClaudeLocalPath,
 } from "../../agents/claude-paths.js";
@@ -133,15 +134,26 @@ const rewriteHookGroups = (ctx: RewriteContext, value: unknown): boolean => {
   return changed;
 };
 
-const rewriteApiKeyHelper = (
+const STRING_COMMAND_SETTINGS = [
+  "apiKeyHelper",
+  "otelHeadersHelper",
+  "awsAuthRefresh",
+  "awsCredentialExport",
+  "gcpAuthRefresh",
+] as const;
+
+const RECORD_COMMAND_SETTINGS = ["statusLine", "fileSuggestion"] as const;
+
+const rewriteStringCommand = (
   ctx: RewriteContext,
   settings: Record<string, unknown>,
+  key: string,
 ): boolean => {
-  const helper = settings.apiKeyHelper;
-  if (typeof helper !== "string") return false;
-  const rewritten = rewriteCommand(ctx, helper);
+  const command = settings[key];
+  if (typeof command !== "string") return false;
+  const rewritten = rewriteCommand(ctx, command);
   if (!rewritten.changed) return false;
-  settings.apiKeyHelper = rewritten.command;
+  settings[key] = rewritten.command;
   return true;
 };
 
@@ -155,12 +167,12 @@ const rewriteSettings = (
   const ctx: RewriteContext = { host, cwd, sandboxHome, roots };
   let changed = false;
   if (rewriteHookGroups(ctx, settings.hooks)) changed = true;
-  if (
-    isRecord(settings.statusLine) &&
-    rewriteCommandField(ctx, settings.statusLine)
-  )
-    changed = true;
-  if (rewriteApiKeyHelper(ctx, settings)) changed = true;
+  for (const key of RECORD_COMMAND_SETTINGS) {
+    const value = settings[key];
+    if (isRecord(value) && rewriteCommandField(ctx, value)) changed = true;
+  }
+  for (const key of STRING_COMMAND_SETTINGS)
+    if (rewriteStringCommand(ctx, settings, key)) changed = true;
   return changed;
 };
 
@@ -168,18 +180,19 @@ const settingsFiles = (
   host: HostDeps,
   cwd: string,
   sandboxHome: string,
-): SettingsFile[] => [
-  {
-    localPath: joinClaudeLocalPath(host.home, CLAUDE_SETTINGS_PATH),
-    sandboxPath: `${sandboxHome}/${CLAUDE_SETTINGS_PATH}`,
-    cwd,
-  },
-  {
-    localPath: `${cwd}/${CLAUDE_SETTINGS_PATH}`,
-    sandboxPath: `${cwd}/${CLAUDE_SETTINGS_PATH}`,
-    cwd,
-  },
-];
+): SettingsFile[] =>
+  [CLAUDE_SETTINGS_PATH, CLAUDE_SETTINGS_LOCAL_PATH].flatMap((path) => [
+    {
+      localPath: joinClaudeLocalPath(host.home, path),
+      sandboxPath: `${sandboxHome}/${path}`,
+      cwd,
+    },
+    {
+      localPath: `${cwd}/${path}`,
+      sandboxPath: `${cwd}/${path}`,
+      cwd,
+    },
+  ]);
 
 export class ScriptCaptureService {
   readonly host: HostDeps;

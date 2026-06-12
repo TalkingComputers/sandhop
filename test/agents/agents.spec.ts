@@ -606,6 +606,25 @@ test("Codex profile ships plain and symlinked skills under .codex/skills", () =>
   expect(CODEX.extraEnvRefs(host)).toEqual(["EXTERNAL_TOKEN", "SKILL_TOKEN"]);
 });
 
+test("Codex profile ships hooks, agents, and profile config files", () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: {
+      "/home/local/.codex/hooks.json": "{}",
+      "/home/local/.codex/agents/reviewer.toml": "description = 'review'",
+      "/home/local/.codex/azure55.config.toml": 'model_provider = "azure"',
+      "/home/local/.codex/sessions/2026/06/01/rollout-x.config.toml": "nested",
+    },
+  });
+
+  expect(CODEX.profileEntries(host)).toEqual([
+    ".codex/hooks.json",
+    ".codex/agents",
+    ".codex/azure55.config.toml",
+  ]);
+});
+
 test("Claude transcript trimming ignores non-user lines quoting the sandhop command", () => {
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
