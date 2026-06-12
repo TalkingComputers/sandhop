@@ -90,6 +90,7 @@ export interface Agent {
   readonly id: AgentId;
   readonly pkg: string;
   readonly bin: string;
+  readonly sessionEnvVar: string;
   detectVersionArgs: string[];
   parseVersion(output: string): string;
   matchSession(deps: AgentSessionDeps, cwd: string): SessionRef[];

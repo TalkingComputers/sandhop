@@ -4,6 +4,7 @@ import type {
   AgentSessionDeps,
   SessionRef,
 } from "../core/ports/agent.js";
+import type { HostDeps } from "../core/ports/host.js";
 import { CLAUDE_CODE } from "./claude-code.js";
 import { CODEX } from "./codex.js";
 
@@ -42,15 +43,32 @@ const newestMatch = (
 };
 
 export const resolveSession = (
-  host: AgentSessionDeps,
+  host: AgentSessionDeps & Pick<HostDeps, "env">,
   cwd: string,
   agentId: AgentId | undefined,
   sessionId: string | undefined,
 ): ResolvedSession => {
   const candidates = agentId === undefined ? AGENTS : [pickAgent(agentId)];
-  const matched = candidates
-    .map((agent) => ({ agent, sessions: agent.matchSession(host, cwd) }))
-    .filter(({ sessions }) => sessions.length > 0);
+  const bySessions = candidates.map((agent) => ({
+    agent,
+    sessions: agent.matchSession(host, cwd),
+  }));
+  // When pushing from inside an agent, the agent names the exact invoking
+  // session in its environment; never guess by recency in that case.
+  if (sessionId === undefined)
+    for (const { agent, sessions } of bySessions) {
+      const envId = host.env[agent.sessionEnvVar];
+      if (envId === undefined || envId.length === 0) continue;
+      const session = sessions.find(
+        (candidate) => candidate.sessionId === envId,
+      );
+      if (session === undefined)
+        throw new Error(
+          `${agent.sessionEnvVar} is set to ${envId} but no matching ${agent.id} transcript exists for ${cwd}`,
+        );
+      return { agent, session, detectedAgents: [agent.id] };
+    }
+  const matched = bySessions.filter(({ sessions }) => sessions.length > 0);
   const newest = newestMatch(host, matched);
   if (newest === null)
     throw new Error(

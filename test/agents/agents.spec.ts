@@ -707,3 +707,85 @@ test("resolveSession chooses the agent with the newest latest session", () => {
   expect(resolved.session.sessionId).toBe("codex-session");
   expect(resolved.detectedAgents).toEqual(["claude-code", "codex"]);
 });
+
+test("resolveSession pins the exact session named by the agent environment", () => {
+  const claudeMain =
+    "/home/local/.claude/projects/-workspace-project/main-session.jsonl";
+  const claudeNewer =
+    "/home/local/.claude/projects/-workspace-project/newer-session.jsonl";
+  const host = new FakeHost({
+    home: "/home/local",
+    env: { CLAUDE_CODE_SESSION_ID: "main-session" },
+    files: { [claudeMain]: "{}\n", [claudeNewer]: "{}\n" },
+    mtimes: { [claudeMain]: 10, [claudeNewer]: 99 },
+  });
+
+  const resolved = resolveSession(
+    host,
+    "/workspace/project",
+    undefined,
+    undefined,
+  );
+  expect(resolved.agent.id).toBe("claude-code");
+  expect(resolved.session.sessionId).toBe("main-session");
+  expect(resolved.detectedAgents).toEqual(["claude-code"]);
+});
+
+test("resolveSession fails fast when the agent-named session has no transcript", () => {
+  const host = new FakeHost({
+    home: "/home/local",
+    env: { CLAUDE_CODE_SESSION_ID: "vanished" },
+    files: {
+      "/home/local/.claude/projects/-workspace-project/other.jsonl": "{}\n",
+    },
+  });
+
+  expect(() =>
+    resolveSession(host, "/workspace/project", undefined, undefined),
+  ).toThrow(
+    "CLAUDE_CODE_SESSION_ID is set to vanished but no matching claude-code transcript exists for /workspace/project",
+  );
+});
+
+test("resolveSession ignores subagent sidechain transcripts", () => {
+  const main =
+    "/home/local/.claude/projects/-workspace-project/main-session.jsonl";
+  const sidechain =
+    "/home/local/.claude/projects/-workspace-project/agent-a788f220b.jsonl";
+  const host = new FakeHost({
+    home: "/home/local",
+    env: {},
+    files: { [main]: "{}\n", [sidechain]: "{}\n" },
+    mtimes: { [main]: 10, [sidechain]: 99 },
+  });
+
+  const resolved = resolveSession(
+    host,
+    "/workspace/project",
+    undefined,
+    undefined,
+  );
+  expect(resolved.session.sessionId).toBe("main-session");
+});
+
+test("resolveSession pins codex sessions from CODEX_THREAD_ID", () => {
+  const oldRollout =
+    "/home/local/.codex/sessions/2026/06/01/rollout-2026-06-01T00-00-00-old-thread.jsonl";
+  const pinned =
+    "/home/local/.codex/sessions/2026/06/02/rollout-2026-06-02T00-00-00-pinned-thread.jsonl";
+  const meta = `${JSON.stringify({ payload: { cwd: "/workspace/project" } })}\n`;
+  const host = new FakeHost({
+    home: "/home/local",
+    env: { CODEX_THREAD_ID: "pinned-thread" },
+    files: { [oldRollout]: meta, [pinned]: meta },
+    mtimes: { [oldRollout]: 99, [pinned]: 10 },
+  });
+
+  const resolved = resolveSession(
+    host,
+    "/workspace/project",
+    "codex",
+    undefined,
+  );
+  expect(resolved.session.sessionId).toBe("pinned-thread");
+});

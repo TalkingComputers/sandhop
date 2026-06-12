@@ -110,6 +110,7 @@ export const CODEX: Agent = {
   id: "codex",
   pkg: "@openai/codex",
   bin: "codex",
+  sessionEnvVar: "CODEX_THREAD_ID",
   detectVersionArgs: ["--version"],
   parseVersion,
   matchSession: (deps, cwd) => {

@@ -374,6 +374,7 @@ export const CLAUDE_CODE: Agent = {
   id: "claude-code",
   pkg: "@anthropic-ai/claude-code",
   bin: "claude",
+  sessionEnvVar: "CLAUDE_CODE_SESSION_ID",
   detectVersionArgs: ["--version"],
   parseVersion,
   matchSession: (deps, cwd) => {
@@ -386,6 +387,8 @@ export const CLAUDE_CODE: Agent = {
       deps
         .walk(root)
         .filter((path) => path.endsWith(".jsonl"))
+        // agent-*.jsonl files are subagent sidechains, not resumable sessions
+        .filter((path) => !basename(path).startsWith("agent-"))
         .map((path) => {
           const name = basename(path);
           return {
