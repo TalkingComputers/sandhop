@@ -35,7 +35,8 @@
     "build": "node tools/build.mjs",
     "prepare": "npm run build",
     "test": "vitest run",
-    "dev": "tsx src/cli/main.ts"
+    "dev": "tsx src/cli/main.ts",
+    "version": "node tools/sync-versions.mjs && git add plugin/.claude-plugin/plugin.json"
   },
   "dependencies": {
     "@clack/prompts": "^1.5.1",

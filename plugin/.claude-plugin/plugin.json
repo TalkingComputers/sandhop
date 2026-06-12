@@ -1,6 +1,6 @@
 {
   "name": "sandhop",
-  "version": "0.1.0",
+  "version": "0.1.10",
   "description": "Teleport your live local Claude Code / Codex session to a cloud sandbox and continue in the browser.",
   "commands": ["./commands/sandhop.md"]
 }

@@ -33,6 +33,14 @@ jobs:
             echo "Tag v$tag does not match package.json version $pkg" >&2
             exit 1
           fi
+      - name: Verify plugin manifest version matches
+        run: |
+          pkg="$(node -p "require('./package.json').version")"
+          plugin="$(node -p "require('./plugin/.claude-plugin/plugin.json').version")"
+          if [ "$plugin" != "$pkg" ]; then
+            echo "plugin.json version $plugin does not match package.json version $pkg" >&2
+            exit 1
+          fi
       - run: npx tsc --noEmit
       - run: npx vitest run
       - run: npm publish --provenance --access public
